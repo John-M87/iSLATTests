@@ -109,8 +109,6 @@ class iSLAT:
             self.root.title("iSLAT - Infrared Spectral Line Analysis Tool")
             self.root.resizable(True, True)
 
-        #self.root.mainloop()
-
         if not hasattr(self, "GUI"):
             self.GUI = GUI(
                 master=self.root,
@@ -196,7 +194,6 @@ class iSLAT:
         """
         update_default_molecule_parameters() updates the default molecule parameters from the DefaultMoleculeParameters.json file.
         """
-        #global default_molecule_parameters
         with open("CONFIG/DefaultMoleculeParameters.json", 'r') as f:
             default_molecule_parameters = json.load(f)["default_initial_params"]
         self.default_initial_parameters = default_molecule_parameters
@@ -205,7 +202,6 @@ class iSLAT:
         """
         update_initial_molecule_parameters() updates the initial molecule parameters from the DefaultMoleculeParameters.json file.
         """
-        #global initial_molecule_parameters
         with open("CONFIG/DefaultMoleculeParameters.json", 'r') as f:
             initial_molecule_parameters = json.load(f)["initial_parameters"]
         self.initial_molecule_parameters = initial_molecule_parameters
@@ -249,41 +245,22 @@ class iSLAT:
         create_folders() creates the necessary folders for saving data and models.
         This is typically done at the first launch of iSLAT.
         """
-        # Create necessary folders, if they don't exist
-        save_folder = "SAVES"
-        os.makedirs(save_folder, exist_ok=True)
-        output_dir = "MODELS"
-        os.makedirs(output_dir, exist_ok=True)
-        linesave_folder = "LINESAVES"
-        os.makedirs(linesave_folder, exist_ok=True)
-        # create HITRAN folder, only needed for first start
-        HITRAN_folder = "HITRANdata"
-        os.makedirs(HITRAN_folder, exist_ok=True)
+        os.makedirs("SAVES", exist_ok=True)
+        os.makedirs("MODELS", exist_ok=True)
+        os.makedirs("LINESAVES", exist_ok=True)
+        os.makedirs("HITRANdata", exist_ok=True)
 
     def load_spectrum(self, file_path=None):
-        filetypes = [('CSV Files', '*.csv')]
-        spectra_directory = os.path.abspath("EXAMPLE-data")
-        #file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', filetypes=filetypes, initialdir=spectra_directory)
         if file_path is None:
+            filetypes = [('CSV Files', '*.csv')]
+            spectra_directory = os.path.abspath("EXAMPLE-data")
             file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', filetypes=filetypes, initialdir=spectra_directory)
 
         if file_path:
             df = pd.read_csv(file_path)
             self.wave_data = df['wave'].values
             self.flux_data = df['flux'].values
-            #print(np.min(self.wave_data), np.max(self.wave_data))
-            #print(type(self.wave_data), type(np.min(self.wave_data)))
-            lam_min = np.min(self.wave_data)
-            lam_max = np.max(self.wave_data)
-            self.input_spectrum = Spectrum(
-                lam_min = lam_min,
-                lam_max = lam_max,
-                dlambda= (lam_max - lam_min) / len(self.wave_data),
-                R= 1 / (lam_min / 1E6) / 100.,  # Convert to cm-1
-            )
             print(f"Loaded spectrum from {file_path}")
-        else:
-            print("No file selected.")
     
     def generate_population_diagram(self):
         if not hasattr(self, "selected_lines") or not self.selected_lines:

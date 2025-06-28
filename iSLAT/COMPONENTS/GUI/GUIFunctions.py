@@ -1,72 +1,41 @@
 import numpy as np
+import pandas as pd
 
 class GUIHandlers:
-    """
-    Handles GUI button actions, connects to MainPlot for visualization and
-    calls into iSLATClass for actual data processing (fits, CSV saves, slab fitting).
-    """
-    def __init__(self, main_plot, data_field, config, islat_class):
-        self.main_plot = main_plot
+    def __init__(self, plot, data_field, config, islat):
+        self.plot = plot
         self.data_field = data_field
         self.config = config
-        self.islat_class = islat_class
-        self.user_settings = config
-        self.legend_on = True
+        self.islat = islat
 
     def save_line(self):
-        if self.main_plot.selected_wave is None:
-            self.data_field.insert_text("No line selected to save.\n")
+        if self.islat.fit_result is None:
+            print("No fit result to save.")
             return
+
         line_info = {
-            "wavelength": np.mean(self.main_plot.selected_wave),
-            "flux": np.max(self.main_plot.selected_flux)
+            'center': self.islat.fit_result.params['center'].value,
+            'amplitude': self.islat.fit_result.params['amplitude'].value,
+            'sigma': self.islat.fit_result.params['sigma'].value
         }
-        self.islat_class.save_line(line_info)
-        self.data_field.insert_text(f"Saved line at ~{line_info['wavelength']:.4f} μm\n")
+        self.islat.save_line(line_info)
+        print("Line info saved:", line_info)
 
     def fit_selected_line(self, deblend=False):
-        self.data_field.clear()
-        if self.main_plot.selected_wave is None:
-            self.data_field.insert_text("No region selected for fitting.\n")
+        if self.islat.xp1 is None or self.islat.xp2 is None:
+            print("No region selected.")
             return
-        xmin, xmax = np.min(self.main_plot.selected_wave), np.max(self.main_plot.selected_wave)
-        result = self.islat_class.fit_selected_line(xmin, xmax, deblend=deblend)
-        if result:
-            self.main_plot.update_zoom_line(self.main_plot.selected_wave, self.main_plot.selected_flux, result)
-            self.data_field.insert_text(result.fit_report())
-        else:
-            self.data_field.insert_text("Fit failed or insufficient data.\n")
+
+        self.islat.fit_selected_line(self.islat.xp1, self.islat.xp2, deblend=deblend)
+        self.plot.onselect(self.islat.xp1, self.islat.xp2)  # redraw plots with fit
+
+        report = self.islat.fit_result.fit_report()
+        self.data_field.update_text(report)
 
     def find_single_lines(self):
-        lines = self.islat_class.find_single_lines()
-        if lines:
-            self.data_field.insert_text(f"Found {len(lines)} isolated lines.\n")
-        else:
-            self.data_field.insert_text("No lines found.\n")
+        found = self.islat.find_single_lines()
+        self.data_field.update_text(f"Found {len(found)} lines.")
 
     def single_slab_fit(self):
-        result_text = self.islat_class.run_single_slab_fit()
-        self.data_field.insert_text(f"Slab fit results:\n{result_text}\n")
-
-    def toggle_legend(self):
-        self.legend_on = not self.legend_on
-        if self.legend_on:
-            self.main_plot.ax2.legend()
-        else:
-            leg = self.main_plot.ax2.get_legend()
-            if leg:
-                leg.remove()
-        self.main_plot.canvas.draw_idle()
-
-    def export_models(self):
-        self.data_field.insert_text("Exporting current models...\n")
-        if not self.islat_class.slab_model:
-            self.data_field.insert_text("No slab model yet, running slab fit first...\n")
-            self.islat_class.run_single_slab_fit()
-
-        try:
-            out_files = self.islat_class.slab_model.export_results()
-            for f in out_files:
-                self.data_field.insert_text(f"Exported to: {f}\n")
-        except Exception as e:
-            self.data_field.insert_text(f"Error exporting models: {e}\n")
+        summary = self.islat.run_single_slab_fit()
+        self.data_field.update_text(summary)

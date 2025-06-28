@@ -1,9 +1,9 @@
 import tkinter as tk
 from tkinter import filedialog
-from .MainPlot import iSLATPlot
 from .Data_field import DataField
 from .Tooltips import CreateToolTip
 from .GUIFunctions import GUIHandlers
+from .MainPlot import iSLATPlot
 import os
 
 class GUI:
@@ -32,79 +32,62 @@ class GUI:
         return btn
 
     def build_left_panel(self, parent):
-        # Configure the left panel
         control_frame = tk.Frame(parent)
         control_frame.pack(fill="x")
         self.create_button(control_frame, "Default Molecules", self.default_molecules, 0, 0)
-        self.create_button(control_frame, "Load Parameters", self.load_parameters, 0, 1)
-        self.create_button(control_frame, "Save Parameters", self.save_parameters, 0, 2)
+        self.create_button(control_frame, "Add Molecule", self.add_molecule, 0, 1)
+        self.create_button(control_frame, "Load Parameters", self.load_parameters, 0, 2)
+        self.create_button(control_frame, "Save Parameters", self.save_parameters, 0, 3)
         self.create_button(control_frame, "HITRAN Query", self.hitran_query, 1, 0)
         self.create_button(control_frame, "Export Models", self.export_models, 1, 1)
         self.create_button(control_frame, "Toggle Legend", self.toggle_legend, 1, 2)
+        self.create_button(control_frame, "Fit Toggle", self.toggle_fit_line, 1, 3)
 
-        # Spectrum file selector
         file_frame = tk.LabelFrame(parent, text="Spectrum File")
         file_frame.pack(fill="x", padx=5, pady=5)
         self.file_label = tk.Label(file_frame, text="Loaded: File")
         self.file_label.pack()
         tk.Button(file_frame, text="Load Spectrum", command=self.load_spectrum_file).pack()
 
-        # Molecule table
+        # Extra info frame
+        self.extra_label = tk.Label(file_frame, text="Start: -  End: -  Range: -")
+        self.extra_label.pack()
+
         table_frame = tk.LabelFrame(parent, text="Molecules")
         table_frame.pack(fill="both", expand=True, padx=5, pady=5)
         headers = ['Molecule', 'Temp.', 'Radius', 'Col. Dens', 'On', 'Del.', 'Color']
         for col, text in enumerate(headers):
             tk.Label(table_frame, text=text, bg=self.theme["background"], fg=self.theme["foreground"]).grid(row=0, column=col)
 
-        # Fill rows with default values from initial_values
         for i, molecule in enumerate(self.molecule_data):
-            mol_name = molecule["name"]
-            defaults = self.islat_class.initial_values.get(mol_name, {
-                "t_kin": "", "radius_init": "", "scale_number": "", "scale_exponent": "", "n_mol_init": ""
-            })
-
-            tk.Label(table_frame, text=mol_name,
+            tk.Label(table_frame, text=molecule.get("name", "Unknown"),
                      bg=self.theme["background"], fg=self.theme["foreground"]).grid(row=i+1, column=0)
-
-            t_entry = tk.Entry(table_frame)
-            t_entry.insert(0, str(defaults["t_kin"]))
-            t_entry.grid(row=i+1, column=1)
-
-            r_entry = tk.Entry(table_frame)
-            r_entry.insert(0, str(defaults["radius_init"]))
-            r_entry.grid(row=i+1, column=2)
-
-            n_entry = tk.Entry(table_frame)
-            n_entry.insert(0, str(defaults["n_mol_init"]))
-            n_entry.grid(row=i+1, column=3)
-
+            tk.Entry(table_frame).grid(row=i+1, column=1)
+            tk.Entry(table_frame).grid(row=i+1, column=2)
+            tk.Entry(table_frame).grid(row=i+1, column=3)
             tk.Checkbutton(table_frame).grid(row=i+1, column=4)
             tk.Checkbutton(table_frame).grid(row=i+1, column=5)
             tk.Button(table_frame, text="Pick").grid(row=i+1, column=6)
 
-        # Main data field
         self.data_field = DataField("Main Data Field", "", parent)
         self.data_field.frame.pack(fill="both", expand=True)
 
     def create_window(self):
         self.window = self.master
-        self.window.title("iSLAT Version 5.00.00")
+        self.window.title("iSLAT GUI")
         self.window.columnconfigure(0, weight=1)
         self.window.columnconfigure(1, weight=3)
         self.window.rowconfigure(0, weight=1)
         self.window.rowconfigure(1, weight=0)
 
-        # Left side: all controls
         left_frame = tk.Frame(self.window)
         left_frame.grid(row=0, column=0, rowspan=2, sticky="nsew")
         self.build_left_panel(left_frame)
 
-        # Right side: plots
         right_frame = tk.Frame(self.window)
         right_frame.grid(row=0, column=1, sticky="nsew")
         self.plot = iSLATPlot(right_frame, self.wave_data, self.flux_data, self.theme, self.islat_class)
 
-        # Bottom function buttons
         func_frame = tk.Frame(self.window)
         func_frame.grid(row=1, column=0, columnspan=2, sticky="ew")
         self.handlers = GUIHandlers(self.plot, self.data_field, self.config, self.islat_class)
@@ -118,9 +101,11 @@ class GUI:
         self.create_window()
         self.window.mainloop()
 
-    # Callbacks for top buttons
     def default_molecules(self):
         print("Default molecules loaded")
+
+    def add_molecule(self):
+        print("Add new molecule to table")
 
     def load_parameters(self):
         print("Load parameters from file")
@@ -135,15 +120,21 @@ class GUI:
         print("Export models to file")
 
     def toggle_legend(self):
-        print("Toggled legend on plot")
+        self.plot.toggle_legend()
+
+    def toggle_fit_line(self):
+        self.plot.toggle_fit()
 
     def load_spectrum_file(self):
         file_path = filedialog.askopenfilename(title="Select spectrum CSV")
         if file_path:
             self.islat_class.load_spectrum(file_path)
             self.file_label.config(text=f"Loaded: {os.path.basename(file_path)}")
+            self.extra_label.config(text=f"Start: {self.islat_class.wave_data[0]:.2f}  End: {self.islat_class.wave_data[-1]:.2f}  Range: {len(self.islat_class.wave_data)}")
             self.plot.wave_data = self.islat_class.wave_data
             self.plot.flux_data = self.islat_class.flux_data
             self.plot.ax1.clear()
             self.plot.ax1.plot(self.plot.wave_data, self.plot.flux_data, color=self.theme["foreground"])
+            self.plot.ax1.set_xlabel("Wavelength (μm)")
+            self.plot.ax1.set_ylabel("Flux (Jy)")
             self.plot.canvas.draw_idle()
