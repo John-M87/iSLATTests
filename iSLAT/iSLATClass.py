@@ -110,7 +110,7 @@ class iSLAT:
 
         new_molecules = []
         for mol in self.user_saved_molecules.values():
-            print(mol)
+            #print(mol)
             mol_name = mol["Molecule Name"]
             if mol_name not in self.molecules_dict:
                 '''new_molecule = Molecule(

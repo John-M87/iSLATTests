@@ -155,6 +155,28 @@ class Intensity:
         self._tau = tau
         self._intensity = intensity
 
+    def get_table_in_range(self, lam_min, lam_max):
+        """Get a table with the lines in the specified wavelength range.
+
+        Parameters
+        ----------
+        lam_min: float
+            Minimum wavelength in microns
+        lam_max: float
+            Maximum wavelength in microns
+
+        Returns
+        -------
+        pd.DataFrame:
+            Dataframe with the lines in the specified range
+        """
+
+        if pd is None:
+            raise ImportError("Pandas required to create table")
+
+        mask = (self.molecule.lines.lam >= lam_min) & (self.molecule.lines.lam <= lam_max)
+        return self.get_table[mask]
+
     @property
     def tau(self):
         """np.ndarray: Opacities per line"""
