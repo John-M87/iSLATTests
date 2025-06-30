@@ -1,33 +1,41 @@
 {
     "theme_name": "Dark Theme",
-    "description": "A dark theme for iSLAT with a black background and white text.",
-    "foreground": "#FFFFFF",
-    "background": "#000000",
-    "toolbar": "#FFFFFF",
-    "graph_fill_color": "#808080",
-    "selection_color": "#00FF00",
-    "uncertainty_band_color": "#ABABAB",
-    "toolbar_highlight_background": "#FFFFFF",
-    "toolbar_highlight_color": "#FFFFFF",
-    "toolbar_active_color": "#000000",
-    "highlight": "#FF0000",
+    "description": "An improved dark theme for iSLAT with deep gray backgrounds, high-contrast text, and accent highlights.",
+    "foreground": "#F0F0F0",
+    "background": "#181A1B",
+    "toolbar": "#23272A",
+    "graph_fill_color": "#282C34",
+    "selection_color": "#00FF99",
+    "uncertainty_band_color": "#444950",
+    "toolbar_highlight_background": "#23272A",
+    "toolbar_highlight_color": "#00FF99",
+    "toolbar_active_color": "#F0F0F0",
+    "highlight": "#FFD700",
+    "fit_line_color": "#FF5555",
     "buttons": {
         "DefaultBotton": {
-            "background": "#D3D3D3",
-            "active_background": "#808080",
+            "background": "#23272A",
+            "active_background": "#444950",
             "description": "If a button is not specified, this will be used as the default button style."
         },
         "ToggleLegend": {
-            "background": "#D3D3D3",
-            "active_background": "#808080"
+            "background": "#23272A",
+            "active_background": "#444950"
         }
     },
     "default_molecule_colors": [
-        "#FF0000", 
-        "#00FF00", 
-        "#0000FF", 
-        "#FFFF00", 
-        "#FF00FF", 
-        "#00FFFF" 
+        "#FF5555",
+        "#50FA7B",
+        "#8BE9FD",
+        "#F1FA8C",
+        "#BD93F9",
+        "#FF79C6",
+        "#FFA500",
+        "#800080",
+        "#008080",
+        "#FFC0CB",
+        "#808080",
+        "#A52A2A",
+        "#000080"
     ]
 }

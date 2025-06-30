@@ -113,6 +113,7 @@ class GUI:
         # Add popout button again in popout
         btn = tk.Button(widget, text="⧉", command=lambda: on_close(), width=2, height=1, relief="flat", padx=0, pady=0)
         btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        
     def create_window(self):
         self.window = self.master
         self.window.title("iSLAT Version 5.00.00")
