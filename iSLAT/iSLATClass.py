@@ -273,6 +273,16 @@ class iSLAT:
             self.err_data = np.array(df['err'].values)
             self.continuum_data = np.array(df['cont'].values)
             print(f"Loaded spectrum from {file_path}")
+
+            # Update any dependent components if spectrum is loaded after first start
+            if hasattr(self, "GUI"):
+                if hasattr(self.GUI, "plot"):
+                    self.GUI.plot.update_all_plots()
+                #if hasattr(self.GUI, "control_panel"):
+                    #self.GUI.control_panel.update_controls()
+            # If model spectrum or other calculations depend on spectrum, update them
+            if hasattr(self, "update_model_spectrum"):
+                self.update_model_spectrum()
         else:
             print("No file selected.")
 
