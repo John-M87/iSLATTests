@@ -178,52 +178,6 @@ class iSLAT:
         self.load_spectrum()
         self.init_gui()
     
-    '''def load_HITRAN_data(self, files=None):
-        """
-        Loads HITRAN data for the specified molecules or files.
-        If no files are provided, it opens a file dialog to select files.
-        The data is stored in self.hitran_data.
-        """
-        if files is None:
-            filetypes = [('PAR Files', '*.par')]
-            hitran_directory = os.path.abspath("HITRANdata")
-            files = filedialog.askopenfilenames(title='Choose HITRAN Data Files', filetypes=filetypes, initialdir=hitran_directory)
-
-        if not files:
-            print("No files selected.")
-            return
-
-        hitran_data_list = []
-        for file_path in files:
-            mol_name = os.path.basename(file_path).split('_')[-1].split('.')[0]  # Extract molecule name from file name
-            if not os.path.exists(file_path):
-                print(f"WARNING: HITRAN file not found at {file_path}")
-                continue
-
-            lines = read_HITRAN_data(file_path)
-            if lines:
-                print(f"Preparing HITRAN data for {mol_name} with {len(lines)} lines.")
-                try:
-                    index = self.mols.index(mol_name)
-                    base_molecule = self.basem[index]
-                    isotope = self.isot[index]
-                except ValueError:
-                    base_molecule = None
-                    isotope = None
-                    print(f"WARNING: Molecule {mol_name} not found in predefined lists. Base molecule and isotope set to None.")
-
-                hitran_data_list.append({
-                    "lines": lines,
-                    "base_molecule": base_molecule,
-                    "isotope": isotope,
-                    "file_path": file_path
-                })
-            else:
-                print(f"WARNING: HITRAN file for {mol_name} could not be parsed.")
-
-        if hitran_data_list:
-            self.update_hitran_data_from_list(hitran_data_list)'''
-    
     def add_molecule_from_hitran(self, refresh = True, hitran_file = None, molecule_name = None, base_molecule = None, isotope = None):
         """
         Adds a molecule to the iSLAT instance from a HITRAN file.
@@ -417,7 +371,7 @@ class iSLAT:
                 raise TypeError("Active molecule must be a Molecule object or a string representing the molecule name.")
             
             if hasattr(self, "GUI") and hasattr(self.GUI, "plot"):
-                self.GUI.plot.update_population_diagram()
+                self.GUI.plot.update_all_plots()
                 #self.GUI.plot.update_line_inspection_plot()
 
         except (ValueError, TypeError) as e:
@@ -440,51 +394,3 @@ class iSLAT:
                 self.GUI.plot.match_display_range()
         else:
             raise ValueError("Display range must be a tuple of two floats (start, end).")
-    
-    '''@property
-    def hitran_data(self):
-        """dict: Dictionary containing HITRAN data for molecules."""
-        return self._hitran_data
-    
-    @hitran_data.setter
-    def hitran_data(self, value):
-        """
-        Updates the HITRAN data and reloads relevant values when a new molecule is added.
-        This includes updating the molecule table, spectrum data, and any dependent GUI components.
-        """
-        self._hitran_data = value
-
-        # Reload molecule data
-        self.init_molecules()
-
-        # Update GUI components if they exist
-        if hasattr(self, "GUI"):
-            if hasattr(self.GUI, "molecule_table"):
-                self.GUI.molecule_table.update_table()
-            if hasattr(self.GUI, "control_panel"):
-                self.GUI.control_panel.reload_molecule_dropdown()
-            if hasattr(self.GUI, "plot"):
-                self.GUI.plot.update_population_diagram()
-                self.GUI.plot.update_line_inspection_plot()
-
-    def update_hitran_data_from_list(self, hitran_data_list):
-        for hitran_entry in hitran_data_list:
-            if not isinstance(hitran_entry, dict):
-                print("Invalid HITRAN data entry. Skipping...")
-                continue
-            mol_name = hitran_entry.get("base_molecule")
-            if not mol_name:
-                print("Base molecule name missing in HITRAN data entry. Skipping...")
-                continue
-            self._hitran_data[mol_name] = hitran_entry  # accumulate
-
-        # Refresh molecules & GUI
-        self.init_molecules()
-        if hasattr(self, "GUI"):
-            if hasattr(self.GUI, "molecule_table"):
-                self.GUI.molecule_table.update_table()
-            if hasattr(self.GUI, "control_panel"):
-                self.GUI.control_panel.reload_molecule_dropdown()
-            if hasattr(self.GUI, "plot"):
-                self.GUI.plot.update_population_diagram()
-                self.GUI.plot.update_line_inspection_plot()'''
