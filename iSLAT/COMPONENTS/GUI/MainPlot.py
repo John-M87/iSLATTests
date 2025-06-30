@@ -108,6 +108,12 @@ class iSLATPlot:
         self.update_model_plot()
         self.update_population_diagram()
         self.update_line_inspection_plot()
+        '''if hasattr(self, 'update_model_plot'):
+            self.update_model_plot()
+        if hasattr(self, 'update_population_diagram'):
+            self.update_population_diagram()
+        if hasattr(self, 'update_line_inspection_plot'):
+            self.update_line_inspection_plot()'''
         #self.islat.update_model_spectrum()
         #self.canvas.draw_idle()
 
@@ -280,7 +286,7 @@ class iSLATPlot:
 
     def onselect(self, xmin, xmax):
         self.current_selection = (xmin, xmax)
-        self.update_line_inspection_plot(xmin, xmax)
+        #self.update_line_inspection_plot(xmin, xmax)
         mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
         self.selected_wave = self.islat.wave_data[mask]
         self.selected_flux = self.islat.flux_data[mask]
@@ -296,15 +302,14 @@ class iSLATPlot:
 
         # Fit and update line
         #self.fit_result = self.islat.fit_selected_line(xmin, xmax)
+        #self.update_line_inspection_plot(xmin, xmax)
+        #self.update_population_diagram()
         self.plot_spectrum_around_line(
-            lamb=self.selected_wave[np.argmax(self.selected_flux)],
             xmin=xmin,
             xmax=xmax
         )
-        self.update_line_inspection_plot(xmin, xmax)
-        self.update_population_diagram()
 
-    def compute_line_data_in_range(self, xmin, xmax):
+    '''def compute_line_data_in_range(self, xmin, xmax):
         active_molecule = self.islat.active_molecule
         int_pars = active_molecule.intensity.get_table
         int_pars_line = int_pars[(int_pars['lam'] > xmin) & (int_pars['lam'] < xmax)].reset_index(drop=True)
@@ -321,11 +326,13 @@ class iSLATPlot:
             'g_up': int_pars_line['g_up'],
             'tau': int_pars_line['tau'],
         }
-        return data
+        return data'''
 
-    def plot_spectrum_around_line(self, lamb, xmin, xmax):
-        line_data = self.compute_line_data_in_range(xmin, xmax)
-        if not line_data:
+    #def plot_spectrum_around_line(self, lamb, xmin, xmax):
+    def plot_spectrum_around_line(self, xmin, xmax):
+        #line_data = self.compute_line_data_in_range(xmin, xmax)
+        line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+        if line_data.empty:
             return
         self.plot_line_inspection(xmin, xmax, line_data)
         self.plot_population_diagram(line_data)
@@ -333,10 +340,10 @@ class iSLATPlot:
         self.canvas.mpl_connect('pick_event', self.on_pick_line)
 
     def highlight_strongest_line(self, line_data):
-        max_idx = line_data['intensities'].idxmax()
-        lam = line_data['lamb_cnts'][max_idx]
+        max_idx = line_data['intens'].idxmax()
+        lam = line_data['lam'][max_idx]
         e_up = line_data['e_up'][max_idx]
-        einstein = line_data['einstein'][max_idx]
+        einstein = line_data['a_stein'][max_idx]
 
         max_y = self.ax2.get_ylim()[1]
         self.ax2.vlines(lam, 0, max_y, color='orange', linestyle='dashed')
@@ -355,9 +362,9 @@ class iSLATPlot:
             artist.set_facecolor('orange')
         self.canvas.draw_idle()
 
-    def plot_line_inspection(self, xmin, xmax, line_data):
-        lamb_cnts = line_data['lamb_cnts']
-        intensities = line_data['intensities']
+    '''def plot_line_inspection(self, xmin, xmax, line_data):
+        lam = line_data['lam']
+        intensities = line_data['intens']
         max_intensity = intensities.max()
 
         # Select region in data
@@ -370,7 +377,7 @@ class iSLATPlot:
         self.ax2.plot(data_region_x, data_region_y, color='black')
 
         self.green_lines.clear()
-        for lam, inten, e, a in zip(lamb_cnts, intensities, line_data['e_up'], line_data['einstein']):
+        for lam, inten, e, a in zip(lam, intensities, line_data['e_up'], line_data['a_stein']):
             lineheight = (inten / max_intensity) * max_y if max_intensity != 0 else 0
             vline = self.ax2.vlines(lam, 0, lineheight, color='green', linestyle='dashed', picker=True)
             self.ax2.text(lam, lineheight, f"{e:.0f},{a:.3f}", fontsize='x-small', color='green', rotation=45)
@@ -378,26 +385,59 @@ class iSLATPlot:
 
         self.ax2.set_xlim(xmin, xmax)
         self.ax2.set_ylim(0, max_y*1.1)
+        self.canvas.draw_idle()'''
+    
+    def plot_line_inspection(self, xmin, xmax, line_data):
+        lam = line_data['lam']
+        intensities = line_data['intens']
+        max_intensity = intensities.max()
+
+        # Select region in data
+        data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        data_region_x = self.islat.wave_data[data_mask]
+        data_region_y = self.islat.flux_data[data_mask]
+        max_y = np.nanmax(data_region_y)
+
+        self.ax2.clear()
+        self.ax2.plot(data_region_x, data_region_y, color='black')
+
+        self.green_lines.clear()
+        # Remove previous green scatter points
+        for sc in getattr(self, 'green_scatter', []):
+            sc.remove()
+        self.green_scatter = []
+
+        for lam_val, inten, e, a in zip(lam, intensities, line_data['e_up'], line_data['a_stein']):
+            lineheight = (inten / max_intensity) * max_y if max_intensity != 0 else 0
+            vline = self.ax2.vlines(lam_val, 0, lineheight, color='green', linestyle='dashed', picker=True)
+            self.ax2.text(lam_val, lineheight, f"{e:.0f},{a:.3f}", fontsize='x-small', color='green', rotation=45)
+            self.green_lines.append(vline)
+            # Plot scatter point at the top of each green line
+            sc = self.ax2.scatter(lam_val, lineheight, s=30, color='green', edgecolors='black', picker=True)
+            self.green_scatter.append(sc)
+
+        self.ax2.set_xlim(xmin, xmax)
+        self.ax2.set_ylim(0, max_y*1.1)
         self.canvas.draw_idle()
 
     def plot_population_diagram(self, line_data):
         e_up = line_data['e_up']
-        intensities = line_data['intensities']
-        einstein = line_data['einstein']
+        intensities = line_data['intens']
+        einstein = line_data['a_stein']
         g_up = line_data['g_up']
-        lamb_cnts = line_data['lamb_cnts']
+        lam = line_data['lam']
 
-        self.ax3.clear()
-        self.green_scatter.clear()
+        # Remove only the previous green scatter points
+        for sc in getattr(self, 'green_scatter', []):
+            sc.remove()
+        self.green_scatter = []
 
-        for eu, intens, A, g, lam in zip(e_up, intensities, einstein, g_up, lamb_cnts):
-            freq = 3e10 / lam
+        for eu, intens, A, g, lam_val in zip(e_up, intensities, einstein, g_up, lam):
+            freq = 3e10 / lam_val
             rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
             sc = self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
             self.green_scatter.append(sc)
 
-        self.ax3.set_xlabel(r"$E_u$ (K)")
-        self.ax3.set_ylabel(r"$\ln(4\pi F / h\nu A g)$")
         self.canvas.draw_idle()
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
@@ -453,21 +493,6 @@ class iSLATPlot:
         self.ax2.set_xlabel("Wavelength (μm)")
         self.ax2.set_ylabel("Flux (Jy)")
 
-        """# Populate population diagram
-        line_data = self.islat.get_line_data_in_range(xmin, xmax)
-        if line_data:
-            lambs, intens, eups, a_steins, g_ups = line_data
-            area = np.pi * (active_molecule.radius * au * 1e2) ** 2
-            dist_cm = active_molecule.distance * pc
-            beam_s = area / dist_cm ** 2
-            F = intens * beam_s
-            freq = ccum / lambs
-            y_axis = np.log(4 * np.pi * F / (a_steins * hh * freq * g_ups))
-            '''self.ax3.scatter(eups, y_axis, color="green", edgecolors="black")
-            self.ax3.set_title("Population diagram")
-            self.ax3.set_xlabel("$E_u$ (K)")
-            self.ax3.set_ylabel(r"ln($N_u$/$g_u$)")'''"""
-
         self.canvas.draw_idle()
 
     def update_population_diagram(self):
@@ -519,12 +544,14 @@ class iSLATPlot:
         #self.islat.data_field.delete('1.0', "end")
 
         # Getting all the lines in the range of xmin and xmax
-        int_pars_line = self.islat.active_molecule.intensity.get_table
-        int_pars_line = int_pars_line[(int_pars_line['lam'] > xmin) & (int_pars_line['lam'] < xmax)]
+        #int_pars_line = self.islat.active_molecule.intensity.get_table
+        #int_pars_line = int_pars_line[(int_pars_line['lam'] > xmin) & (int_pars_line['lam'] < xmax)]
+        
+        int_pars_line = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
         int_pars_line.index = range(len(int_pars_line.index))
 
         # Parsing the wavelengths and intensities of the lines in int_pars_line
-        lamb_cnts = int_pars_line['lam']
+        lam = int_pars_line['lam']
         intensities = int_pars_line['intens']
 
         # Determining a max threshold for lines we may want to consider
@@ -539,7 +566,7 @@ class iSLATPlot:
         # Main function to find single lines
         for j in int_pars_line.index:
             include = True  # Boolean for determining if the line is single
-            j_lam = lamb_cnts[int_pars_line.index[j]]  # Wavelength of line of interest
+            j_lam = lam[int_pars_line.index[j]]  # Wavelength of line of interest
             sub_xmin = j_lam - specsep
             sub_xmax = j_lam + specsep
             j_intens = intensities[int_pars_line.index[j]]  # Intensity of line of interest

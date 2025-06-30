@@ -86,9 +86,10 @@ class MoleculeWindow:
             elif not props["on_var"].get():
                 m_obj = self.islat.molecules_dict[mol].is_visible = False
         self.islat.update_model_spectrum()
-        self.plot.update_model_plot()
+        self.plot.update_all_plots()
+        #self.plot.update_model_plot()
 
-        # If user has already selected a span, refresh the inspection plot with updated molecules
+        '''# If user has already selected a span, refresh the inspection plot with updated molecules
         if hasattr(self.plot, "current_selection") and self.plot.current_selection:
             xmin, xmax = self.plot.current_selection
-            self.plot.update_line_inspection_plot(xmin, xmax)
+            self.plot.update_line_inspection_plot(xmin, xmax)'''

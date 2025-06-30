@@ -127,7 +127,7 @@ class Molecule:
         t_kin = self.t_kin
         n_mol = self.n_mol
         dv = self.fwhm
-        print(f"Using t_kin={t_kin}, n_mol={n_mol}, dv={dv} for {self.name}")
+        #print(f"Using t_kin={t_kin}, n_mol={n_mol}, dv={dv} for {self.name}")
         # Try to get dv (intrinsic line width) from user_save_data or initial_molecule_parameters
         #if self.user_save_data is not None:
         #    dv = self.user_save_data.get('FWHM', self.initial_molecule_parameters.get('intrinsic_line_width', None))
