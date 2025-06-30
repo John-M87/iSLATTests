@@ -230,14 +230,17 @@ class iSLAT:
     def load_default_HITRAN_data(self, reset=False):
         """
         Loads default HITRAN data for the predefined molecules.
+        If reset is True, clears all HITRAN and molecule data before loading.
         """
         print("Loading default HITRAN data...")
-        # Do not clear self.hitran_data here!
         if reset:
-            #self._hitran_data = {}
+            # Clear HITRAN data and molecule dictionary
+            self._hitran_data.clear()
             if hasattr(self, "molecules_dict"):
                 self.molecules_dict.clear()
-            self.hitran_data = {}
+            # Also clear GUI molecule table if present
+            if hasattr(self, "GUI") and hasattr(self.GUI, "molecule_table"):
+                self.GUI.molecule_table.update_table()
         valid_molecules = [
             mol for mol in self.mols
             if mol in self.initial_molecule_parameters

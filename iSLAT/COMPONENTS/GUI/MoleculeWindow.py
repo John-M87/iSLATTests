@@ -25,7 +25,6 @@ class MoleculeWindow:
             tk.Label(self.frame, text=text).grid(row=0, column=col)
 
     def update_table(self):
-        print("finna gonna reload table")
         for i, mol_name in enumerate(self.molecules_dict.keys()):
             mol_data = self.molecules_dict[mol_name]
 

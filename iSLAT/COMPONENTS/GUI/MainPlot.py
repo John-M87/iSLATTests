@@ -16,6 +16,9 @@ class iSLATPlot:
         self.theme = theme
         self.islat = islat_class_ref
 
+        self.green_lines = []
+        self.green_scatter = []
+
         self.fig = plt.Figure(figsize=(10, 7))
         gs = GridSpec(2, 2, height_ratios=[2, 3], figure=self.fig)
         self.ax1 = self.full_spectrum = self.fig.add_subplot(gs[0, :])
@@ -293,8 +296,109 @@ class iSLATPlot:
 
         # Fit and update line
         #self.fit_result = self.islat.fit_selected_line(xmin, xmax)
+        self.plot_spectrum_around_line(
+            lamb=self.selected_wave[np.argmax(self.selected_flux)],
+            xmin=xmin,
+            xmax=xmax
+        )
         self.update_line_inspection_plot(xmin, xmax)
         self.update_population_diagram()
+
+    def compute_line_data_in_range(self, xmin, xmax):
+        active_molecule = self.islat.active_molecule
+        int_pars = active_molecule.intensity.get_table
+        int_pars_line = int_pars[(int_pars['lam'] > xmin) & (int_pars['lam'] < xmax)].reset_index(drop=True)
+        if int_pars_line.empty:
+            return None
+
+        data = {
+            'lamb_cnts': int_pars_line['lam'],
+            'intensities': int_pars_line['intens'],
+            'einstein': int_pars_line['a_stein'],
+            'e_up': int_pars_line['e_up'],
+            'up_lev': int_pars_line['lev_up'],
+            'low_lev': int_pars_line['lev_low'],
+            'g_up': int_pars_line['g_up'],
+            'tau': int_pars_line['tau'],
+        }
+        return data
+
+    def plot_spectrum_around_line(self, lamb, xmin, xmax):
+        line_data = self.compute_line_data_in_range(xmin, xmax)
+        if not line_data:
+            return
+        self.plot_line_inspection(xmin, xmax, line_data)
+        self.plot_population_diagram(line_data)
+        self.highlight_strongest_line(line_data)
+        self.canvas.mpl_connect('pick_event', self.on_pick_line)
+
+    def highlight_strongest_line(self, line_data):
+        max_idx = line_data['intensities'].idxmax()
+        lam = line_data['lamb_cnts'][max_idx]
+        e_up = line_data['e_up'][max_idx]
+        einstein = line_data['einstein'][max_idx]
+
+        max_y = self.ax2.get_ylim()[1]
+        self.ax2.vlines(lam, 0, max_y, color='orange', linestyle='dashed')
+        self.ax2.text(lam, max_y, f"{e_up:.0f},{einstein:.3f}", fontsize='small', color='orange', rotation=45)
+        self.canvas.draw_idle()
+
+    def on_pick_line(self, event):
+        artist = event.artist
+        for lines in self.green_lines:
+            lines.set_color('green')
+        for scat in self.green_scatter:
+            scat.set_facecolor('green')
+        if artist in self.green_lines:
+            artist.set_color('orange')
+        elif artist in self.green_scatter:
+            artist.set_facecolor('orange')
+        self.canvas.draw_idle()
+
+    def plot_line_inspection(self, xmin, xmax, line_data):
+        lamb_cnts = line_data['lamb_cnts']
+        intensities = line_data['intensities']
+        max_intensity = intensities.max()
+
+        # Select region in data
+        data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        data_region_x = self.islat.wave_data[data_mask]
+        data_region_y = self.islat.flux_data[data_mask]
+        max_y = np.nanmax(data_region_y)
+
+        self.ax2.clear()
+        self.ax2.plot(data_region_x, data_region_y, color='black')
+
+        self.green_lines.clear()
+        for lam, inten, e, a in zip(lamb_cnts, intensities, line_data['e_up'], line_data['einstein']):
+            lineheight = (inten / max_intensity) * max_y if max_intensity != 0 else 0
+            vline = self.ax2.vlines(lam, 0, lineheight, color='green', linestyle='dashed', picker=True)
+            self.ax2.text(lam, lineheight, f"{e:.0f},{a:.3f}", fontsize='x-small', color='green', rotation=45)
+            self.green_lines.append(vline)
+
+        self.ax2.set_xlim(xmin, xmax)
+        self.ax2.set_ylim(0, max_y*1.1)
+        self.canvas.draw_idle()
+
+    def plot_population_diagram(self, line_data):
+        e_up = line_data['e_up']
+        intensities = line_data['intensities']
+        einstein = line_data['einstein']
+        g_up = line_data['g_up']
+        lamb_cnts = line_data['lamb_cnts']
+
+        self.ax3.clear()
+        self.green_scatter.clear()
+
+        for eu, intens, A, g, lam in zip(e_up, intensities, einstein, g_up, lamb_cnts):
+            freq = 3e10 / lam
+            rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
+            sc = self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
+            self.green_scatter.append(sc)
+
+        self.ax3.set_xlabel(r"$E_u$ (K)")
+        self.ax3.set_ylabel(r"$\ln(4\pi F / h\nu A g)$")
+        self.canvas.draw_idle()
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
         self.ax2.clear()
