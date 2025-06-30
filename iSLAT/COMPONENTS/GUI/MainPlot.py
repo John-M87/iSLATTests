@@ -420,7 +420,7 @@ class iSLATPlot:
         self.ax2.set_ylim(0, max_y*1.1)
         self.canvas.draw_idle()
 
-    def plot_population_diagram_old(self, line_data):
+    def plot_population_diagram(self, line_data):
         e_up = line_data['e_up']
         intensities = line_data['intens']
         einstein = line_data['a_stein']
@@ -435,15 +435,22 @@ class iSLATPlot:
         self.green_scatter = []
 
         for eu, intens, A, g, lam_val in zip(e_up, intensities, einstein, g_up, lam):
-            print(f"Plotting population diagram for E_up={eu}, intensity={intens}, A_stein={A}, g_up={g}, wavelength={lam_val}")
-            freq = 3e10 / lam_val
-            rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
+            #print(f"Plotting population diagram for E_up={eu}, intensity={intens}, A_stein={A}, g_up={g}, wavelength={lam_val}")
+            #freq = 3e10 / lam_val
+            #rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
+            area = np.pi * (self.islat.active_molecule.radius * au * 1e2) ** 2  # In cm^2
+            Dist = dist * pc
+            beam_s = area / Dist ** 2
+            F = intens * beam_s
+            freq = ccum / lam_val
+            rd_yax = np.log(4 * np.pi * F / (A * hh * freq * g))
+
             sc = self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
             self.green_scatter.append(sc)
 
         self.canvas.draw_idle()
 
-    def plot_population_diagram(self, line_data):
+    '''def plot_population_diagram(self, line_data):
         e_up = line_data['e_up']
         intensities = line_data['intens']
         einstein = line_data['a_stein']
@@ -462,7 +469,7 @@ class iSLATPlot:
             return
 
         max_index = intensities.idxmax()
-        max_intensity = intensities[max_index]
+        #max_intensity = intensities[max_index]
 
         # For each line, plot a green scatter, but orange for the strongest
         for j, (eu, intens, A, g, lam_val) in enumerate(zip(e_up, intensities, einstein, g_up, lam)):
@@ -479,7 +486,7 @@ class iSLATPlot:
             sc = self.ax3.scatter(eu, rd_yax, s=30, color=color, edgecolors='black', picker=True)
             self.green_scatter.append(sc)
 
-        self.canvas.draw_idle()
+        self.canvas.draw_idle()'''
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
         self.ax2.clear()
