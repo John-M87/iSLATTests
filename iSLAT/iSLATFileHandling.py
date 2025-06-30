@@ -60,7 +60,7 @@ def read_default_csv(file_path=save_folder_path, file_name=defaults_file_name):
         try:
             with open(file, 'r') as csvfile:
                 reader = csv.DictReader(csvfile)
-                return [row for row in reader]
+                return {row['Molecule Name']: row for row in reader if 'Molecule Name' in row}
         except FileNotFoundError:
             pass
     return molecules_data

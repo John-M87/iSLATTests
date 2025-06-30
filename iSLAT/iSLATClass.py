@@ -17,7 +17,7 @@ import datetime
 
 context = ssl.create_default_context(cafile=certifi.where ())
 
-from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv
+from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv
 
 from .ir_model import *
 from .COMPONENTS.chart_window import MoleculeSelector
@@ -59,6 +59,7 @@ class iSLAT:
         self.mols = ["H2", "HD", "H2O", "H218O", "CO2", "13CO2", "CO", "13CO", "C18O", "CH4", "HCN", "H13CN", "NH3", "OH", "C2H2", "13CCH2", "C2H4", "C4H2", "C2H6", "HC3N"]
         self.basem = ["H2", "H2", "H2O", "H2O", "CO2", "CO2", "CO", "CO", "CO", "CH4", "HCN", "HCN", "NH3", "OH", "C2H2", "C2H2", "C2H4", "C4H2", "C2H6", "HC3N"]
         self.isot = [1, 2, 1, 2, 1, 2, 1, 2, 3, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+        self.default_molecule_csv_data = read_default_csv()
         self.user_saved_molecules = read_from_user_csv()
 
         self.wavelength_range = wavelength_range
@@ -69,7 +70,7 @@ class iSLAT:
 
         # Check for HITRAN files and download if necessary
         self.check_HITRAN()
-        self.load_default_HITRAN_data()
+        #self.load_default_HITRAN_data()
 
         self.molecules_data_default = molecules_data.copy()
         self.deleted_molecules = []
@@ -177,7 +178,7 @@ class iSLAT:
         #self.err_data = np.full_like(self.flux_data, np.nanmedian(self.flux_data)/100)
         self.init_gui()
     
-    def load_HITRAN_data(self, files=None):
+    '''def load_HITRAN_data(self, files=None):
         """
         Loads HITRAN data for the specified molecules or files.
         If no files are provided, it opens a file dialog to select files.
@@ -221,7 +222,38 @@ class iSLAT:
                 print(f"WARNING: HITRAN file for {mol_name} could not be parsed.")
 
         if hitran_data_list:
-            self.update_hitran_data_from_list(hitran_data_list)
+            self.update_hitran_data_from_list(hitran_data_list)'''
+    
+    def add_molecule_from_hitran(self, hitran_file = None, mol_name = None, base_molecule = None, isotope = None):
+        """
+        Adds a molecule to the iSLAT instance from a HITRAN file.
+        If mol_name is not provided, it will be extracted from the file name.
+        """
+        if hitran_file is None:
+            hitran_file = filedialog.askopenfilename(title='Choose HITRAN Data File', filetypes=[('PAR Files', '*.par')])
+        
+        if not hitran_file:
+            print("No HITRAN file selected.")
+            return
+        
+        if mol_name is None:
+            mol_name = os.path.basename(hitran_file).split('_')[-1].split('.')[0]
+
+        if base_molecule is None:
+            base_molecule = self.basem.get(mol_name, None)
+
+        if isotope is None:
+            isotope = self.isot.get(mol_name, None)
+
+        new_molecule = Molecule(
+            user_save_data={
+                "Molecule Name": mol_name,
+                "File Path": hitran_file,
+                "Base Molecule": base_molecule,
+                "Isotope": isotope
+            }
+        )
+        self.molecules_dict.add_molecule(new_molecule)
 
     def check_HITRAN(self):
         """
@@ -253,30 +285,30 @@ class iSLAT:
             print('Not the first startup and reload_default_files is False. Skipping HITRAN files download.')
 
         print("Finished HITRAN file check.\n")
+    
+    def load_default_molecules(self, reset=True):
+        """
+        Loads default molecules into the molecules_dict.
+        """
+        print("Loading default molecules...")
+        if not hasattr(self, "molecules_dict"):
+            self.molecules_dict = MoleculeDict()
 
-    def load_default_HITRAN_data(self, reset=False):
-        """
-        Loads default HITRAN data for the predefined molecules.
-        If reset is True, clears all HITRAN and molecule data before loading.
-        """
-        print("Loading default HITRAN data...")
-        if reset:
-            # Clear HITRAN data and molecule dictionary
-            self._hitran_data.clear()
-            if hasattr(self, "molecules_dict"):
-                self.molecules_dict.clear()
-            # Also clear GUI molecule table if present
-            if hasattr(self, "GUI") and hasattr(self.GUI, "molecule_table"):
+        for mol_name, mol_data in self.default_molecule_csv_data.items():
+            if mol_name not in self.molecules_dict:
+                new_molecule = Molecule(
+                    user_save_data=mol_data,
+                    wavelength_range=self.wavelength_range,
+                    initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
+                )
+                self.molecules_dict.add_molecule(new_molecule)
+
+        # Update GUI components if they exist
+        if hasattr(self, "GUI"):
+            if hasattr(self.GUI, "molecule_table"):
                 self.GUI.molecule_table.update_table()
-        valid_molecules = [
-            mol for mol in self.mols
-            if mol in self.initial_molecule_parameters
-        ]
-        hitran_files = [
-            f"HITRANdata/data_Hitran_2020_{mol}.par"
-            for mol in valid_molecules
-        ]
-        self.load_HITRAN_data(files=hitran_files)
+            if hasattr(self.GUI, "control_panel"):
+                self.GUI.control_panel.reload_molecule_dropdown()
 
     def create_folders(self): # see if we need this one and/or add config for directories
         """
@@ -323,12 +355,6 @@ class iSLAT:
                 mol_flux = mol.get_flux(self.wave_data)
                 summed_flux += mol_flux
         self.sum_spectrum_flux = summed_flux
-
-    def run_single_slab_fit(self):
-        loader = DataLoader(self.molecules_data_default)
-        self.slab_model = ModelFitting(loader)
-        result = self.slab_model.fit()
-        return result.summary()
 
     def get_line_data_in_range(self, xmin, xmax):
         selected_mol = self.active_molecule
@@ -390,7 +416,7 @@ class iSLAT:
         else:
             raise ValueError("Display range must be a tuple of two floats (start, end).")
     
-    @property
+    '''@property
     def hitran_data(self):
         """dict: Dictionary containing HITRAN data for molecules."""
         return self._hitran_data
@@ -436,4 +462,4 @@ class iSLAT:
                 self.GUI.control_panel.reload_molecule_dropdown()
             if hasattr(self.GUI, "plot"):
                 self.GUI.plot.update_population_diagram()
-                self.GUI.plot.update_line_inspection_plot()
+                self.GUI.plot.update_line_inspection_plot()'''
