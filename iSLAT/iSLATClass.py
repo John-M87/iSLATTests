@@ -17,7 +17,7 @@ import datetime
 
 context = ssl.create_default_context(cafile=certifi.where ())
 
-from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data
+from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv
 
 from .ir_model import *
 from .COMPONENTS.chart_window import MoleculeSelector
@@ -59,6 +59,7 @@ class iSLAT:
         self.mols = ["H2", "HD", "H2O", "H218O", "CO2", "13CO2", "CO", "13CO", "C18O", "CH4", "HCN", "H13CN", "NH3", "OH", "C2H2", "13CCH2", "C2H4", "C4H2", "C2H6", "HC3N"]
         self.basem = ["H2", "H2", "H2O", "H2O", "CO2", "CO2", "CO", "CO", "CO", "CH4", "HCN", "HCN", "NH3", "OH", "C2H2", "C2H2", "C2H4", "C4H2", "C2H6", "HC3N"]
         self.isot = [1, 2, 1, 2, 1, 2, 1, 2, 3, 1, 1, 2, 1, 1, 1, 2, 1, 1, 1, 1]
+        self.user_saved_molecules = read_from_user_csv()
 
         self.wavelength_range = wavelength_range
         self._display_range = (23.52, 25.41)
@@ -102,13 +103,17 @@ class iSLAT:
     def init_molecules(self):
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
+        if not hasattr(self, "user_saved_molecules"):
+            self.user_saved_molecules = read_from_user_csv()
         #self.molecules_dict = MoleculeDict()
         #print("Hey whats up heres that dict", self.molecules_dict)
 
         new_molecules = []
-        for mol_name, mol_data in self._hitran_data.items():
+        for mol in self.user_saved_molecules.values():
+            print(mol)
+            mol_name = mol["Molecule Name"]
             if mol_name not in self.molecules_dict:
-                new_molecule = Molecule(
+                '''new_molecule = Molecule(
                     name=mol_name,
                     filepath=mol_data.get("file_path", None),
                     initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default),
@@ -118,8 +123,30 @@ class iSLAT:
                     model_pixel_res=model_pixel_res,
                     model_line_width=model_line_width,
                     distance=dist
+                )'''
+                #new_molecules.append(new_molecule)
+                #if mol_name in self.initial_molecule_parameters:
+                #    mol_initial_params = self.initial_molecule_parameters[mol_name]
+                new_molecule = Molecule(
+                    user_save_data=mol,
+                    wavelength_range=self.wavelength_range,
+                    initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default) 
+
+                    #'''name=mol_name,
+                    #filepath=mol.get("File Path", None),
+                    #displaylabel=mol.get("Display Label", mol_name),
+                    #temp=mol.get("Temp", None),
+                    #radius=mol.get("Rad", None),
+                    #n_mol=mol.get("N_Mol", None),
+                    #color=mol.get("Color", None),
+                    #is_visible=mol.get("Vis", True),
+                    #distance=mol.get("Dist", 1.0),
+                    #stellar_rv=mol.get("Stellar RV", 0.0),
+                    #fwhm=mol.get("FWHM", 0.0),
+                    #broadening=mol.get("Broad", 0.0),'''
                 )
                 new_molecules.append(new_molecule)
+
 
         #print("Hey whats up heres that dict again man", self.molecules_dict)
 
