@@ -105,7 +105,8 @@ class iSLATPlot:
         """
         self.update_model_plot()
         self.update_population_diagram()
-        self.update_line_inspection_plot()
+        #self.update_line_inspection_plot()
+        self.plot_spectrum_around_line()
         '''if hasattr(self, 'update_model_plot'):
             self.update_model_plot()
         if hasattr(self, 'update_population_diagram'):
@@ -307,7 +308,16 @@ class iSLATPlot:
             xmax=xmax
         )
 
-    def plot_spectrum_around_line(self, xmin, xmax):
+    def plot_spectrum_around_line(self, xmin = None, xmax = None):
+        if xmin is None:
+            xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
+        if xmax is None:
+            xmax = self.last_xmax if hasattr(self, 'last_xmax') else None
+        
+        if xmin is None or xmax is None:
+            self.canvas.draw_idle()
+            return
+        
         line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
         if line_data.empty:
             return
@@ -351,7 +361,8 @@ class iSLATPlot:
         max_y = np.nanmax(data_region_y)
 
         self.ax2.clear()
-        self.ax2.plot(data_region_x, data_region_y, color='black')
+        #self.ax2.plot(data_region_x, data_region_y, color='black')
+        self.update_line_inspection_plot(xmin=xmin, xmax=xmax)
 
         self.green_lines.clear()
         # Remove previous green scatter points
