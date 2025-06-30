@@ -18,7 +18,7 @@ class MoleculeWindow:
 
     def build_table(self):
         self.frame = tk.LabelFrame(self.parent_frame, text="Molecules")
-        self.frame.pack(fill="both", expand=True, padx=5, pady=5)
+        #self.frame.pack(fill="both", expand=True, padx=5, pady=5)
 
         headers = ["Molecule", "Temp", "Radius", "Density", "On", "Color"]
         for col, text in enumerate(headers):
