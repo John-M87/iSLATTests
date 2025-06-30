@@ -30,10 +30,10 @@ class TopOptions:
         print("Open spectra browser")
 
     def default_molecules(self):
-        self.islat.load_default_HITRAN_data(True)
+        self.islat.load_default_molecules()
 
     def add_molecule(self):
-        self.islat.load_HITRAN_data()
+        self.islat.add_molecule_from_hitran()
 
     def save_parameters(self):
         print("Save parameters to file")

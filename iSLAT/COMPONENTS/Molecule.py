@@ -6,9 +6,7 @@ from iSLAT.iSLATDefaultInputParms import model_line_width, model_pixel_res #, wa
 import numpy as np
 
 class Molecule:
-    #def __init__(self, name, intrinsic_line_width, model_pixel_res, model_line_width, distance, wavelength_range, hitran_data, is_visible = True, color= None, displaylabel= None, filepath= None, initial_molecule_parameters = None, temp = None, n_mol= None, radius= None):
-    #def __init__(self, *, name, intrinsic_line_width, model_pixel_res, model_line_width, distance, wavelength_range, hitran_data, is_visible=True, color=None, displaylabel=None, filepath=None, initial_molecule_parameters=None, temp=None, n_mol=None, radius=None):
-    def __init__(self, user_save_data, **kwargs):
+    def __init__(self, **kwargs):
         """
         Initialize a molecule with its parameters.
 
@@ -34,7 +32,17 @@ class Molecule:
         #self.name = name
 
         # Load user saved data if provided
-        self.user_save_data = user_save_data
+        #self.user_save_data = user_save_data
+
+        if 'hitran_data' in kwargs:
+            print("Generating new molecule from default parameters.")
+            # If hitran_data is provided, assume there is no user saved data for this molecule and use default parameters
+            self.user_save_data = None
+        elif 'user_save_data' in kwargs:
+            print("Generating new molecule from user saved data.")
+            # If user_save_data is provided, use it to initialize the molecule
+            self.user_save_data = kwargs['user_save_data']
+
         if self.user_save_data is not None:
             usd = self.user_save_data
             # Map user saved data fields to class attributes
