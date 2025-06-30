@@ -420,12 +420,14 @@ class iSLATPlot:
         self.ax2.set_ylim(0, max_y*1.1)
         self.canvas.draw_idle()
 
-    def plot_population_diagram(self, line_data):
+    def plot_population_diagram_old(self, line_data):
         e_up = line_data['e_up']
         intensities = line_data['intens']
         einstein = line_data['a_stein']
         g_up = line_data['g_up']
         lam = line_data['lam']
+
+        self.update_population_diagram()
 
         # Remove only the previous green scatter points
         for sc in getattr(self, 'green_scatter', []):
@@ -433,9 +435,48 @@ class iSLATPlot:
         self.green_scatter = []
 
         for eu, intens, A, g, lam_val in zip(e_up, intensities, einstein, g_up, lam):
+            print(f"Plotting population diagram for E_up={eu}, intensity={intens}, A_stein={A}, g_up={g}, wavelength={lam_val}")
             freq = 3e10 / lam_val
             rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
             sc = self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
+            self.green_scatter.append(sc)
+
+        self.canvas.draw_idle()
+
+    def plot_population_diagram(self, line_data):
+        e_up = line_data['e_up']
+        intensities = line_data['intens']
+        einstein = line_data['a_stein']
+        g_up = line_data['g_up']
+        lam = line_data['lam']
+
+        self.update_population_diagram()
+
+        # Remove only the previous green scatter points
+        for sc in getattr(self, 'green_scatter', []):
+            sc.remove()
+        self.green_scatter = []
+
+        # Find the strongest line in the selected range
+        if len(intensities) == 0:
+            return
+
+        max_index = intensities.idxmax()
+        max_intensity = intensities[max_index]
+
+        # For each line, plot a green scatter, but orange for the strongest
+        for j, (eu, intens, A, g, lam_val) in enumerate(zip(e_up, intensities, einstein, g_up, lam)):
+            # Compute population diagram y-axis value
+            area = np.pi * (self.islat.active_molecule.radius * au * 1e2) ** 2  # In cm^2
+            Dist = dist * pc
+            beam_s = area / Dist ** 2
+            F = intens * beam_s
+            freq = ccum / lam_val
+            rd_yax = np.log(4 * np.pi * F / (A * hh * freq * g))
+
+            # Color orange if this is the strongest line, else green
+            color = 'orange' if j == max_index else 'green'
+            sc = self.ax3.scatter(eu, rd_yax, s=30, color=color, edgecolors='black', picker=True)
             self.green_scatter.append(sc)
 
         self.canvas.draw_idle()
@@ -497,6 +538,7 @@ class iSLATPlot:
 
     def update_population_diagram(self):
         self.ax3.clear()
+        print("Hey whats up homie")
         self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
         self.ax3.set_xlabel(r'$E_{u}$ (K)')
         self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram', fontsize='medium')

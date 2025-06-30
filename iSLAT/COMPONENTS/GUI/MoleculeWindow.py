@@ -86,6 +86,7 @@ class MoleculeWindow:
             elif not props["on_var"].get():
                 m_obj = self.islat.molecules_dict[mol].is_visible = False
         self.islat.update_model_spectrum()
+        print("Hey my guy")
         self.plot.update_all_plots()
         #self.plot.update_model_plot()
 
