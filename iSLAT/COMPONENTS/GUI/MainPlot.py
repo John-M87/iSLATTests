@@ -11,8 +11,8 @@ from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh, specsep
 
 class iSLATPlot:
     def __init__(self, parent_frame, wave_data, flux_data, theme, islat_class_ref):
-        self.wave_data = wave_data
-        self.flux_data = flux_data
+        #self.wave_data = wave_data
+        #self.flux_data = flux_data
         self.theme = theme
         self.islat = islat_class_ref
 
@@ -53,10 +53,10 @@ class iSLATPlot:
             self.ax1.set_xlim(wmin, wmax)
 
             # Scaling the y-axis based on tallest peak of data in the range of wmin and wmax
-            mask = (self.wave_data >= wmin) & (self.wave_data <= wmax)
-            range_flux_cnts = self.flux_data[mask]
+            mask = (self.islat.wave_data >= wmin) & (self.islat.wave_data <= wmax)
+            range_flux_cnts = self.islat.flux_data[mask]
             if range_flux_cnts.size == 0:
-                fig_height = np.nanmax(self.flux_data)
+                fig_height = np.nanmax(self.islat.flux_data)
                 fig_bottom_height = 0
             else:
                 fig_height = np.nanmax(range_flux_cnts)
@@ -97,6 +97,17 @@ class iSLATPlot:
                     density=molecule_obj.n_mol_init,
                 )
 
+    def update_all_plots(self):
+        """
+        Updates all plots in the GUI.
+        This function is called when the user changes parameters or loads new data.
+        """
+        self.update_model_plot()
+        self.update_population_diagram()
+        self.update_line_inspection_plot()
+        #self.islat.update_model_spectrum()
+        #self.canvas.draw_idle()
+
     def update_model_plot(self):
         self.ax1.clear()
         self.match_display_range()
@@ -104,7 +115,7 @@ class iSLATPlot:
         self.make_span_selector()
         self.compute_sum_flux()
         # plot the data line
-        self.ax1.plot(self.wave_data, self.flux_data, color=self.theme["foreground"], label="Data")
+        self.ax1.plot(self.islat.wave_data, self.islat.flux_data, color=self.theme["foreground"], label="Data")
 
         # plot each molecule if it is turned on
         for mol_name, molecule_obj in self.islat.molecules_dict.items():
@@ -173,10 +184,10 @@ class iSLATPlot:
         """
         Computes the sum of all model fluxes and updates the sum line.
         """
-        summed_flux = np.zeros_like(self.wave_data)
+        summed_flux = np.zeros_like(self.islat.wave_data)
         for mol in self.islat.molecules_dict.values():
             if mol.is_visible:
-                mol_flux = mol.get_flux(self.wave_data)
+                mol_flux = mol.get_flux(self.islat.wave_data)
                 summed_flux += mol_flux
         self.summed_flux = summed_flux
 
@@ -208,9 +219,9 @@ class iSLATPlot:
                 print("No selection made for fitting.")
                 return None
 
-        fit_range = np.where((self.wave_data >= xmin) & (self.wave_data <= xmax))
-        x_fit = self.wave_data[fit_range]
-        flux_fit = self.flux_data[fit_range]
+        fit_range = np.where((self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax))
+        x_fit = self.islat.wave_data[fit_range]
+        flux_fit = self.islat.flux_data[fit_range]
 
         if deblend:
             # Create multiple Gaussian models for deblending
@@ -267,9 +278,9 @@ class iSLATPlot:
     def onselect(self, xmin, xmax):
         self.current_selection = (xmin, xmax)
         self.update_line_inspection_plot(xmin, xmax)
-        mask = (self.wave_data >= xmin) & (self.wave_data <= xmax)
-        self.selected_wave = self.wave_data[mask]
-        self.selected_flux = self.flux_data[mask]
+        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        self.selected_wave = self.islat.wave_data[mask]
+        self.selected_flux = self.islat.flux_data[mask]
         self.islat.selected_wave = self.selected_wave
         self.islat.selected_flux = self.selected_flux
         self.last_xmin = xmin
@@ -299,8 +310,8 @@ class iSLATPlot:
             return
 
         # Plot data in zoom
-        mask = (self.wave_data >= xmin) & (self.wave_data <= xmax)
-        self.ax2.plot(self.wave_data[mask], self.flux_data[mask], color="black", label="Observed")
+        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        self.ax2.plot(self.islat.wave_data[mask], self.islat.flux_data[mask], color="black", label="Observed")
 
         # plot the active molecule in the line inspection plot
         active_molecule = self.islat.active_molecule
@@ -311,9 +322,9 @@ class iSLATPlot:
             flux = active_molecule.spectrum.flux_jy[mol_mask]
             self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", label=active_molecule.name)
             #max_y = np.nanmax([np.nanmax(self.flux_data[mask]), np.nanmax(flux)])
-            max_y = np.nanmax(self.flux_data[mask])
+            max_y = np.nanmax(self.islat.flux_data[mask])
         else:
-            max_y = np.nanmax(self.flux_data[mask])
+            max_y = np.nanmax(self.islat.flux_data[mask])
 
         # Plot the fit line using the compute_fit_line function
         if self.fit_result is not None:
