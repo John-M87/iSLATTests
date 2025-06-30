@@ -174,8 +174,8 @@ class iSLAT:
         # Start the main event loop
         self.savedata = read_save_data()
         self.init_molecules()
+        #self.add_molecule_from_hitran()
         self.load_spectrum()
-        #self.err_data = np.full_like(self.flux_data, np.nanmedian(self.flux_data)/100)
         self.init_gui()
     
     '''def load_HITRAN_data(self, files=None):
@@ -224,36 +224,61 @@ class iSLAT:
         if hitran_data_list:
             self.update_hitran_data_from_list(hitran_data_list)'''
     
-    def add_molecule_from_hitran(self, hitran_file = None, mol_name = None, base_molecule = None, isotope = None):
+    def add_molecule_from_hitran(self, refresh = True, hitran_file = None, molecule_name = None, base_molecule = None, isotope = None):
         """
         Adds a molecule to the iSLAT instance from a HITRAN file.
         If mol_name is not provided, it will be extracted from the file name.
         """
         if hitran_file is None:
-            hitran_file = filedialog.askopenfilename(title='Choose HITRAN Data File', filetypes=[('PAR Files', '*.par')])
+            hitran_file = filedialog.askopenfilename(title='Choose HITRAN Data File', filetypes=[('PAR Files', '*.par')], initialdir=os.path.abspath("HITRANdata"))
         
         if not hitran_file:
             print("No HITRAN file selected.")
             return
         
-        if mol_name is None:
-            mol_name = os.path.basename(hitran_file).split('_')[-1].split('.')[0]
+        molecule_name = molecule_name
 
-        if base_molecule is None:
-            base_molecule = self.basem.get(mol_name, None)
+        #print("hitran_file:", hitran_file)
+        molecule_file_name = os.path.basename(hitran_file)
+        #print('molecule_file_name:', molecule_file_name)
+        #molecule_file_name = os.path.basename(hitran_file).split('_')[-1].split('.')[0]
+        #molecule_file_name = hitran_file
 
-        if isotope is None:
-            isotope = self.isot.get(mol_name, None)
+        if molecule_name is None:
+            # Clean up the molecule name for use as a Python identifier and display
+            molecule_name = molecule_file_name
+            molecule_name = molecule_name.translate({ord(i): None for i in '_$^{}'})
+            molecule_name = molecule_name.translate({ord(i): "_" for i in ' -'})
+            if molecule_name and molecule_name[0].isdigit():
+                molecule_name = 'm_' + molecule_name
+            molecule_name = molecule_name.upper()
+
+        #if base_molecule is None:
+        #    base_molecule = self.basem.get(mol_name, None)
+
+        #if isotope is None:
+        #    isotope = self.isot.get(mol_name, None)
 
         new_molecule = Molecule(
-            user_save_data={
-                "Molecule Name": mol_name,
-                "File Path": hitran_file,
-                "Base Molecule": base_molecule,
-                "Isotope": isotope
-            }
+            hitran_data=hitran_file,
+            name=molecule_name,
+            wavelength_range=self.wavelength_range,
+            initial_molecule_parameters=self.initial_molecule_parameters.get(molecule_name, self.molecules_parameters_default)
+
         )
-        self.molecules_dict.add_molecule(new_molecule)
+        self.molecules_dict.add_molecules([new_molecule])
+        #self.molecules_dict.add_molecule(new_molecule)
+
+        if refresh:
+            if hasattr(self, "GUI"):
+                if hasattr(self.GUI, "molecule_table"):
+                    self.GUI.molecule_table.update_table()
+                if hasattr(self.GUI, "control_panel"):
+                    self.GUI.control_panel.reload_molecule_dropdown()
+                if hasattr(self.GUI, "plot"):
+                    self.GUI.plot.update_all_plots()
+                    #self.GUI.plot.update_population_diagram()
+                    #self.GUI.plot.update_line_inspection_plot()
 
     def check_HITRAN(self):
         """

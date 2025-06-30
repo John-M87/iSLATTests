@@ -2,7 +2,9 @@ from iSLAT.ir_model.spectrum import Spectrum
 from iSLAT.ir_model.moldata import MolData
 from iSLAT.ir_model.intensity import Intensity
 from iSLAT.ir_model.constants import constants as c
-from iSLAT.iSLATDefaultInputParms import model_line_width, model_pixel_res #, wavelength_range
+#from iSLAT.iSLATDefaultInputParms import model_line_width, model_pixel_res #, wavelength_range
+#from iSLAT.iSLATDefaultInputParms import *
+import iSLAT.iSLATDefaultInputParms as default_parms
 import numpy as np
 
 class Molecule:
@@ -38,10 +40,13 @@ class Molecule:
             print("Generating new molecule from default parameters.")
             # If hitran_data is provided, assume there is no user saved data for this molecule and use default parameters
             self.user_save_data = None
+            self.hitran_data = kwargs['hitran_data']
         elif 'user_save_data' in kwargs:
             print("Generating new molecule from user saved data.")
             # If user_save_data is provided, use it to initialize the molecule
             self.user_save_data = kwargs['user_save_data']
+
+        self.initial_molecule_parameters = kwargs.get('initial_molecule_parameters', None)
 
         if self.user_save_data is not None:
             usd = self.user_save_data
@@ -57,25 +62,26 @@ class Molecule:
             self.distance = float(usd.get('Dist', kwargs.get('distance', None)))
             # Optional: handle StellarRV, FWHM, Broad if needed
             self.stellar_rv = float(usd.get('StellarRV', None))
-            self.fwhm = float(usd.get('FWHM', None))
+            self.fwhm = float(usd.get('FWHM', default_parms.fwhm))
             self.broad = float(usd.get('Broad', None))
         else:
-            self.filepath = kwargs.get('filepath', None)
+            #if hasattr(self, 'hitran_data'):
+            self.name = kwargs.get('name', kwargs.get('displaylabel', kwargs.get('filepath', 'Unknown Molecule')))
+            self.filepath = kwargs.get('filepath', (self.hitran_data if 'hitran_data' in kwargs else None))
             self.displaylabel = kwargs.get('displaylabel', kwargs.get('name', 'Unknown Molecule'))
-            self.temp = kwargs.get('temp', None)
-            self.radius = kwargs.get('radius', None)
+            self.temp = kwargs.get('temp', self.initial_molecule_parameters.get('t_kin', 300.0))
+            self.radius = kwargs.get('radius', self.initial_molecule_parameters.get('radius_init', 1.0))
             self.n_mol = kwargs.get('n_mol', None)
             self.color = kwargs.get('color', None)
             self.is_visible = kwargs.get('is_visible', True)
-            self.distance = kwargs.get('distance', None)
-            self.stellar_rv = kwargs.get('stellar_rv', None)
-            self.fwhm = kwargs.get('fwhm', None)
+            self.distance = kwargs.get('distance', default_parms.dist)
+            self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
+            self.fwhm = kwargs.get('fwhm', default_parms.fwhm)
             self.broad = kwargs.get('broad', None)
 
         #self.hitran_data = hitran_data
 
         # Initial molecule parameters
-        self.initial_molecule_parameters = kwargs.get('initial_molecule_parameters', None)
         if self.initial_molecule_parameters is None:
             # If no initial molecule parameters, use user_save_data as the source
             if self.user_save_data is not None:
@@ -91,16 +97,16 @@ class Molecule:
                 self.initial_molecule_parameters = {}
         else:
             if self.user_save_data is not None:
-            # Update initial parameters with user saved data
-             self.initial_molecule_parameters.update(self.user_save_data)
+                # Update initial parameters with user saved data
+                self.initial_molecule_parameters.update(self.user_save_data)
 
         self.mol_data = MolData(self.name, self.filepath)
 
         # Set kinetic temperature
-        self.t_kin = self.initial_molecule_parameters.get('t_kin', self.temp)
-        self.scale_exponent = self.initial_molecule_parameters.get('scale_exponent', 1.0)
-        self.scale_number = self.initial_molecule_parameters.get('scale_number', 1.0)
-        self.radius_init = self.initial_molecule_parameters.get('radius_init', self.radius)
+        self.t_kin = self.initial_molecule_parameters.get('t_kin', (self.temp if self.temp is not None else self.initial_molecule_parameters.get('t_kin', 300.0)))
+        self.scale_exponent = self.initial_molecule_parameters.get('scale_exponent', self.initial_molecule_parameters.get('scale_exponent', 1.0))
+        self.scale_number = self.initial_molecule_parameters.get('scale_number', self.initial_molecule_parameters.get('scale_number', 1.0))
+        self.radius_init = self.initial_molecule_parameters.get('radius_init', (self.radius if self.radius is not None else self.initial_molecule_parameters.get('radius_init', 1.0)))
 
         self.temp = self.temp if self.temp is not None else self.t_kin
         self.radius = self.radius if self.radius is not None else self.radius_init
@@ -108,8 +114,8 @@ class Molecule:
         self.n_mol = self.n_mol if self.n_mol is not None else self.n_mol_init
 
         #self.intrinsic_line_width = intrinsic_line_width
-        self.model_pixel_res = kwargs.get('model_pixel_res', model_pixel_res)  # Pixel resolution for the model spectrum
-        self.model_line_width = kwargs.get('model_line_width', model_line_width)  # Line width for the model spectrum
+        self.model_pixel_res = kwargs.get('model_pixel_res', default_parms.model_pixel_res)  # Pixel resolution for the model spectrum
+        self.model_line_width = kwargs.get('model_line_width', default_parms.model_line_width)  # Line width for the model spectrum
         #self.distance = distance
         self.wavelength_range = kwargs.get('wavelength_range', (0.3, 1000))
 
