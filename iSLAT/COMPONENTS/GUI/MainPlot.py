@@ -48,23 +48,44 @@ class iSLATPlot:
         self.update_all_plots()
 
     def match_display_range(self):
-        if hasattr(self.islat, 'display_range') and self.islat.display_range:
-            #print("Setting xlim to islat wavelength range:", self.islat.display_range)
-            wmin, wmax = self.islat.display_range
-            self.ax1.set_xlim(wmin, wmax)
-
-            # Scaling the y-axis based on tallest peak of data in the range of wmin and wmax
-            mask = (self.islat.wave_data >= wmin) & (self.islat.wave_data <= wmax)
-            range_flux_cnts = self.islat.flux_data[mask]
-            if range_flux_cnts.size == 0:
-                fig_height = np.nanmax(self.islat.flux_data)
-                fig_bottom_height = 0
+        # Sync plot xlim to islat.display_range if set, else update islat.display_range from plot
+        if hasattr(self.islat, 'display_range'):
+            # If display_range is set elsewhere, update plot xlim
+            if self.islat.display_range:
+                wmin, wmax = self.islat.display_range
+                self.ax1.set_xlim(wmin, wmax)
             else:
-                fig_height = np.nanmax(range_flux_cnts)
-                fig_bottom_height = np.nanmin(range_flux_cnts)
-            self.ax1.set_ylim(ymin=fig_bottom_height, ymax=fig_height + (fig_height / 8))
+                # If not set, initialize from current plot xlim
+                self.islat.display_range = list(self.ax1.get_xlim())
+        else:
+            # If islat has no display_range attribute, do nothing
+            return
 
-            self.canvas.draw_idle()
+        # Connect callback to update islat.display_range when user changes xlim
+        def on_xlim_changed(ax):
+            # Only update if changed by user (not programmatically)
+            new_xlim = list(ax.get_xlim())
+            if self.islat.display_range != new_xlim:
+                self.islat.display_range = new_xlim
+
+        # Avoid multiple connections
+        if not hasattr(self, '_xlim_callback_connected'):
+            self.ax1.callbacks.connect('xlim_changed', on_xlim_changed)
+            self._xlim_callback_connected = True
+
+        # Adjust y-limits as before
+        wmin, wmax = self.ax1.get_xlim()
+        mask = (self.islat.wave_data >= wmin) & (self.islat.wave_data <= wmax)
+        range_flux_cnts = self.islat.flux_data[mask]
+        if range_flux_cnts.size == 0:
+            fig_height = np.nanmax(self.islat.flux_data)
+            fig_bottom_height = 0
+        else:
+            fig_height = np.nanmax(range_flux_cnts)
+            fig_bottom_height = np.nanmin(range_flux_cnts)
+        self.ax1.set_ylim(ymin=fig_bottom_height, ymax=fig_height + (fig_height / 8))
+
+        self.canvas.draw_idle()
 
     def make_span_selector(self):
         """

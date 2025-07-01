@@ -19,10 +19,10 @@ class ControlPanel:
         
         #self.create_entry("Min. Wave:", 1, 0, "min_wavelength", self.update_initvals)
         #self.create_entry("Max. Wave:", 1, 2, "max_wavelength", self.update_initvals)
-        self.create_entry("Distance:", 2, 0, "distance", self.update_initvals)
-        self.create_entry("Stellar RV:", 2, 2, "star_rv", self.update_initvals)
-        self.create_entry("FWHM:", 3, 0, "fwhm", self.update_initvals)
-        self.create_entry("Broadening:", 3, 2, "intrinsic_line_width", self.update_initvals)
+        self.create_entry("Distance:", 2, 0, "distance")
+        self.create_entry("Stellar RV:", 2, 2, "star_rv")
+        self.create_entry("FWHM:", 3, 0, "fwhm")
+        self.create_entry("Broadening:", 3, 2, "intrinsic_line_width")
 
         self.create_molecule_dropdown(4, 0)
         self.reload_molecule_dropdown()
@@ -47,16 +47,46 @@ class ControlPanel:
         if self.molecule_var.get() not in dropdown_options:
             self.molecule_var.set(dropdown_options[0])
 
-    def create_entry(self, label_text, row, column, attribute_name, callback):
+    def create_entry(self, label_text, row, column, attribute_name, callback = None, bind_object=None):
+        """
+        Creates a labeled entry field in the control panel.
+
+        Args:
+            label_text (str): The label for the entry.
+            row (int): The row in the grid.
+            column (int): The column in the grid.
+            attribute_name (str): The attribute name to bind to.
+            callback (callable, optional): Function to call on value change.
+            bind_object (object, optional): The object whose attribute is bound to the entry.
+                                            Defaults to self.islat.active_molecule if not provided.
+        """
         label = tk.Label(self.frame, text=label_text)
         label.grid(row=row, column=column, padx=5, pady=5)
-        
-        entry = tk.Entry(self.frame, bg='lightgray', width=8)
+
+        # Use bind_object if provided, else default to self.islat
+        target = bind_object if bind_object is not None else self.islat.active_molecule
+
+        # Get initial value from target if it exists, else empty string
+        initial_value = getattr(target, attribute_name, "")
+
+        var = tk.StringVar(value=str(initial_value))
+        entry = tk.Entry(self.frame, textvariable=var, bg='lightgray', width=8)
         entry.grid(row=row, column=column + 1, padx=5, pady=5)
-        entry.bind("<Return>", lambda event: callback())
-        
-        # Tie the entry field to a property
+
+        def on_change(*args):
+            value = var.get()
+            try:
+                value_to_set = float(value)
+            except ValueError:
+                value_to_set = value
+            setattr(target, attribute_name, value_to_set)
+            callback() if callback is not None else None
+
+        var.trace_add('write', on_change)
+
+        # Tie the entry field and variable to a property for possible external access
         setattr(self, f"_{attribute_name}_entry", entry)
+        setattr(self, f"_{attribute_name}_var", var)
         setattr(self, attribute_name, property(
             lambda self: self._get_entry_value(attribute_name),
             lambda self, value: self._set_entry_value(attribute_name, value, callback)
@@ -76,19 +106,47 @@ class ControlPanel:
         label = tk.Label(self.frame, text="Plot start:")
         label.grid(row=row, column=column, padx=5, pady=5)
 
-        self.ax1_starting_x = tk.Entry(self.frame, bg='lightgray', width=8)
-        self.ax1_starting_x.grid(row=0, column=1, padx=5, pady=5)
-        self.ax1_starting_x.insert(0, str(self.islat.display_range[0]))  # Load initial value from islat.display_range
-        self.ax1_starting_x.bind("<Return>", lambda _: self.update_xp1_rng())
+        self.ax1_starting_x_var = tk.DoubleVar(value=self.islat.display_range[0])
+        entry = tk.Entry(self.frame, textvariable=self.ax1_starting_x_var, bg='lightgray', width=8)
+        entry.grid(row=row, column=column + 1, padx=5, pady=5)
+
+        def on_change(*args):
+            try:
+                start = float(self.ax1_starting_x_var.get())
+                rng = float(self.ax1_range_x_var.get())
+                self.islat.display_range = (start, start + rng)
+            except Exception:
+                pass
+
+        self.ax1_starting_x_var.trace_add('write', on_change)
+
+        # Update entry if islat.display_range changes externally
+        def update_entry():
+            self.ax1_starting_x_var.set(self.islat.display_range[0])
+        self.islat.update_plot_start = update_entry
 
     def create_plot_range(self, row, column):
         label = tk.Label(self.frame, text="Plot range:")
         label.grid(row=row, column=column, padx=5, pady=5)
 
-        self.ax1_range_x = tk.Entry(self.frame, bg='lightgray', width=8)
-        self.ax1_range_x.grid(row=row, column=3, padx=5, pady=5)
-        self.ax1_range_x.insert(0, str(self.islat.display_range[1] - self.islat.display_range[0]))  # Load initial value from islat.display_range
-        self.ax1_range_x.bind("<Return>", lambda _: self.update_xp1_rng())
+        self.ax1_range_x_var = tk.DoubleVar(value=self.islat.display_range[1] - self.islat.display_range[0])
+        entry = tk.Entry(self.frame, textvariable=self.ax1_range_x_var, bg='lightgray', width=8)
+        entry.grid(row=row, column=column + 1, padx=5, pady=5)
+
+        def on_change(*args):
+            try:
+                start = float(self.ax1_starting_x_var.get())
+                rng = float(self.ax1_range_x_var.get())
+                self.islat.display_range = (start, start + rng)
+            except Exception:
+                pass
+
+        self.ax1_range_x_var.trace_add('write', on_change)
+
+        # Update entry if islat.display_range changes externally
+        def update_entry():
+            self.ax1_range_x_var.set(self.islat.display_range[1] - self.islat.display_range[0])
+        self.islat.update_plot_range = update_entry
 
     def update_xp1_rng(self):
         try:

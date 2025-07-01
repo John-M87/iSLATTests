@@ -40,15 +40,67 @@ class MoleculeWindow:
             rad_entry.grid(row=i+1, column=2)
 
             dens_entry = tk.Entry(self.frame, width=6)
-            dens_entry.insert(0, f"{mol_data.n_mol_init:.1e}")
+            dens_entry.insert(0, f"{mol_data.n_mol:.1e}")
             dens_entry.grid(row=i+1, column=3)
 
             on_var = tk.BooleanVar(value=mol_data.is_visible)
             on_btn = tk.Checkbutton(self.frame, variable=on_var, command=self.update_lines)
             on_btn.grid(row=i+1, column=4)
 
-            color = self.theme["default_molecule_colors"][i % len(self.theme["default_molecule_colors"])] 
-            color_btn = tk.Button(self.frame, bg=color, width=4, command=lambda m=mol_name: self.pick_color(m))
+            # Link Entry widgets and color directly to molecule object attributes
+            def make_entry_callback(entry, attr, mol_obj):
+                def callback(*args):
+                    val = entry.get()
+                    try:
+                        if attr == "n_mol":
+                            val = float(val)
+                        elif attr == "temp":
+                            val = float(val)
+                        elif attr == "radius":
+                            val = float(val)
+                        setattr(mol_obj, attr, val)
+                        self.update_lines()
+                    except ValueError:
+                        pass  # Ignore invalid input
+                return callback
+
+            mol_obj = self.islat.molecules_dict[mol_name]
+
+            temp_entry = tk.Entry(self.frame, width=6)
+            temp_entry.insert(0, f"{mol_obj.temp}")
+            temp_entry.grid(row=i+1, column=1)
+            temp_entry.bind("<FocusOut>", lambda e, entry=temp_entry, m=mol_obj: make_entry_callback(entry, "temp", m)())
+            temp_entry.bind("<Return>", lambda e, entry=temp_entry, m=mol_obj: make_entry_callback(entry, "temp", m)())
+
+            rad_entry = tk.Entry(self.frame, width=6)
+            rad_entry.insert(0, f"{mol_obj.radius}")
+            rad_entry.grid(row=i+1, column=2)
+            rad_entry.bind("<FocusOut>", lambda e, entry=rad_entry, m=mol_obj: make_entry_callback(entry, "radius", m)())
+            rad_entry.bind("<Return>", lambda e, entry=rad_entry, m=mol_obj: make_entry_callback(entry, "radius", m)())
+
+            dens_entry = tk.Entry(self.frame, width=6)
+            dens_entry.insert(0, f"{mol_obj.n_mol:.1e}")
+            dens_entry.grid(row=i+1, column=3)
+            dens_entry.bind("<FocusOut>", lambda e, entry=dens_entry, m=mol_obj: make_entry_callback(entry, "n_mol", m)())
+            dens_entry.bind("<Return>", lambda e, entry=dens_entry, m=mol_obj: make_entry_callback(entry, "n_mol", m)())
+
+            on_var = tk.BooleanVar(value=mol_obj.is_visible)
+            def on_toggle(var=on_var, m=mol_obj):
+                m.is_visible = var.get()
+                self.update_lines()
+            on_btn = tk.Checkbutton(self.frame, variable=on_var, command=on_toggle)
+            on_btn.grid(row=i+1, column=4)
+
+            color = getattr(mol_obj, "color", self.theme["default_molecule_colors"][i % len(self.theme["default_molecule_colors"])])
+            def pick_and_set_color(mol_name=mol_name, mol_obj=mol_obj, btn=None):
+                color_code = colorchooser.askcolor(title=f"Pick color for {mol_name}")[1]
+                if color_code:
+                    mol_obj.color = color_code
+                    btn.config(bg=color_code)
+                    self.molecules[mol_name]["color"] = color_code
+                    self.update_lines()
+            color_btn = tk.Button(self.frame, bg=color, width=4)
+            color_btn.config(command=lambda m=mol_name, mo=mol_obj, b=color_btn: pick_and_set_color(m, mo, b))
             color_btn.grid(row=i+1, column=5)
 
             self.molecules[mol_name] = {
@@ -56,7 +108,8 @@ class MoleculeWindow:
                 "rad_entry": rad_entry,
                 "dens_entry": dens_entry,
                 "on_var": on_var,
-                "color": color
+                "color": color,
+                "color_btn": color_btn
             }
 
         self.update_lines()
@@ -79,7 +132,7 @@ class MoleculeWindow:
                 m_obj = self.islat.molecules_dict[mol]
                 m_obj.temp = temp
                 m_obj.radius = rad
-                m_obj.n_mol_init = dens
+                m_obj.n_mol = dens
                 m_obj.color = color
                 m_obj.is_visible = True
                 #self.plot.add_model_line(mol, temp, rad, dens, color)
