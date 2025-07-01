@@ -101,62 +101,30 @@ class iSLAT:
         
         self.GUI.start()
 
-    def init_molecules(self):
+    def init_molecules(self, mole_save_data=None):
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
         if not hasattr(self, "user_saved_molecules"):
-            self.user_saved_molecules = read_from_user_csv()
-        #self.molecules_dict = MoleculeDict()
-        #print("Hey whats up heres that dict", self.molecules_dict)
+                self.user_saved_molecules = read_from_user_csv()
+        
+        if mole_save_data is None:
+            mole_save_data = self.user_saved_molecules
+        else:
+            mole_save_data = mole_save_data
 
         new_molecules = []
-        for mol in self.user_saved_molecules.values():
-            #print(mol)
+        for mol in mole_save_data.values():
             mol_name = mol["Molecule Name"]
             if mol_name not in self.molecules_dict:
-                '''new_molecule = Molecule(
-                    name=mol_name,
-                    filepath=mol_data.get("file_path", None),
-                    initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default),
-                    hitran_data=mol_data,
-                    intrinsic_line_width=intrinsic_line_width,
-                    wavelength_range=self.wavelength_range,
-                    model_pixel_res=model_pixel_res,
-                    model_line_width=model_line_width,
-                    distance=dist
-                )'''
-                #new_molecules.append(new_molecule)
-                #if mol_name in self.initial_molecule_parameters:
-                #    mol_initial_params = self.initial_molecule_parameters[mol_name]
                 new_molecule = Molecule(
                     user_save_data=mol,
                     wavelength_range=self.wavelength_range,
-                    initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default) 
-
-                    #'''name=mol_name,
-                    #filepath=mol.get("File Path", None),
-                    #displaylabel=mol.get("Display Label", mol_name),
-                    #temp=mol.get("Temp", None),
-                    #radius=mol.get("Rad", None),
-                    #n_mol=mol.get("N_Mol", None),
-                    #color=mol.get("Color", None),
-                    #is_visible=mol.get("Vis", True),
-                    #distance=mol.get("Dist", 1.0),
-                    #stellar_rv=mol.get("Stellar RV", 0.0),
-                    #fwhm=mol.get("FWHM", 0.0),
-                    #broadening=mol.get("Broad", 0.0),'''
+                    initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
                 )
                 new_molecules.append(new_molecule)
 
-
-        #print("Hey whats up heres that dict again man", self.molecules_dict)
-
         if new_molecules:
-            #print("Adding new molecules:")
-            #print(new_molecules)
             self.molecules_dict.add_molecules(new_molecules)
-        
-        #print("Hey whats up heres that dict again again man", self.molecules_dict)
 
         # Initialize the active molecule based on user settings
         active_molecule_name = self.user_settings.get("default_active_molecule", "H2O")
@@ -273,21 +241,19 @@ class iSLAT:
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
 
-        for mol_name, mol_data in self.default_molecule_csv_data.items():
-            if mol_name not in self.molecules_dict:
-                new_molecule = Molecule(
-                    user_save_data=mol_data,
-                    wavelength_range=self.wavelength_range,
-                    initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
-                )
-                self.molecules_dict.add_molecule(new_molecule)
+        if reset:
+            # Clear existing molecules if reset is True
+            self.molecules_dict.clear()
+            print("Resetting molecules_dict to empty.")
 
-        # Update GUI components if they exist
+        self.init_molecules(self.default_molecule_csv_data())
+
+        '''# Update GUI components if they exist
         if hasattr(self, "GUI"):
             if hasattr(self.GUI, "molecule_table"):
                 self.GUI.molecule_table.update_table()
             if hasattr(self.GUI, "control_panel"):
-                self.GUI.control_panel.reload_molecule_dropdown()
+                self.GUI.control_panel.reload_molecule_dropdown()'''
 
     def create_folders(self): # see if we need this one and/or add config for directories
         """

@@ -237,9 +237,12 @@ class iSLATPlot:
 
     def compute_fit_line(self, xmin=None, xmax=None, deblend=False):
         """
-        Computes a fit line for the given wavelength and flux data within the specified range.
-        If deblend is True, it fits multiple Gaussian models.
+        Computes a fit line (or lines) for the selected region using LMFIT.
+        Automatically determines line centers for single or multi-fit.
+        If not enough data for all Gaussians, reduces number of components.
+        Returns fit results but does not plot.
         """
+        # Use selected region if not provided
         if xmin is None or xmax is None:
             if hasattr(self, 'current_selection') and self.current_selection:
                 xmin, xmax = self.current_selection
@@ -247,61 +250,124 @@ class iSLATPlot:
                 print("No selection made for fitting.")
                 return None
 
-        fit_range = np.where((self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax))
-        x_fit = self.islat.wave_data[fit_range]
-        flux_fit = self.islat.flux_data[fit_range]
-
-        if deblend:
-            # Create multiple Gaussian models for deblending
-            num_lines = 2  # Example: fitting two Gaussian lines
-            models = []
-            params = []
-            for i in range(num_lines):
-                prefix = f'g{i+1}_'
-                model = GaussianModel(prefix=prefix)
-                models.append(model)
-                params.append(model.guess(flux_fit, x=x_fit))
-            combined_model = models[0]
-            for model in models[1:]:
-                combined_model += model
-            combined_params = params[0]
-            for param in params[1:]:
-                combined_params += param
+        # Get data in selected range
+        fit_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        x_fit = self.islat.wave_data[fit_mask]
+        y_fit = self.islat.flux_data[fit_mask]
+        err_fit = getattr(self.islat, "err_data", None)
+        if err_fit is not None:
+            err_fit = err_fit[fit_mask]
         else:
-            combined_model = GaussianModel()
-            combined_params = combined_model.guess(flux_fit, x=x_fit)
+            err_fit = np.ones_like(y_fit)
 
-        # Perform the fit
-        gauss_fit = combined_model.fit(flux_fit, combined_params, x=x_fit, nan_policy='omit')
-        print(gauss_fit.fit_report())
+        if len(x_fit) < 5:
+            print("Not enough data points for fitting.")
+            return None
 
-        # Extract fit parameters for each Gaussian component
-        fit_results = []
-        for i in range(len(models) if deblend else 1):
-            prefix = f'g{i+1}_' if deblend else ''
-            center = gauss_fit.params[f'{prefix}center'].value
-            fwhm = gauss_fit.params[f'{prefix}fwhm'].value / center * ccum
-            fwhm_err = (gauss_fit.params[f'{prefix}fwhm'].stderr / center * ccum
-                        if gauss_fit.params[f'{prefix}fwhm'].stderr is not None else np.nan)
-            sigma_freq = ccum / (center ** 2) * gauss_fit.params[f'{prefix}sigma'].value
-            sigma_freq_err = (ccum / (center ** 2) * gauss_fit.params[f'{prefix}sigma'].stderr
-                              if gauss_fit.params[f'{prefix}sigma'].stderr is not None else np.nan)
-            gauss_area = gauss_fit.params[f'{prefix}height'].value * sigma_freq * np.sqrt(2 * np.pi) * 1.e-23
-            gauss_area_err = (np.abs(gauss_area * np.sqrt(
-                (gauss_fit.params[f'{prefix}height'].stderr / gauss_fit.params[f'{prefix}height'].value) ** 2 +
-                (sigma_freq_err / sigma_freq) ** 2))
-                              if gauss_fit.params[f'{prefix}height'].stderr is not None else np.nan)
+        # Automatically determine line centers from active molecule's intensity table in range
+        line_table = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+        line_centers = np.array(line_table['lam'])
+        # Remove duplicate/very close lines
+        if len(line_centers) > 1:
+            line_centers = np.sort(line_centers)
+            min_sep = 1e-4  # μm, adjust as needed
+            filtered_centers = [line_centers[0]]
+            for lc in line_centers[1:]:
+                if np.all(np.abs(lc - np.array(filtered_centers)) > min_sep):
+                    filtered_centers.append(lc)
+            line_centers = np.array(filtered_centers)
 
-            fit_results.append({
-                'center': center,
-                'fwhm': fwhm,
-                'fwhm_err': fwhm_err,
-                'gauss_area': gauss_area,
-                'gauss_area_err': gauss_area_err
-            })
+        # Sort line centers by intensity (descending), so least important are last
+        if len(line_centers) > 1:
+            intensities = np.array(line_table['intens'])
+            # Ensure both arrays are the same length
+            min_len = min(len(line_centers), len(intensities))
+            line_centers = line_centers[:min_len]
+            intensities = intensities[:min_len]
+            sort_idx = np.argsort(-intensities)
+            line_centers = line_centers[sort_idx]
+            intensities = intensities[sort_idx]
+        else:
+            intensities = np.array(line_table['intens']) if len(line_centers) > 0 else np.array([])
 
-        self.fit_result = gauss_fit, fit_results, x_fit
-        return self.fit_result
+        def extract_fit_results(gauss_fit, prefixes):
+            fit_results = []
+            for prefix in prefixes:
+                p = gauss_fit.params
+                c = p[prefix + "center"].value
+                fwhm = p[prefix + "fwhm"].value / c * ccum
+                fwhm_err = (p[prefix + "fwhm"].stderr / c * ccum) if p[prefix + "fwhm"].stderr is not None else np.nan
+                sigma_freq = ccum / (c ** 2) * p[prefix + "sigma"].value
+                sigma_freq_err = (ccum / (c ** 2) * p[prefix + "sigma"].stderr) if p[prefix + "sigma"].stderr is not None else np.nan
+                gauss_area = p[prefix + "height"].value * sigma_freq * np.sqrt(2 * np.pi) * 1.e-23
+                if p[prefix + "height"].stderr is not None:
+                    gauss_area_err = np.abs(gauss_area * np.sqrt(
+                        (p[prefix + "height"].stderr / p[prefix + "height"].value) ** 2 +
+                        (sigma_freq_err / sigma_freq) ** 2))
+                else:
+                    gauss_area_err = np.nan
+                fit_results.append({
+                    'center': c,
+                    'center_err': p[prefix + "center"].stderr,
+                    'fwhm': fwhm,
+                    'fwhm_err': fwhm_err,
+                    'gauss_area': gauss_area,
+                    'gauss_area_err': gauss_area_err
+                })
+            return fit_results
+
+        # Multi-Gaussian fit if deblend requested and multiple centers found
+        if deblend and len(line_centers) > 1:
+            max_gaussians = len(line_centers)
+            # Try reducing number of Gaussians if not enough data
+            while max_gaussians > 0:
+                num_params = 3 * max_gaussians  # center, sigma, amplitude per Gaussian
+                if len(x_fit) >= num_params * 2:
+                    break
+                max_gaussians -= 1
+            use_centers = line_centers[:max_gaussians]
+            # use_intens is not used, so we remove it to avoid the unused variable warning
+                #return None
+            # Use only the most important (strongest) lines
+            use_centers = line_centers[:max_gaussians]
+            use_intens = intensities[:max_gaussians]
+            models = []
+            params = None
+            prefixes = []
+            for i, center in enumerate(use_centers):
+                prefix = f"g{i+1}_"
+                prefixes.append(prefix)
+                model = GaussianModel(prefix=prefix)
+                if params is None:
+                    params = model.make_params()
+                else:
+                    params.update(model.make_params())
+                # Set initial values and bounds
+                params[prefix + "center"].set(value=center, min=center-0.01, max=center+0.01)
+                params[prefix + "sigma"].set(value=0.001, min=0.0001, max=0.01)
+                params[prefix + "amplitude"].set(value=(y_fit.max()-y_fit.min())*0.1, min=0)
+                models.append(model)
+            mod = models[0]
+            for m in models[1:]:
+                mod += m
+            fitmethod = 'leastsq'
+            gauss_fit = mod.fit(y_fit, params, x=x_fit, weights=1/err_fit, method=fitmethod, nan_policy='omit')
+            fit_results = extract_fit_results(gauss_fit, prefixes)
+            self.fit_result = gauss_fit, fit_results, x_fit
+            return self.fit_result
+        else:
+            # Single Gaussian fit, center at strongest line or middle of region
+            if len(line_centers) > 0:
+                center_guess = line_centers[0]
+            else:
+                center_guess = np.mean([xmin, xmax])
+            model = GaussianModel()
+            params = model.guess(y_fit, x=x_fit)
+            params['center'].set(value=center_guess, min=x_fit.min(), max=x_fit.max())
+            gauss_fit = model.fit(y_fit, params, x=x_fit, weights=1/err_fit, nan_policy='omit')
+            fit_results = extract_fit_results(gauss_fit, [""])
+            self.fit_result = gauss_fit, fit_results, x_fit
+            return self.fit_result
 
     def onselect(self, xmin, xmax):
         self.current_selection = (xmin, xmax)
