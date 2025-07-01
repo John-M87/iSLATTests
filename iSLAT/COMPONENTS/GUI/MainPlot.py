@@ -16,8 +16,7 @@ class iSLATPlot:
         self.theme = theme
         self.islat = islat_class_ref
 
-        self.green_lines = []
-        self.green_scatter = []
+        self.active_lines = []  # List of (line, scatter) tuples for green lines/scatter
 
         self.fig = plt.Figure(figsize=(10, 7))
         gs = GridSpec(2, 2, height_ratios=[2, 3], figure=self.fig)
@@ -329,109 +328,133 @@ class iSLATPlot:
             xmax=xmax
         )
 
-    def plot_spectrum_around_line(self, xmin = None, xmax = None):
+    def plot_spectrum_around_line(self, xmin=None, xmax=None):
         if xmin is None:
             xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
         if xmax is None:
             xmax = self.last_xmax if hasattr(self, 'last_xmax') else None
-        
+
         if xmin is None or xmax is None:
             self.canvas.draw_idle()
             return
-        
+
         line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
         if line_data.empty:
             return
+
+        # Clear previous active_lines before plotting new ones
+        self.active_lines.clear()
         self.plot_line_inspection(xmin, xmax, line_data)
         self.plot_population_diagram(line_data)
-        self.highlight_strongest_line(line_data)
+        #self.highlight_strongest_line(line_data)
         self.canvas.mpl_connect('pick_event', self.on_pick_line)
-
-    def highlight_strongest_line(self, line_data):
-        max_idx = line_data['intens'].idxmax()
-        lam = line_data['lam'][max_idx]
-        e_up = line_data['e_up'][max_idx]
-        einstein = line_data['a_stein'][max_idx]
-
-        max_y = self.ax2.get_ylim()[1]
-        self.ax2.vlines(lam, 0, max_y, color='orange', linestyle='dashed')
-        self.ax2.text(lam, max_y, f"{e_up:.0f},{einstein:.3f}", fontsize='small', color='orange', rotation=45)
-        self.canvas.draw_idle()
-
+    
     def on_pick_line(self, event):
         artist = event.artist
-        for lines in self.green_lines:
-            lines.set_color('green')
-        for scat in self.green_scatter:
-            scat.set_facecolor('green')
-        if artist in self.green_lines:
-            artist.set_color('orange')
-        elif artist in self.green_scatter:
-            artist.set_facecolor('orange')
+        # Find which entry in self.active_lines was picked
+        for idx, (line, scatter) in enumerate(self.active_lines):
+            picked = False
+            if artist is line:
+                picked = True
+            elif artist is scatter:
+                picked = True
+            # Reset all to green first
+            if line is not None:
+                line.set_color('green')
+            if scatter is not None:
+                scatter.set_facecolor('green')
+            # If picked, highlight both line and scatter
+            if picked:
+                if line is not None:
+                    line.set_color('orange')
+                if scatter is not None:
+                    scatter.set_facecolor('orange')
         self.canvas.draw_idle()
-    
-    def plot_line_inspection(self, xmin, xmax, line_data):
+
+    def get_active_line_values(self, line_data, max_y=None):
+        """
+        Prepares a list of dictionaries with line properties for plotting.
+        Does not create or store matplotlib objects.
+        """
         lam = line_data['lam']
         intensities = line_data['intens']
+        e_up = line_data['e_up']
+        a_stein = line_data['a_stein']
+        g_up = line_data['g_up']
         max_intensity = intensities.max()
+        values = []
+        for lam_val, inten, e, a, g in zip(lam, intensities, e_up, a_stein, g_up):
+            # Compute lineheight for later plotting
+            lineheight = None
+            if max_y is not None and max_intensity != 0:
+                lineheight = (inten / max_intensity) * max_y
+            # Compute rd_yax for population diagram
+            rd_yax = None
+            if all(x is not None for x in [inten, a, g, lam_val]):
+                area = np.pi * (self.islat.active_molecule.radius * au * 1e2) ** 2
+                Dist = self.islat.active_molecule.distance * pc
+                beam_s = area / Dist ** 2
+                F = inten * beam_s
+                freq = ccum / lam_val
+                rd_yax = np.log(4 * np.pi * F / (a * hh * freq * g))
+            values.append({'lam': lam_val, 'lineheight': lineheight, 'e': e, 'a': a, 'g': g, 'rd_yax': rd_yax, 'inten': inten})
+        return values
 
-        # Select region in data
+    def find_strongest_line(self):
+        line_height = 0
+        strongest_line_index = None
+        for i in range(len(self.active_lines)):
+            line, scatter = self.active_lines[i]
+            if line is not None:
+                y_data = line.get_ydata()
+                max_y = np.nanmax(y_data)
+                if max_y > line_height:
+                    line_height = max_y
+                    strongest_line_index = i
+        if strongest_line_index is not None:
+            self.strongest_active_line = (strongest_line_index, self.active_lines[strongest_line_index])
+            return self.strongest_active_line
+        else:
+            self.strongest_active_line = None
+            return None
+
+    def plot_line_inspection(self, xmin, xmax, line_data):
         data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        data_region_x = self.islat.wave_data[data_mask]
         data_region_y = self.islat.flux_data[data_mask]
         max_y = np.nanmax(data_region_y)
 
         self.ax2.clear()
-        #self.ax2.plot(data_region_x, data_region_y, color='black')
         self.update_line_inspection_plot(xmin=xmin, xmax=xmax)
 
-        self.green_lines.clear()
-        # Remove previous green scatter points
-        for sc in getattr(self, 'green_scatter', []):
-            sc.remove()
-        self.green_scatter = []
-
-        for lam_val, inten, e, a in zip(lam, intensities, line_data['e_up'], line_data['a_stein']):
-            lineheight = (inten / max_intensity) * max_y if max_intensity != 0 else 0
-            vline = self.ax2.vlines(lam_val, 0, lineheight, color='green', linestyle='dashed', picker=True)
-            self.ax2.text(lam_val, lineheight, f"{e:.0f},{a:.3f}", fontsize='x-small', color='green', rotation=45)
-            self.green_lines.append(vline)
-            # Plot scatter point at the top of each green line
-            sc = self.ax2.scatter(lam_val, lineheight, s=30, color='green', edgecolors='black', picker=True)
-            self.green_scatter.append(sc)
+        # Clear and repopulate self.active_lines
+        self.active_lines.clear()
+        values = self.get_active_line_values(line_data, max_y=max_y)
+        #print("Values: ", values)
+        for v in values:
+            print(f"Plotting line {v}")
+            vline = self.ax2.vlines(v['lam'], 0, v['lineheight'] if v['lineheight'] is not None else 0,
+                                    color='green', linestyle='dashed', picker=True)
+            self.ax2.text(v['lam'], v['lineheight'] if v['lineheight'] is not None else 0,
+                          f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color='green', rotation=45)
+            # Add placeholder for scatter, will be filled in plot_population_diagram
+            self.active_lines.append([vline, None])
 
         self.ax2.set_xlim(xmin, xmax)
-        self.ax2.set_ylim(0, max_y*1.1)
+        self.ax2.set_ylim(0, max_y * 1.1)
         self.canvas.draw_idle()
 
     def plot_population_diagram(self, line_data):
-        e_up = line_data['e_up']
-        intensities = line_data['intens']
-        einstein = line_data['a_stein']
-        g_up = line_data['g_up']
-        lam = line_data['lam']
-
         self.update_population_diagram()
-
-        # Remove only the previous green scatter points
-        for sc in getattr(self, 'green_scatter', []):
-            sc.remove()
-        self.green_scatter = []
-
-        for eu, intens, A, g, lam_val in zip(e_up, intensities, einstein, g_up, lam):
-            #print(f"Plotting population diagram for E_up={eu}, intensity={intens}, A_stein={A}, g_up={g}, wavelength={lam_val}")
-            #freq = 3e10 / lam_val
-            #rd_yax = np.log(4 * np.pi * intens / (A * 6.63e-27 * freq * g))
-            area = np.pi * (self.islat.active_molecule.radius * au * 1e2) ** 2  # In cm^2
-            Dist = dist * pc
-            beam_s = area / Dist ** 2
-            F = intens * beam_s
-            freq = ccum / lam_val
-            rd_yax = np.log(4 * np.pi * F / (A * hh * freq * g))
-
-            sc = self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
-            self.green_scatter.append(sc)
-
+        values = self.get_active_line_values(line_data)
+        # Update the scatter part of self.active_lines
+        # Ensure self.active_lines has the same length as values
+        while len(self.active_lines) < len(values):
+            self.active_lines.append([None, None])
+        for idx, v in enumerate(values):
+            if v['rd_yax'] is not None:
+                sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color='green', edgecolors='black', picker=True)
+                # Update the second value in each tuple in self.active_lines to the new scatter object (sc)
+                self.active_lines[idx][1] = sc
         self.canvas.draw_idle()
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
@@ -491,7 +514,6 @@ class iSLATPlot:
 
     def update_population_diagram(self):
         self.ax3.clear()
-        print("Hey whats up homie")
         self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
         self.ax3.set_xlabel(r'$E_{u}$ (K)')
         self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram', fontsize='medium')
