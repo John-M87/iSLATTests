@@ -668,8 +668,10 @@ class iSLATPlot:
 
     def find_single_lines(self, xmin=None, xmax=None):
         """
-        Finds single lines in the selected range and updates the line inspection plot.
+        Finds isolated (single) molecular lines in the selected range and stores them for plotting.
+        This mimics the logic of the provided single_finder() function.
         """
+        # Use current selection if not provided
         if xmin is None or xmax is None:
             if hasattr(self, 'current_selection') and self.current_selection:
                 xmin, xmax = self.current_selection
@@ -677,83 +679,84 @@ class iSLATPlot:
                 print("No selection made for finding single lines.")
                 return
 
-        # Resetting the text feed box
-        #self.islat.data_field.delete('1.0', "end")
+        # Get user-defined separation and intensity threshold
+        specsep_val = self.islat.user_settings.get("specsep", specsep)
+        line_threshold = self.islat.user_settings.get("line_threshold", 0.03)
 
-        # Getting all the lines in the range of xmin and xmax
-        #int_pars_line = self.islat.active_molecule.intensity.get_table
-        #int_pars_line = int_pars_line[(int_pars_line['lam'] > xmin) & (int_pars_line['lam'] < xmax)]
-        
+        # Get all lines in the selected range
         int_pars_line = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
         int_pars_line.index = range(len(int_pars_line.index))
 
-        # Parsing the wavelengths and intensities of the lines in int_pars_line
-        lam = int_pars_line['lam']
+        lamb_cnts = int_pars_line['lam']
         intensities = int_pars_line['intens']
 
-        # Determining a max threshold for lines we may want to consider
-        max_intens = intensities.max()
-        #max_threshold = max_intens * self.islat.line_threshold  # Filter out weak lines
-        max_threshold = max_intens * self.islat.user_settings.get("line_threshold", 0.03)
+        # Find max intensity in range
+        max_intens = intensities.max() if len(intensities) > 0 else 0
+        max_threshold = max_intens * line_threshold
 
-        #specsep = self.islat.specsep
-        #counter = 0
-        self.single_lines_list = []  # List to store single lines found
+        self.single_lines_list = []
+        counter = 0
 
-        # Main function to find single lines
         for j in int_pars_line.index:
-            include = True  # Boolean for determining if the line is single
-            j_lam = lam[int_pars_line.index[j]]  # Wavelength of line of interest
-            sub_xmin = j_lam - specsep
-            sub_xmax = j_lam + specsep
-            j_intens = intensities[int_pars_line.index[j]]  # Intensity of line of interest
-            loc_threshold = j_intens * 0.1  # Local threshold for determining if the line is single
+            include = True
+            j_lam = lamb_cnts[j]
+            sub_xmin = j_lam - specsep_val
+            sub_xmax = j_lam + specsep_val
+            j_intens = intensities[j]
+            loc_threshold = j_intens * 0.1
 
-            if j_intens >= max_threshold:  # Filter out weak lines
+            if j_intens >= max_threshold:
+                # Check all lines within specsep_val of j_lam
                 chk_range = int_pars_line[(int_pars_line['lam'] > sub_xmin) & (int_pars_line['lam'] < sub_xmax)]
-                range_intens = chk_range['intens']  # Intensities of lines within specsep range
-
-                for k in range(len(range_intens)):
-                    k_intens = range_intens.iloc[k]
-                    if k_intens >= loc_threshold and k_intens != j_intens:  # Exclude non-single lines
+                range_intens = chk_range['intens']
+                for k in chk_range.index:
+                    k_intens = range_intens[k]
+                    if k_intens >= loc_threshold and k_intens != j_intens:
                         include = False
+                        break
+                if include:
+                    # Store for plotting
+                    vline = {"wavelength": j_lam, "ylim": self.ax1.get_ylim()}
+                    self.single_lines_list.append(vline)
+                    counter += 1
 
-            if include:  # If the line is single, store it as a vline object
-                vline = {"wavelength": j_lam, "ylim": self.ax1.get_ylim()}
-                self.single_lines_list.append(vline)
-            
-            '''if include:  # If the line is single, plot it
-                self.single_lines_list
-                #self.ax1.vlines(j_lam, self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], linestyles='dashed', color='blue')
-                #counter += 1'''
-
-        '''# Print the number of isolated lines found in the range
-        if counter == 0:
-            print("No single lines found in the current wavelength range.")
-        else:
-            print(f"There are {counter} single lines found in the current wavelength range.")'''
+        # Feedback to user via GUI data field if available
+        if hasattr(self.islat, "GUI") and hasattr(self.islat.GUI, "data_field"):
+            if counter == 0:
+                self.islat.GUI.data_field.insert_text('No single lines found in the current wavelength range.')
+            else:
+                self.islat.GUI.data_field.insert_text(
+                    f'There are {counter} single lines found in the current wavelength range.'
+                )
 
         self.canvas.draw_idle()
 
     def plot_single_lines(self):
         """
-        Plots single lines on the main plot.
-        This function is called after finding single lines.
+        Plots single (isolated) lines on the main plot.
+        This function is called after find_single_lines.
         """
         self.update_model_plot()
         if not hasattr(self, 'single_lines_list') or not self.single_lines_list:
             print("No single lines to plot.")
             return
         for vline in self.single_lines_list:
-            # Plot each single line as a vertical dashed line
-            self.ax1.vlines(vline['wavelength'], vline['ylim'][0], vline['ylim'][1],
-                            linestyles='dashed', color='blue')
-
+            self.ax1.vlines(
+                vline['wavelength'],
+                vline['ylim'][0],
+                vline['ylim'][1],
+                linestyles='dashed',
+                color='blue'
+            )
         self.canvas.draw_idle()
 
     def toggle_legend(self):
-        leg = self.ax1.get_legend()
-        if leg is not None:
-            vis = not leg.get_visible()
-            leg.set_visible(vis)
-            self.canvas.draw_idle()
+        ax1_leg = self.ax1.get_legend()
+        ax2_leg = self.ax2.get_legend()
+        if ax1_leg is not None:
+            vis = not ax1_leg.get_visible()
+            ax1_leg.set_visible(vis)
+        if ax2_leg is not None:
+            vis = not ax2_leg.get_visible()
+            ax2_leg.set_visible(vis)
+        self.canvas.draw_idle()
