@@ -351,7 +351,7 @@ class iSLATPlot:
     def on_pick_line(self, event):
         artist = event.artist
         # Find which entry in self.active_lines was picked
-        for idx, (line, scatter) in enumerate(self.active_lines):
+        for idx, (line, scatter, value) in enumerate(self.active_lines):
             picked = False
             if artist is line:
                 picked = True
@@ -368,6 +368,35 @@ class iSLATPlot:
                     line.set_color('orange')
                 if scatter is not None:
                     scatter.set_facecolor('orange')
+                # Display line information on the data field
+                lam = value.get('lam', None)
+                e_up = value.get('e', None)
+                a_stein = value.get('a', None)
+                g_up = value.get('g', None)
+                inten = value.get('inten', None)
+                max_up_lev = value.get('up_lev', 'N/A')
+                max_low_lev = value.get('low_lev', 'N/A')
+                max_lamb_cnts = f"{lam:.4f}" if lam is not None else 'N/A'
+                max_einstein = f"{a_stein:.3f}" if a_stein is not None else 'N/A'
+                max_e_up = f"{e_up:.0f}" if e_up is not None else 'N/A'
+                max_tau = value.get('tau', 'N/A')
+                if isinstance(max_tau, float):
+                    max_tau = f"{max_tau:.3f}"
+                line_flux = [inten] if inten is not None else ['N/A']
+                flux_str = f"{line_flux[0]:.3e}" if isinstance(line_flux[0], (float, int)) else 'N/A'
+
+                info_str = (
+                    "Selected line:\n"
+                    f"Upper level = {max_up_lev}\n"
+                    f"Lower level = {max_low_lev}\n"
+                    f"Wavelength (μm) = {max_lamb_cnts}\n"
+                    f"Einstein-A coeff. (1/s) = {max_einstein}\n"
+                    f"Upper level energy (K) = {max_e_up}\n"
+                    f"Opacity = {max_tau}\n"
+                    f"Flux in sel. range (erg/s/cm2) = {flux_str}\n"
+                )
+                self.islat.GUI.data_field.insert_text(info_str)
+
         self.canvas.draw_idle()
 
     def get_active_line_values(self, line_data, max_y=None):
@@ -401,15 +430,15 @@ class iSLATPlot:
 
     def find_strongest_line(self):
         """
-        Finds and returns the [vline, sc] pair in self.active_lines whose vline has the largest y value.
-        Updates self.strongest_active_line with this pair.
+        Finds and returns the [vline, sc, value] triplet in self.active_lines whose vline has the largest y value.
+        Updates self.strongest_active_line with this triplet.
         """
         highest_y_value = -float('inf')
-        strongest_pair = None
+        strongest_triplet = None
 
-        for vline, sc in self.active_lines:
+        for vline, sc, value in self.active_lines:
             # vline is a LineCollection from vlines, get its segments
-            segments = vline.get_segments()
+            segments = vline.get_segments() if vline is not None else []
             if not segments:
                 continue
             # Each segment is [[x0, y0], [x1, y1]], vertical line so y0 and y1
@@ -417,23 +446,23 @@ class iSLATPlot:
             max_y = max(y_values) if y_values else -float('inf')
             if max_y > highest_y_value:
                 highest_y_value = max_y
-                strongest_pair = [vline, sc]
+                strongest_triplet = [vline, sc, value]
 
-        self.strongest_active_line = strongest_pair
-        return strongest_pair
+        self.strongest_active_line = strongest_triplet
+        return strongest_triplet
 
     def highlight_strongest_line(self):
         """
         Highlights the strongest line (by height) in orange by default, others in green.
         """
         strongest = self.find_strongest_line()
-        for line, scatter in self.active_lines:
+        for line, scatter, value in self.active_lines:
             if line is not None:
                 line.set_color('green')
             if scatter is not None:
                 scatter.set_facecolor('green')
         if strongest is not None:
-            line, scatter = strongest
+            line, scatter, value = strongest
             if line is not None:
                 line.set_color('orange')
             if scatter is not None:
@@ -451,14 +480,13 @@ class iSLATPlot:
         # Clear and repopulate self.active_lines
         self.active_lines.clear()
         values = self.get_active_line_values(line_data, max_y=max_y)
-        #print("Values: ", values)
         for v in values:
             vline = self.ax2.vlines(v['lam'], 0, v['lineheight'] if v['lineheight'] is not None else 0,
                                     color='green', linestyle='dashed', picker=True)
             self.ax2.text(v['lam'], v['lineheight'] if v['lineheight'] is not None else 0,
                           f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color='green', rotation=45)
             # Add placeholder for scatter, will be filled in plot_population_diagram
-            self.active_lines.append([vline, None])
+            self.active_lines.append([vline, None, v])
 
         self.ax2.set_xlim(xmin, xmax)
         self.ax2.set_ylim(0, max_y * 1.1)
@@ -473,12 +501,13 @@ class iSLATPlot:
         # Update the scatter part of self.active_lines
         # Ensure self.active_lines has the same length as values
         while len(self.active_lines) < len(values):
-            self.active_lines.append([None, None])
+            self.active_lines.append([None, None, values[len(self.active_lines)]])
         for idx, v in enumerate(values):
             if v['rd_yax'] is not None:
                 sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color='green', edgecolors='black', picker=True)
-                # Update the second value in each tuple in self.active_lines to the new scatter object (sc)
+                # Update the second value in each triplet in self.active_lines to the new scatter object (sc)
                 self.active_lines[idx][1] = sc
+                self.active_lines[idx][2] = v
         self.canvas.draw_idle()
         self.highlight_strongest_line()
 
