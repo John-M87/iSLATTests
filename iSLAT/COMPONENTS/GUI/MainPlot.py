@@ -346,7 +346,6 @@ class iSLATPlot:
         self.active_lines.clear()
         self.plot_line_inspection(xmin, xmax, line_data)
         self.plot_population_diagram(line_data)
-        #self.highlight_strongest_line(line_data)
         self.canvas.mpl_connect('pick_event', self.on_pick_line)
     
     def on_pick_line(self, event):
@@ -401,22 +400,45 @@ class iSLATPlot:
         return values
 
     def find_strongest_line(self):
-        line_height = 0
-        strongest_line_index = None
-        for i in range(len(self.active_lines)):
-            line, scatter = self.active_lines[i]
+        """
+        Finds and returns the [vline, sc] pair in self.active_lines whose vline has the largest y value.
+        Updates self.strongest_active_line with this pair.
+        """
+        highest_y_value = -float('inf')
+        strongest_pair = None
+
+        for vline, sc in self.active_lines:
+            # vline is a LineCollection from vlines, get its segments
+            segments = vline.get_segments()
+            if not segments:
+                continue
+            # Each segment is [[x0, y0], [x1, y1]], vertical line so y0 and y1
+            y_values = [pt[1] for seg in segments for pt in seg]
+            max_y = max(y_values) if y_values else -float('inf')
+            if max_y > highest_y_value:
+                highest_y_value = max_y
+                strongest_pair = [vline, sc]
+
+        self.strongest_active_line = strongest_pair
+        return strongest_pair
+
+    def highlight_strongest_line(self):
+        """
+        Highlights the strongest line (by height) in orange by default, others in green.
+        """
+        strongest = self.find_strongest_line()
+        for line, scatter in self.active_lines:
             if line is not None:
-                y_data = line.get_ydata()
-                max_y = np.nanmax(y_data)
-                if max_y > line_height:
-                    line_height = max_y
-                    strongest_line_index = i
-        if strongest_line_index is not None:
-            self.strongest_active_line = (strongest_line_index, self.active_lines[strongest_line_index])
-            return self.strongest_active_line
-        else:
-            self.strongest_active_line = None
-            return None
+                line.set_color('green')
+            if scatter is not None:
+                scatter.set_facecolor('green')
+        if strongest is not None:
+            line, scatter = strongest
+            if line is not None:
+                line.set_color('orange')
+            if scatter is not None:
+                scatter.set_facecolor('orange')
+        self.canvas.draw_idle()
 
     def plot_line_inspection(self, xmin, xmax, line_data):
         data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
@@ -431,7 +453,6 @@ class iSLATPlot:
         values = self.get_active_line_values(line_data, max_y=max_y)
         #print("Values: ", values)
         for v in values:
-            print(f"Plotting line {v}")
             vline = self.ax2.vlines(v['lam'], 0, v['lineheight'] if v['lineheight'] is not None else 0,
                                     color='green', linestyle='dashed', picker=True)
             self.ax2.text(v['lam'], v['lineheight'] if v['lineheight'] is not None else 0,
@@ -442,6 +463,9 @@ class iSLATPlot:
         self.ax2.set_xlim(xmin, xmax)
         self.ax2.set_ylim(0, max_y * 1.1)
         self.canvas.draw_idle()
+
+        # Highlight the strongest line by default
+        self.highlight_strongest_line()
 
     def plot_population_diagram(self, line_data):
         self.update_population_diagram()
@@ -456,6 +480,7 @@ class iSLATPlot:
                 # Update the second value in each tuple in self.active_lines to the new scatter object (sc)
                 self.active_lines[idx][1] = sc
         self.canvas.draw_idle()
+        self.highlight_strongest_line()
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
         self.ax2.clear()
