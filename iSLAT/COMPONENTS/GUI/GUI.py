@@ -65,43 +65,27 @@ class GUI:
         btn = tk.Button(widget, text="⧉", command=lambda: self._popout_window(title, widget), width=2, height=1, relief="flat", padx=0, pady=0)
         btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
 
-    #def _popout_window(self, title, content, widget):
     def _popout_window(self, title, widget):
-        # Remove from grid/pack/place in main window
         state = self._popout_states.get(widget)
-        if state and state["manager"] == "grid":
+        if not state:
+            return
+
+        # Remove from main window
+        if state["manager"] == "grid":
             widget.grid_forget()
-        elif state and state["manager"] == "pack":
+        elif state["manager"] == "pack":
             widget.pack_forget()
-        elif state and state["manager"] == "place":
+        elif state["manager"] == "place":
             widget.place_forget()
 
+        # Create popout window
         pop = tk.Toplevel(self.window)
         pop.title(title)
 
-        def on_close():
-            # Remove from popout and re-add to main window
-            widget.pack_forget()
-            widget.grid_forget()
-            widget.place_forget()
-            if state["manager"] == "grid":
-                widget.master = state["parent"]
-                widget.grid(row=state["row"], column=state["column"], **state["manager_kwargs"])
-            elif state["manager"] == "pack":
-                widget.master = state["parent"]
-                widget.pack(**state["manager_kwargs"])
-            elif state["manager"] == "place":
-                widget.master = state["parent"]
-                widget.place(**state["manager_kwargs"])
-            pop.destroy()
-
-        pop.protocol("WM_DELETE_WINDOW", on_close)
-
-        # Add to popout window using the original geometry manager
-        widget.pack_forget()
-        widget.grid_forget()
-        widget.place_forget()
+        # Reparent the widget to the popout window
         widget.master = pop
+
+        # Place the widget in the popout window
         if state["manager"] == "grid":
             widget.grid(row=0, column=0, sticky="nsew")
             pop.grid_rowconfigure(0, weight=1)
@@ -110,10 +94,31 @@ class GUI:
             widget.pack(fill="both", expand=True)
         elif state["manager"] == "place":
             widget.place(relx=0, rely=0, relwidth=1, relheight=1)
-        # Add popout button again in popout
+
+        # Add pop-in button in popout
         btn = tk.Button(widget, text="⧉", command=lambda: on_close(), width=2, height=1, relief="flat", padx=0, pady=0)
         btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
-        
+
+        def on_close():
+            # Remove from popout window
+            if state["manager"] == "grid":
+                widget.grid_forget()
+            elif state["manager"] == "pack":
+                widget.pack_forget()
+            elif state["manager"] == "place":
+                widget.place_forget()
+            # Reparent back to original parent
+            widget.master = state["parent"]
+            if state["manager"] == "grid":
+                widget.grid(row=state["row"], column=state["column"], **state["manager_kwargs"])
+            elif state["manager"] == "pack":
+                widget.pack(**state["manager_kwargs"])
+            elif state["manager"] == "place":
+                widget.place(**state["manager_kwargs"])
+            pop.destroy()
+
+        pop.protocol("WM_DELETE_WINDOW", on_close)
+
     def create_window(self):
         self.window = self.master
         self.window.title("iSLAT Version 5.00.00")
