@@ -59,11 +59,11 @@ class Molecule:
             self.n_mol = float(usd.get('N_Mol', kwargs.get('n_mol', None)))
             self.color = usd.get('Color', kwargs.get('color', None))
             self.is_visible = usd.get('Vis', kwargs.get('is_visible', True))
-            self.distance = float(usd.get('Dist', kwargs.get('distance', None)))
+            self.distance = float(usd.get('Dist', kwargs.get('distance', default_parms.dist)))
             # Optional: handle StellarRV, FWHM, Broad if needed
-            self.stellar_rv = float(usd.get('StellarRV', None))
+            self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
             self.fwhm = float(usd.get('FWHM', default_parms.fwhm))
-            self.broad = float(usd.get('Broad', None))
+            self.broad = float(usd.get('Broad', default_parms.broadening))
         else:
             #if hasattr(self, 'hitran_data'):
             self.name = kwargs.get('name', kwargs.get('displaylabel', kwargs.get('filepath', 'Unknown Molecule')))
@@ -77,7 +77,7 @@ class Molecule:
             self.distance = kwargs.get('distance', default_parms.dist)
             self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
             self.fwhm = kwargs.get('fwhm', default_parms.fwhm)
-            self.broad = kwargs.get('broad', None)
+            self.broad = kwargs.get('broad', default_parms.broadening)
 
         #self.hitran_data = hitran_data
 

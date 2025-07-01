@@ -40,7 +40,7 @@ star_rv = 0.0
 fwhm = 130.  # FWHM of the observed lines or instrument
 pix_per_fwhm = 10  # number of pixels per fwhm element
 
-intrinsic_line_width = 1.0
+broadening = intrinsic_line_width = 1.0
 cc = 2.99792458e5  # speed of light in km/s
 model_line_width = cc / fwhm
 model_pixel_res = (np.mean ([min_wavelength, max_wavelength]) / cc * fwhm) / pix_per_fwhm
