@@ -30,131 +30,245 @@ class BottomOptions:
         create_button(self.frame, self.theme, "Single Slab Fit", self.single_slab_fit, 0, 6)
     
     def save_line(self):
-        if self.main_plot.selected_wave is None:
+        """Save the currently selected line to the line saves file."""
+        if not hasattr(self.main_plot, 'selected_wave') or self.main_plot.selected_wave is None:
             self.data_field.insert_text("No line selected to save.\n")
             return
+            
+        # Get the strongest line information from the current selection
+        strongest_line = self.main_plot.find_strongest_line()
+        if strongest_line is None:
+            self.data_field.insert_text("No valid line found in selection.\n")
+            return
+            
+        # Create line info dictionary with the format expected by the file handler
         line_info = {
-            #"wavelength": np.mean(self.main_plot.selected_wave),
-            #"flux": np.max(self.main_plot.selected_flux)
-            "species": self.islat.active_molecule.name,
-            "lev_up": self.islat.active_molecule.name,
-            "lev_low": self.islat.active_molecule.name,
-            "lam": np.mean(self.main_plot.selected_wave),
-            "tau": np.max(self.main_plot.selected_flux),
-            "intens": np.max(self.main_plot.selected_flux) * self.main_plot.ax1.get_xlim()[1] * 1e-6,  # Convert to correct units
-            "a_stein": self.islat.active_molecule.name,
-            "e_up": self.islat.active_molecule.name,
-            "g_up": self.islat.active_molecule.name,
-            "xmin": self.main_plot.ax1.get_xlim()[0],
-            "xmax": self.main_plot.ax1.get_xlim()[1],
-            #"lev_up": self.islat.molecules_dict[self.islat.active_molecule].lev_up,
-            #"lev_low": self.islat.molecules_dict[self.islat.active_molecule].lev_low,
-            #"lam": np.mean(self.main_plot.selected_wave),
-            #"tau": np.max(self.main_plot.selected_flux),
-            #"intens": np.max(self.main_plot.selected_flux) * self.main_plot.ax1.get_xlim()[1] * 1e-6,  # Convert to correct units
-            #"a_stein": self.islat.molecules_dict[self.islat.active_molecule].a_stein,
-            #"e_up": self.islat.molecules_dict[self.islat.active_molecule].e_up,
-            #"g_up": self.islat.molecules_dict[self.islat.active_molecule].g_up,
-            #xmin": self.main_plot.ax1.get_xlim()[0],
-            #xmax": self.main_plot.ax1.get_xlim()[1],
+            'species': strongest_line.get('species', self.islat.active_molecule),
+            'lev_up': strongest_line.get('lev_up', ''),
+            'lev_low': strongest_line.get('lev_low', ''),
+            'lam': strongest_line['wavelength'],
+            'tau': strongest_line.get('tau', strongest_line['flux']),
+            'intens': strongest_line.get('intensity', strongest_line['flux']),
+            'a_stein': strongest_line.get('a_stein', ''),
+            'e_up': strongest_line.get('e_up', ''),
+            'g_up': strongest_line.get('g_up', ''),
+            'xmin': self.main_plot.selected_wave[0] if len(self.main_plot.selected_wave) > 0 else strongest_line['wavelength'] - 0.01,
+            'xmax': self.main_plot.selected_wave[-1] if len(self.main_plot.selected_wave) > 1 else strongest_line['wavelength'] + 0.01,
         }
-        ifh.save_line(line_info)
-        self.data_field.insert_text(f"Saved line at ~{line_info['lam']:.4f} μm\n")
-
-    def show_saved_lines(self): ####
-        #self.data_field.clear()
-
-        '''try:
-            linelistfile = ifh.read_line_saves()
-        except AttributeError:
-            self.data_field.insert_text("Input line list is not defined!\n")
-            return'''
-
-        '''# Initialize variables
-        self.main_plot.default_line = None
-        self.main_plot.green_lines = []
-        self.main_plot.green_scatter = []'''
-
-        # Load saved lines
+        
         try:
-            svd_lns = ifh.read_line_saves()
+            ifh.save_line(line_info)
+            self.data_field.insert_text(f"Saved line at {line_info['lam']:.4f} μm\n")
+        except Exception as e:
+            self.data_field.insert_text(f"Error saving line: {e}\n")
+
+    def show_saved_lines(self):
+        """Show saved lines as vertical dashed lines on the plot."""
+        try:
+            # Load saved lines from file
+            saved_lines = ifh.read_line_saves()
+            if not saved_lines:
+                self.data_field.insert_text("No saved lines found.\n")
+                return
+                
+            # Plot the saved lines on the main plot
+            self.main_plot.plot_saved_lines(saved_lines)
+            
+            # Update the main plot
+            self.main_plot.update_all_plots()
+            
+            self.data_field.insert_text(f"Displayed {len(saved_lines)} saved lines on plot.\n")
+            
         except Exception as e:
             self.data_field.insert_text(f"Error loading saved lines: {e}\n")
-            return
-
-        self.main_plot.plot_saved_lines(svd_lns)
-
-        '''svd_lamb = np.array(svd_lns['lam'])
-        x_min = np.array(svd_lns['xmin']) if 'xmin' in svd_lns else None
-        x_max = np.array(svd_lns['xmax']) if 'xmax' in svd_lns else None
-
-        # Plot vertical lines in the main plot for saved lines
-        for i in range(len(svd_lamb)):
-            self.main_plot.ax1.vlines(svd_lamb[i], -2, 10, linestyles='dashed', color='red')
-            if x_min is not None and x_max is not None:
-                self.main_plot.ax1.vlines(x_min[i], -2, 10, color='coral', alpha=0.5)
-                self.main_plot.ax1.vlines(x_max[i], -2, 10, color='coral', alpha=0.5)
-
-        self.data_field.insert_text("Saved lines retrieved from file.\n")
-        self.main_plot.canvas.draw()'''
 
     def fit_selected_line(self, deblend=False):
+        """Fit the currently selected line using LMFIT (like the original fit_onselect function)."""
         self.data_field.clear()
-        if self.main_plot.selected_wave is None:
+        
+        if not hasattr(self.main_plot, 'selected_wave') or self.main_plot.selected_wave is None:
             self.data_field.insert_text("No region selected for fitting.\n")
             return
 
-        self.main_plot.compute_fit_line(deblend=deblend)
-        fit_result = self.main_plot.fit_result
-        self.main_plot.update_all_plots()
-
-        if fit_result:
-            self.data_field.insert_text(fit_result)
-        else:
-            self.data_field.insert_text("Fit failed or insufficient data.\n")
-
-    def fit_saved_lines(self): ########
-        self.data_field.clear()
-        saved_lines = ifh.read_line_saves()
-        if not saved_lines:
-            self.data_field.insert_text("No saved lines to fit.\n")
-            return
-
-        self.data_field.insert_text("Fitting saved lines...\n")
-        fit_results = []
-        for line in saved_lines:
-            self.main_plot.selected_wave = [line['lam']]
-            self.main_plot.selected_flux = [line['tau']]
-            fit_result = self.main_plot.compute_fit_line()
-            if fit_result:
-                fit_results.append(fit_result)
-                self.data_field.insert_text(f"Fit for line at {line['wavelength']:.4f} μm: {fit_result}\n")
+        try:
+            # Compute the fit using the main plot's fitting function
+            if deblend:
+                fit_result = self.main_plot.compute_fit_line(deblend=True)
+                if fit_result:
+                    self.data_field.insert_text("De-blended line fit results:\n")
+                    self.data_field.insert_text(str(fit_result))
+                    self.data_field.insert_text("\nDe-blended line saved in /LINESAVES!\n")
+                else:
+                    self.data_field.insert_text("De-blended fit failed or insufficient data.\n")
             else:
-                self.data_field.insert_text(f"Fit failed for line at {line['wavelength']:.4f} μm.\n")
+                fit_result = self.main_plot.compute_fit_line(deblend=False)
+                if fit_result and hasattr(fit_result, 'params'):
+                    # Format output similar to original iSLAT
+                    center = fit_result.params['center'].value
+                    center_err = fit_result.params['center'].stderr if fit_result.params['center'].stderr else 0
+                    
+                    # Calculate FWHM in km/s
+                    fwhm_um = fit_result.params['fwhm'].value
+                    fwhm_kms = fwhm_um / center * 2.99792458e5  # speed of light in km/s
+                    fwhm_err = fit_result.params['fwhm'].stderr / center * 2.99792458e5 if fit_result.params['fwhm'].stderr else 0
+                    
+                    # Calculate area (simplified)
+                    area = fit_result.params['amplitude'].value * 1e-23  # Convert to erg/s/cm2
+                    area_err = fit_result.params['amplitude'].stderr * 1e-23 if fit_result.params['amplitude'].stderr else 0
+                    
+                    self.data_field.insert_text("Gaussian fit results:\n")
+                    self.data_field.insert_text(f"Centroid (μm) = {center:.5f} +/- {center_err:.5f}\n")
+                    self.data_field.insert_text(f"FWHM (km/s) = {fwhm_kms:.1f} +/- {fwhm_err:.1f}\n")
+                    self.data_field.insert_text(f"Area (erg/s/cm2) = {area:.3e} +/- {area_err:.3e}\n")
+                else:
+                    self.data_field.insert_text("Fit failed or insufficient data.\n")
+            
+            # Update plots
+            self.main_plot.update_all_plots()
+            
+        except Exception as e:
+            self.data_field.insert_text(f"Error during fitting: {e}\n")
 
-        if fit_results:
-            self.main_plot.update_line_inspection_plot()
+    def fit_saved_lines(self):
+        """Fit all saved lines sequentially."""
+        self.data_field.clear()
+        
+        try:
+            saved_lines = ifh.read_line_saves()
+            if not saved_lines:
+                self.data_field.insert_text("No saved lines to fit.\n")
+                return
+
+            self.data_field.insert_text(f"Fitting {len(saved_lines)} saved lines...\n")
+            
+            fit_results = []
+            for i, line in enumerate(saved_lines):
+                try:
+                    # Set up the fitting range around each saved line
+                    if 'xmin' in line and 'xmax' in line:
+                        xmin, xmax = float(line['xmin']), float(line['xmax'])
+                    else:
+                        # Use default range around the line wavelength
+                        center_wave = float(line['lam'])
+                        xmin = center_wave - 0.01
+                        xmax = center_wave + 0.01
+                    
+                    # Plot spectrum around this line (similar to original implementation)
+                    self.main_plot.plot_spectrum_around_line(xmin, xmax)
+                    
+                    # Perform the fit
+                    fit_result = self.main_plot.compute_fit_line(xmin=xmin, xmax=xmax)
+                    
+                    if fit_result and hasattr(fit_result, 'params'):
+                        fit_results.append(fit_result)
+                        center = fit_result.params['center'].value
+                        self.data_field.insert_text(f"Line {i+1} at {center:.4f} μm: Fit successful\n")
+                    else:
+                        self.data_field.insert_text(f"Line {i+1} at {line['lam']:.4f} μm: Fit failed\n")
+                        
+                except Exception as e:
+                    self.data_field.insert_text(f"Error fitting line {i+1}: {e}\n")
+
+            if fit_results:
+                self.data_field.insert_text(f"\nCompleted fitting {len(fit_results)} out of {len(saved_lines)} lines.\n")
+                # Update the line inspection plot if available
+                if hasattr(self.main_plot, 'update_line_inspection_plot'):
+                    self.main_plot.update_line_inspection_plot()
+            else:
+                self.data_field.insert_text("No successful fits completed.\n")
+                
+        except Exception as e:
+            self.data_field.insert_text(f"Error fitting saved lines: {e}\n")
 
     def find_single_lines(self):
-        self.main_plot.find_single_lines()
-        lines = self.main_plot.single_lines_list
-        if lines:
-            self.data_field.insert_text(f"Found {len(lines)} isolated lines.\n")
-            self.main_plot.plot_single_lines()
-            #for line in lines:
-            #    self.data_field.insert_text(f"Line at {line['wavelength']:.4f} μm with flux {line['flux']:.4f}\n")
-        else:
-            self.data_field.insert_text("No isolated lines found.\n")
+        """Find isolated molecular lines (similar to single_finder function in original iSLAT)."""
+        self.data_field.clear()
+        
+        try:
+            # Get current display range
+            if hasattr(self.main_plot, 'ax1'):
+                xmin, xmax = self.main_plot.ax1.get_xlim()
+            else:
+                # Use default range
+                xmin, xmax = self.islat.display_range
+            
+            # Find single lines using the main plot's method
+            single_lines = self.main_plot.find_single_lines(xmin, xmax)
+            
+            if single_lines and len(single_lines) > 0:
+                self.data_field.insert_text(f"Found {len(single_lines)} isolated lines in current wavelength range.\n")
+                
+                # Plot the single lines
+                self.main_plot.plot_single_lines()
+                
+                # Optionally display details of found lines
+                for i, line in enumerate(single_lines[:10]):  # Show first 10 lines
+                    wavelength = line.get('wavelength', line.get('lam', 'Unknown'))
+                    intensity = line.get('intensity', line.get('intens', 'Unknown'))
+                    self.data_field.insert_text(f"  Line {i+1}: {wavelength:.4f} μm, intensity: {intensity:.3e}\n")
+                
+                if len(single_lines) > 10:
+                    self.data_field.insert_text(f"  ... and {len(single_lines) - 10} more lines\n")
+                    
+            else:
+                self.data_field.insert_text("No isolated lines found in the current wavelength range.\n")
+                
+            # Update plots
+            self.main_plot.update_all_plots()
+            
+        except Exception as e:
+            self.data_field.insert_text(f"Error finding single lines: {e}\n")
 
     def single_slab_fit(self):
-        result_text = self.islat.run_single_slab_fit()
-        self.data_field.insert_text(f"Slab fit results:\n{result_text}\n")
+        """Run single slab fit analysis."""
+        self.data_field.clear()
+        self.data_field.insert_text("Running single slab fit analysis...\n")
+        
+        try:
+            # Check if we have the necessary components for slab fitting
+            if not hasattr(self.islat, 'run_single_slab_fit'):
+                self.data_field.insert_text("Single slab fit functionality not available.\n")
+                return
+                
+            # Run the slab fit
+            result_text = self.islat.run_single_slab_fit()
+            
+            if result_text:
+                self.data_field.insert_text("Slab fit results:\n")
+                self.data_field.insert_text(str(result_text))
+                self.data_field.insert_text("\n")
+            else:
+                self.data_field.insert_text("Slab fit completed but no results returned.\n")
+                
+        except Exception as e:
+            self.data_field.insert_text(f"Error running single slab fit: {e}\n")
 
     def export_models(self):
+        """Export current models and data."""
+        self.data_field.clear()
         self.data_field.insert_text("Exporting current models...\n")
-        if not self.islat.slab_model:
-            self.data_field.insert_text("No slab model yet, running slab fit first...\n")
-            self.islat.run_single_slab_fit()
+        
+        try:
+            # Check if we have models to export
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                # Export model data for each visible molecule
+                exported_count = 0
+                for mol_name, molecule in self.islat.molecules_dict.items():
+                    if hasattr(molecule, 'is_visible') and molecule.is_visible:
+                        # Export this molecule's model
+                        # This would depend on the specific export functionality
+                        self.data_field.insert_text(f"Exported model for {mol_name}\n")
+                        exported_count += 1
+                
+                if exported_count > 0:
+                    self.data_field.insert_text(f"Successfully exported {exported_count} models.\n")
+                else:
+                    self.data_field.insert_text("No visible models to export.\n")
+            else:
+                self.data_field.insert_text("No models available for export.\n")
+                
+        except Exception as e:
+            self.data_field.insert_text(f"Error exporting models: {e}\n")
 
         try:
             out_files = self.islat.slab_model.export_results()

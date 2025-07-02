@@ -143,17 +143,9 @@ class Molecule:
         print(f'Spectrum _lam_list: {self.spectrum._lam_list}')
 
     def calculate_intensity(self):
-        # Use values from user_save_data or fallback to defaults
-        #t_kin = self.temp if self.temp is not None else self.t_kin
         t_kin = self.t_kin
         n_mol = self.n_mol
         dv = self.fwhm
-        #print(f"Using t_kin={t_kin}, n_mol={n_mol}, dv={dv} for {self.name}")
-        # Try to get dv (intrinsic line width) from user_save_data or initial_molecule_parameters
-        #if self.user_save_data is not None:
-        #    dv = self.user_save_data.get('FWHM', self.initial_molecule_parameters.get('intrinsic_line_width', None))
-        #else:
-        #    dv = self.initial_molecule_parameters.get('intrinsic_line_width', None)
         print(f"Calculating intensity for {self.name} with T={t_kin}, n_mol={n_mol}, dv={dv}")
         self.intensity.calc_intensity(
             t_kin=t_kin,

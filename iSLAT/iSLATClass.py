@@ -160,11 +160,7 @@ class iSLAT:
         
         molecule_name = molecule_name
 
-        #print("hitran_file:", hitran_file)
         molecule_file_name = os.path.basename(hitran_file)
-        #print('molecule_file_name:', molecule_file_name)
-        #molecule_file_name = os.path.basename(hitran_file).split('_')[-1].split('.')[0]
-        #molecule_file_name = hitran_file
 
         if molecule_name is None:
             # Clean up the molecule name for use as a Python identifier and display
@@ -189,7 +185,6 @@ class iSLAT:
 
         )
         self.molecules_dict.add_molecules([new_molecule])
-        #self.molecules_dict.add_molecule(new_molecule)
 
         if refresh:
             if hasattr(self, "GUI"):
@@ -199,8 +194,6 @@ class iSLAT:
                     self.GUI.control_panel.reload_molecule_dropdown()
                 if hasattr(self.GUI, "plot"):
                     self.GUI.plot.update_all_plots()
-                    #self.GUI.plot.update_population_diagram()
-                    #self.GUI.plot.update_line_inspection_plot()
 
     def check_HITRAN(self):
         """
@@ -247,13 +240,6 @@ class iSLAT:
             print("Resetting molecules_dict to empty.")
 
         self.init_molecules(self.default_molecule_csv_data())
-
-        '''# Update GUI components if they exist
-        if hasattr(self, "GUI"):
-            if hasattr(self.GUI, "molecule_table"):
-                self.GUI.molecule_table.update_table()
-            if hasattr(self.GUI, "control_panel"):
-                self.GUI.control_panel.reload_molecule_dropdown()'''
 
     def create_folders(self): # see if we need this one and/or add config for directories
         """

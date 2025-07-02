@@ -18,6 +18,7 @@ class GUI:
         self.theme = config["theme"]
         self.islat_class = islat_class_ref
         self._popout_states = {}  # Track popout states for widgets
+        self._popout_windows = {}  # Track active popout windows
 
     def build_left_panel(self, parent):
         parent.grid_rowconfigure(1, weight=1)
@@ -54,22 +55,50 @@ class GUI:
 
     def _add_popout_button_to_corner(self, widget, title, content, parent, row, column, manager, manager_kwargs):
         # Store geometry info for re-adding
-        self._popout_states[widget] = {
+        widget_id = id(widget)
+        self._popout_states[widget_id] = {
+            "widget": widget,
             "parent": parent,
             "row": row,
             "column": column,
             "manager": manager,
             "manager_kwargs": manager_kwargs,
             "title": title,
+            "content": content,
+            "is_popped_out": False
         }
-        btn = tk.Button(widget, text="⧉", command=lambda: self._popout_window(title, widget), width=2, height=1, relief="flat", padx=0, pady=0)
-        btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        
+        # Add the button after a small delay to ensure widget is fully initialized
+        def add_button():
+            try:
+                btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id), 
+                               width=2, height=1, relief="flat", padx=0, pady=0)
+                btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+            except tk.TclError:
+                # Widget might not be ready yet, try again later
+                widget.after(100, add_button)
+        
+        widget.after(10, add_button)
 
-    def _popout_window(self, title, widget):
-        state = self._popout_states.get(widget)
+    def _toggle_popout(self, widget_id):
+        """Toggle between popout and pop-in for a widget."""
+        state = self._popout_states.get(widget_id)
         if not state:
             return
 
+        if state["is_popped_out"]:
+            self._pop_in_widget(widget_id)
+        else:
+            self._popout_widget(widget_id)
+
+    def _popout_widget(self, widget_id):
+        """Pop out a widget to a separate window."""
+        state = self._popout_states.get(widget_id)
+        if not state or state["is_popped_out"]:
+            return
+
+        widget = state["widget"]
+        
         # Remove from main window
         if state["manager"] == "grid":
             widget.grid_forget()
@@ -79,45 +108,89 @@ class GUI:
             widget.place_forget()
 
         # Create popout window
-        pop = tk.Toplevel(self.window)
-        pop.title(title)
+        # Use self.master instead of self.window to ensure we have a valid parent
+        parent_window = getattr(self, 'window', self.master)
+        pop = tk.Toplevel(parent_window)
+        pop.title(state["title"])
+        pop.geometry("600x400")  # Set reasonable default size
+        
+        # Configure popout window grid
+        pop.grid_rowconfigure(0, weight=1)
+        pop.grid_columnconfigure(0, weight=1)
 
         # Reparent the widget to the popout window
         widget.master = pop
 
         # Place the widget in the popout window
-        if state["manager"] == "grid":
-            widget.grid(row=0, column=0, sticky="nsew")
-            pop.grid_rowconfigure(0, weight=1)
-            pop.grid_columnconfigure(0, weight=1)
-        elif state["manager"] == "pack":
-            widget.pack(fill="both", expand=True)
-        elif state["manager"] == "place":
-            widget.place(relx=0, rely=0, relwidth=1, relheight=1)
+        widget.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
-        # Add pop-in button in popout
-        btn = tk.Button(widget, text="⧉", command=lambda: on_close(), width=2, height=1, relief="flat", padx=0, pady=0)
-        btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        # Update the popout button in the widget to show pop-in functionality
+        self._update_popout_button(widget, widget_id, is_popped_out=True)
 
+        # Store the popout window reference
+        self._popout_windows[widget_id] = pop
+        state["is_popped_out"] = True
+
+        # Handle window close event
         def on_close():
-            # Remove from popout window
-            if state["manager"] == "grid":
-                widget.grid_forget()
-            elif state["manager"] == "pack":
-                widget.pack_forget()
-            elif state["manager"] == "place":
-                widget.place_forget()
-            # Reparent back to original parent
-            widget.master = state["parent"]
-            if state["manager"] == "grid":
-                widget.grid(row=state["row"], column=state["column"], **state["manager_kwargs"])
-            elif state["manager"] == "pack":
-                widget.pack(**state["manager_kwargs"])
-            elif state["manager"] == "place":
-                widget.place(**state["manager_kwargs"])
-            pop.destroy()
+            self._pop_in_widget(widget_id)
 
         pop.protocol("WM_DELETE_WINDOW", on_close)
+
+    def _pop_in_widget(self, widget_id):
+        """Pop in a widget back to the main window."""
+        state = self._popout_states.get(widget_id)
+        if not state or not state["is_popped_out"]:
+            return
+
+        widget = state["widget"]
+        pop = self._popout_windows.get(widget_id)
+        
+        if pop:
+            try:
+                # Remove from popout window
+                widget.grid_forget()
+                
+                # Reparent back to original parent
+                widget.master = state["parent"]
+                
+                # Place back in original location
+                if state["manager"] == "grid":
+                    widget.grid(row=state["row"], column=state["column"], **state["manager_kwargs"])
+                elif state["manager"] == "pack":
+                    widget.pack(**state["manager_kwargs"])
+                elif state["manager"] == "place":
+                    widget.place(**state["manager_kwargs"])
+                
+                # Update the popout button back to popout functionality
+                self._update_popout_button(widget, widget_id, is_popped_out=False)
+                
+                # Destroy the popout window
+                pop.destroy()
+                
+            except tk.TclError as e:
+                print(f"Error during pop-in: {e}")
+            finally:
+                # Clean up references
+                if widget_id in self._popout_windows:
+                    del self._popout_windows[widget_id]
+                state["is_popped_out"] = False
+
+    def _update_popout_button(self, widget, widget_id, is_popped_out):
+        """Update the popout button for the current state."""
+        try:
+            # Remove existing popout button
+            for child in widget.winfo_children():
+                if isinstance(child, tk.Button) and child.cget("text") == "⧉":
+                    child.destroy()
+                    break
+            
+            # Create new button with appropriate command
+            btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id),
+                           width=2, height=1, relief="flat", padx=0, pady=0)
+            btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
+        except tk.TclError as e:
+            print(f"Error updating popout button: {e}")
 
     def create_window(self):
         self.window = self.master
@@ -131,14 +204,26 @@ class GUI:
         right_frame = tk.Frame(self.window)
         right_frame.grid(row=0, column=1, sticky="nsew")
         self.plot = iSLATPlot(right_frame, self.wave_data, self.flux_data, self.theme, self.islat_class)
+        
+        # Handle plot popout - create a container frame for better control
+        plot_container = tk.Frame(right_frame)
+        plot_container.pack(fill="both", expand=True)
+        
+        # Check if plot has a frame attribute, otherwise create one
         if hasattr(self.plot, 'frame'):
-            self._add_popout_button_to_corner(self.plot.frame, "Plot", self.plot, right_frame, 0, 0, "pack", {"fill": "both", "expand": True})
-            self.plot.frame.pack(fill="both", expand=True)
+            plot_widget = self.plot.frame
+            plot_widget.master = plot_container
+            plot_widget.pack(fill="both", expand=True)
         elif hasattr(self.plot, 'figure'):
-            canvas = FigureCanvasTkAgg(self.plot.figure, master=right_frame)
+            canvas = FigureCanvasTkAgg(self.plot.figure, master=plot_container)
             canvas_widget = canvas.get_tk_widget()
-            self._add_popout_button_to_corner(canvas_widget, "Plot", self.plot, right_frame, 0, 0, "pack", {"fill": "both", "expand": True})
             canvas_widget.pack(fill="both", expand=True)
+            plot_widget = plot_container
+        else:
+            # Fallback - use the plot container
+            plot_widget = plot_container
+            
+        self._add_popout_button_to_corner(plot_widget, "Plot", plot_widget, right_frame, 0, 0, "pack", {"fill": "both", "expand": True})
 
         # Left side: all controls
         left_frame = tk.Frame(self.window)
@@ -148,8 +233,20 @@ class GUI:
         # Bottom function buttons
         self.bottom_options = BottomOptions(self.window, self.islat_class, self.theme, self.plot, self.data_field, self.config)
         self.bottom_options.frame.grid(row=1, column=0, columnspan=2, sticky="ew")
-        self._add_popout_button_to_corner(self.bottom_options.frame, "Bottom Options", self.bottom_options, self.window, 1, 0, "grid", {"columnspan": 2, "sticky": "ew"})
+        self._add_popout_button_to_corner(self.bottom_options.frame, "Bottom Options", self.bottom_options.frame, self.window, 1, 0, "grid", {"columnspan": 2, "sticky": "ew"})
+
+    def cleanup_popouts(self):
+        """Clean up all popout windows when the main window is closed."""
+        for widget_id in list(self._popout_windows.keys()):
+            self._pop_in_widget(widget_id)
 
     def start(self):
         self.create_window()
+        
+        # Set up cleanup on window close
+        def on_closing():
+            self.cleanup_popouts()
+            self.window.destroy()
+        
+        self.window.protocol("WM_DELETE_WINDOW", on_closing)
         self.window.mainloop()

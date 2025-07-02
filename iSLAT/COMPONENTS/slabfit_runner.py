@@ -33,5 +33,5 @@ class ModelFitting:
     
     def message(self):
         # Update the main GUI data_field
-        self.data_field.delete('1.0', "end")
-        self.data_field.insert('1.0', "Fitting slab...")
+        self.data_field.clear()
+        self.data_field.insert_text("Fitting slab...")
