@@ -20,7 +20,7 @@ class GUI:
         self._popout_states = {}  # Track popout states for widgets
         self._popout_windows = {}  # Track active popout windows
 
-    def build_left_panel(self, parent):
+    def build_left_panel(self, parent: tk.Frame):
         parent.grid_rowconfigure(1, weight=1)
         parent.grid_columnconfigure(0, weight=1)
 
@@ -31,7 +31,7 @@ class GUI:
 
         # Molecule table
         self.molecule_table = MoleculeWindow("Molecule Table", parent, self.molecule_data, self.plot, self.config, self.islat_class)
-        self.molecule_table.frame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
+        self.molecule_table.frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
         self._add_popout_button_to_corner(self.molecule_table.frame, "Molecule Table", self.molecule_table, parent, 1, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
 
         # Spectrum file selector
