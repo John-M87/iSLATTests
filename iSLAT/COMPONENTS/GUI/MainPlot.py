@@ -42,7 +42,7 @@ class iSLATPlot:
 
         self.model_lines = []
 
-        self.compute_sum_flux()
+        self.compute_sum_flux_visible()
         self.islat.update_model_spectrum()
         self.update_all_plots()
 
@@ -137,27 +137,48 @@ class iSLATPlot:
         #self.canvas.draw_idle()
 
     def update_model_plot(self):
+        """
+        Updates the main spectrum plot with observed data, model spectra, and summed flux.
+        Optimized for performance and better visual organization.
+        """
+        # Store current view limits before clearing
+        current_xlim = self.ax1.get_xlim() if hasattr(self.ax1, 'get_xlim') else None
+        current_ylim = self.ax1.get_ylim() if hasattr(self.ax1, 'get_ylim') else None
+        
+        # Clear the main plot
         self.ax1.clear()
-        self.match_display_range()
-        self.plot_model_lines()
+        
+        # Early return if no data available
+        if not hasattr(self.islat, 'wave_data') or self.islat.wave_data is None:
+            self.ax1.set_title("No spectrum data loaded")
+            self.canvas.draw_idle()
+            return
+        
+        # Plot observed spectrum with error bars if available (full data, no masking for zooming)
+        self._plot_observed_spectrum(self.islat.wave_data, self.islat.flux_data, None)
+        
+        # Calculate and plot model spectra (full data, no masking for zooming)
+        visible_molecules = [mol for mol in self.islat.molecules_dict.values() if mol.is_visible]
+        if visible_molecules:
+            summed_flux = self._plot_model_spectra(self.islat.wave_data, visible_molecules)
+            self._plot_summed_spectrum(self.islat.wave_data, summed_flux)
+        
+        # Configure plot appearance
+        self._configure_plot_appearance()
+        
+        # Restore view limits if they existed, otherwise set display range
+        if current_xlim is not None and current_ylim is not None:
+            # Check if limits are reasonable (not default matplotlib limits)
+            if current_xlim != (0.0, 1.0) and current_ylim != (0.0, 1.0):
+                self.ax1.set_xlim(current_xlim)
+                self.ax1.set_ylim(current_ylim)
+            else:
+                self.match_display_range()
+        else:
+            self.match_display_range()
+        
+        # Recreate span selector and redraw
         self.make_span_selector()
-        self.compute_sum_flux()
-        # plot the data line
-        self.ax1.plot(self.islat.wave_data, self.islat.flux_data, color=self.theme["foreground"], label="Data")
-
-        # plot each molecule if it is turned on
-        for mol_name, molecule_obj in self.islat.molecules_dict.items():
-            if molecule_obj.is_visible:
-                #model_flux = molecule_obj.get_flux(self.wave_data)
-                self.ax1.fill_between(
-                    molecule_obj.spectrum.lamgrid,
-                    molecule_obj.spectrum.flux_jy,
-                    color=molecule_obj.color, 
-                    alpha=0.3, 
-                    lw=0
-                )
-
-        self.ax1.legend()
         self.canvas.draw_idle()
 
     def add_model_line(self, mol_name, temp, radius, density, color = None):
@@ -208,23 +229,55 @@ class iSLATPlot:
         self.ax1.legend()
         self.canvas.draw_idle()
 
-    def compute_sum_flux(self):
+    def compute_sum_flux_all(self):
         """
-        Computes the sum of all model fluxes and updates the sum line.
+        Computes the sum of all model fluxes (regardless of visibility) and updates the summed_flux array,
+        ensuring all fluxes are interpolated onto the common wave_data grid.
         """
         summed_flux = np.zeros_like(self.islat.wave_data)
         for mol in self.islat.molecules_dict.values():
-            if mol.is_visible:
-                mol_flux = mol.get_flux(self.islat.wave_data)
-                summed_flux += mol_flux
+            # Interpolate molecule's flux onto the common grid
+            flux_on_common_grid = np.interp(
+                self.islat.wave_data,
+                mol.spectrum.lamgrid,
+                mol.spectrum.flux_jy,
+                left=0.0, right=0.0
+            )
+            summed_flux += flux_on_common_grid
         self.summed_flux = summed_flux
+        return summed_flux
+
+    def compute_sum_flux_visible(self):
+        """
+        Optimized method to compute sum of visible molecule fluxes.
+        Uses vectorized operations where possible.
+        """
+        if not hasattr(self.islat, 'wave_data') or self.islat.wave_data is None:
+            return np.array([])
+        
+        summed_flux = np.zeros_like(self.islat.wave_data)
+        
+        for mol in self.islat.molecules_dict.values():
+            if mol.is_visible and hasattr(mol, 'spectrum'):
+                # Vectorized interpolation
+                mol_flux = np.interp(
+                    self.islat.wave_data,
+                    mol.spectrum.lamgrid,
+                    mol.spectrum.flux_jy,
+                    left=0.0, 
+                    right=0.0
+                )
+                summed_flux += mol_flux
+        
+        self.summed_flux = summed_flux
+        return summed_flux
 
     def plot_sum_line(self, wave, flux, label=None, color=None, compute = True):
         """
         Plots the sum line on the main plot.
         """
         if compute:
-            flux = self.compute_sum_flux()
+            flux = self.compute_sum_flux_visible()
         if label is None:
             label = "Sum Line"
         if color is None:
@@ -428,38 +481,59 @@ class iSLATPlot:
                 line.set_color('green')
             if scatter is not None:
                 scatter.set_facecolor('green')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('green')
             # If picked, highlight both line and scatter
             if picked:
                 if line is not None:
                     line.set_color('orange')
                 if scatter is not None:
                     scatter.set_facecolor('orange')
-                # Display line information on the data field
+                if 'text_obj' in value and value['text_obj'] is not None:
+                    value['text_obj'].set_color('orange')
+                
+                # Calculate flux integral in selected range
+                if hasattr(self, 'current_selection') and self.current_selection:
+                    xmin, xmax = self.current_selection
+                    # Calculate flux integral
+                    err_data = getattr(self.islat, 'err_data', None)
+                    line_flux, line_err = self.flux_integral(
+                        self.islat.wave_data, 
+                        self.islat.flux_data, 
+                        err_data, 
+                        xmin, 
+                        xmax
+                    )
+                else:
+                    line_flux = [0.0]
+                
+                # Extract line information
                 lam = value.get('lam', None)
                 e_up = value.get('e', None)
                 a_stein = value.get('a', None)
                 g_up = value.get('g', None)
                 inten = value.get('inten', None)
-                max_up_lev = value.get('up_lev', 'N/A')
-                max_low_lev = value.get('low_lev', 'N/A')
-                max_lamb_cnts = f"{lam:.4f}" if lam is not None else 'N/A'
-                max_einstein = f"{a_stein:.3f}" if a_stein is not None else 'N/A'
-                max_e_up = f"{e_up:.0f}" if e_up is not None else 'N/A'
-                max_tau = value.get('tau', 'N/A')
-                if isinstance(max_tau, float):
-                    max_tau = f"{max_tau:.3f}"
-                line_flux = [inten] if inten is not None else ['N/A']
-                flux_str = f"{line_flux[0]:.3e}" if isinstance(line_flux[0], (float, int)) else 'N/A'
+                up_lev = value.get('up_lev', 'N/A')
+                low_lev = value.get('low_lev', 'N/A')
+                tau_val = value.get('tau', 'N/A')
+                
+                # Format values to match original output
+                wavelength_str = f"{lam:.6f}" if lam is not None else 'N/A'
+                einstein_str = f"{a_stein:.3e}" if a_stein is not None else 'N/A'
+                energy_str = f"{e_up:.0f}" if e_up is not None else 'N/A'
+                tau_str = f"{tau_val:.3f}" if isinstance(tau_val, (float, int)) else str(tau_val)
+                flux_str = f"{line_flux[0]:.3e}" if isinstance(line_flux, (list, tuple)) and len(line_flux) > 0 else f"{line_flux:.3e}"
 
+                # Display line information in the original format
                 info_str = (
-                    "Selected line:\n"
-                    f"Upper level = {max_up_lev}\n"
-                    f"Lower level = {max_low_lev}\n"
-                    f"Wavelength (μm) = {max_lamb_cnts}\n"
-                    f"Einstein-A coeff. (1/s) = {max_einstein}\n"
-                    f"Upper level energy (K) = {max_e_up}\n"
-                    f"Opacity = {max_tau}\n"
-                    f"Flux in sel. range (erg/s/cm2) = {flux_str}\n"
+                    "Strongest line:\n"
+                    f"Upper level = {up_lev}\n"
+                    f"Lower level = {low_lev}\n"
+                    f"Wavelength (μm) = {wavelength_str}\n"
+                    f"Einstein-A coeff. (1/s) = {einstein_str}\n"
+                    f"Upper level energy (K) = {energy_str}\n"
+                    f"Opacity = {tau_str}\n"
+                    f"Flux in sel. range (erg/s/cm2) = {flux_str}"
                 )
                 self.islat.GUI.data_field.insert_text(info_str)
 
@@ -475,9 +549,12 @@ class iSLATPlot:
         e_up = line_data['e_up']
         a_stein = line_data['a_stein']
         g_up = line_data['g_up']
+        lev_up = line_data['lev_up'] if 'lev_up' in line_data else None
+        lev_low = line_data['lev_low'] if 'lev_low' in line_data else None
+        tau = line_data['tau'] if 'tau' in line_data else None
         max_intensity = intensities.max()
         values = []
-        for lam_val, inten, e, a, g in zip(lam, intensities, e_up, a_stein, g_up):
+        for i, (lam_val, inten, e, a, g) in enumerate(zip(lam, intensities, e_up, a_stein, g_up)):
             # Compute lineheight for later plotting
             lineheight = None
             if max_y is not None and max_intensity != 0:
@@ -491,7 +568,24 @@ class iSLATPlot:
                 F = inten * beam_s
                 freq = ccum / lam_val
                 rd_yax = np.log(4 * np.pi * F / (a * hh * freq * g))
-            values.append({'lam': lam_val, 'lineheight': lineheight, 'e': e, 'a': a, 'g': g, 'rd_yax': rd_yax, 'inten': inten})
+            
+            # Get additional fields with safe indexing
+            up_lev = lev_up.iloc[i] if lev_up is not None else 'N/A'
+            low_lev = lev_low.iloc[i] if lev_low is not None else 'N/A'
+            tau_val = tau.iloc[i] if tau is not None else 'N/A'
+            
+            values.append({
+                'lam': lam_val, 
+                'lineheight': lineheight, 
+                'e': e, 
+                'a': a, 
+                'g': g, 
+                'rd_yax': rd_yax, 
+                'inten': inten,
+                'up_lev': up_lev,
+                'low_lev': low_lev,
+                'tau': tau_val
+            })
         return values
 
     def find_strongest_line(self):
@@ -527,35 +621,43 @@ class iSLATPlot:
                 line.set_color('green')
             if scatter is not None:
                 scatter.set_facecolor('green')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('green')
         if strongest is not None:
             line, scatter, value = strongest
             if line is not None:
                 line.set_color('orange')
             if scatter is not None:
                 scatter.set_facecolor('orange')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('orange')
         self.canvas.draw_idle()
 
     def plot_line_inspection(self, xmin, xmax, line_data):
+        # First update the basic line inspection plot
+        self.update_line_inspection_plot(xmin=xmin, xmax=xmax)
+        
+        # Get the max y value for scaling line heights
         data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
         data_region_y = self.islat.flux_data[data_mask]
-        max_y = np.nanmax(data_region_y)
-
-        self.ax2.clear()
-        self.update_line_inspection_plot(xmin=xmin, xmax=xmax)
+        max_y = np.nanmax(data_region_y) if len(data_region_y) > 0 else 1.0
 
         # Clear and repopulate self.active_lines
         self.active_lines.clear()
         values = self.get_active_line_values(line_data, max_y=max_y)
+        
+        # Plot vertical lines for each molecular line - match original style
         for v in values:
-            vline = self.ax2.vlines(v['lam'], 0, v['lineheight'] if v['lineheight'] is not None else 0,
-                                    color='green', linestyle='dashed', picker=True)
-            self.ax2.text(v['lam'], v['lineheight'] if v['lineheight'] is not None else 0,
-                          f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color='green', rotation=45)
-            # Add placeholder for scatter, will be filled in plot_population_diagram
-            self.active_lines.append([vline, None, v])
+            if v['lineheight'] is not None and v['lineheight'] > 0:
+                vline = self.ax2.vlines(v['lam'], 0, v['lineheight'],
+                                        color='green', linestyle='dashed', linewidth=1, picker=True)
+                text = self.ax2.text(v['lam'], v['lineheight'],
+                              f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color='green', rotation=45)
+                # Store text object with line data for color changes
+                v['text_obj'] = text
+                # Add placeholder for scatter, will be filled in plot_population_diagram
+                self.active_lines.append([vline, None, v])
 
-        self.ax2.set_xlim(xmin, xmax)
-        self.ax2.set_ylim(0, max_y * 1.1)
         self.canvas.draw_idle()
 
         # Highlight the strongest line by default
@@ -579,7 +681,6 @@ class iSLATPlot:
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
         self.ax2.clear()
-        self.ax3.clear()
 
         if xmin is None:
             xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
@@ -590,29 +691,29 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
 
-        # Plot data in zoom
+        # Plot data in selected range - match original style
         mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        self.ax2.plot(self.islat.wave_data[mask], self.islat.flux_data[mask], color="black", label="Observed")
+        self.ax2.plot(self.islat.wave_data[mask], self.islat.flux_data[mask], color=self.theme["foreground"], linewidth=1, label="Observed")
 
-        # plot the active molecule in the line inspection plot
+        # Plot the active molecule in the line inspection plot - match original style
         active_molecule = self.islat.active_molecule
         if active_molecule is not None:
             wavegrid = active_molecule.spectrum.lamgrid
             mol_mask = (wavegrid >= xmin) & (wavegrid <= xmax)
             data = wavegrid[mol_mask]
             flux = active_molecule.spectrum.flux_jy[mol_mask]
-            self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", label=active_molecule.name)
-            #max_y = np.nanmax([np.nanmax(self.flux_data[mask]), np.nanmax(flux)])
-            max_y = np.nanmax(self.islat.flux_data[mask])
+            if len(data) > 0 and len(flux) > 0:
+                self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", linewidth=1, label=active_molecule.name)
+            max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0
         else:
-            max_y = np.nanmax(self.islat.flux_data[mask])
+            max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0
 
         # Plot the fit line using the compute_fit_line function
         if self.fit_result is not None:
             gauss_fit, fit_results, x_fit = self.fit_result
             if gauss_fit is not None:
                 # Plot the total fit line
-                self.ax2.plot(x_fit, gauss_fit.eval(x=x_fit), color="red", linestyle='-', label="Total Fit Line")
+                self.ax2.plot(x_fit, gauss_fit.eval(x=x_fit), color="red", linestyle='-', linewidth=1, label="Total Fit Line")
                 max_y = max(max_y, np.nanmax(gauss_fit.eval(x=x_fit)))
 
                 # Plot individual component lines if it's a deblended fit
@@ -620,10 +721,12 @@ class iSLATPlot:
                     for i, fit_result in enumerate(fit_results):
                         prefix = f'g{i+1}_'
                         component_flux = gauss_fit.eval_components(x=x_fit)[prefix]
-                        self.ax2.plot(x_fit, component_flux, linestyle='--', label=f"Component {i+1}")
+                        self.ax2.plot(x_fit, component_flux, linestyle='--', linewidth=1, label=f"Component {i+1}")
 
             self.fit_result = None
 
+        # Set limits and labels to match original
+        self.ax2.set_xlim(xmin, xmax)
         self.ax2.set_ylim(0, max_y * 1.1)
         self.ax2.legend()
         self.ax2.set_title("Line inspection plot")
@@ -760,3 +863,180 @@ class iSLATPlot:
             vis = not ax2_leg.get_visible()
             ax2_leg.set_visible(vis)
         self.canvas.draw_idle()
+
+    def _plot_observed_spectrum(self, wave_data, flux_data, visible_mask):
+        """Helper method to plot the observed spectrum data."""
+        if hasattr(self.islat, "err_data") and self.islat.err_data is not None:
+            self.ax1.errorbar(
+                wave_data,
+                flux_data,
+                yerr=self.islat.err_data,
+                fmt='-',
+                color=self.theme["foreground"],
+                ecolor='lightgray',
+                elinewidth=0.8,
+                capsize=2,
+                zorder=5,  # Plot on top
+                label="Data",
+                alpha=0.8
+            )
+        else:
+            self.ax1.plot(
+                wave_data,
+                flux_data,
+                color=self.theme["foreground"],
+                linewidth=1.2,
+                zorder=5,  # Plot on top
+                label="Data",
+                alpha=0.8
+            )
+
+    def _plot_model_spectra(self, wave_data, visible_molecules):
+        """
+        Helper method to plot individual molecule spectra and return summed flux.
+        Returns the summed flux on the full wavelength grid.
+        """
+        summed_flux = np.zeros_like(wave_data)
+        
+        # Sort molecules by peak intensity for better visual layering
+        mol_intensities = []
+        for mol in visible_molecules:
+            mol_flux_interp = np.interp(
+                wave_data,
+                mol.spectrum.lamgrid,
+                mol.spectrum.flux_jy,
+                left=0.0, right=0.0
+            )
+            peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
+            mol_intensities.append((peak_intensity, mol, mol_flux_interp))
+        
+        # Sort by peak intensity (lowest first for better visibility)
+        mol_intensities.sort(key=lambda x: x[0])
+        
+        for peak_intensity, mol, mol_flux_interp in mol_intensities:
+            if peak_intensity > 0:  # Only plot if there's actual flux
+                # Plot molecule spectrum
+                self.ax1.plot(
+                    wave_data,
+                    mol_flux_interp,
+                    linestyle='--',
+                    color=mol.color,
+                    alpha=0.8,
+                    linewidth=1.5,
+                    label=mol.displaylabel,
+                    zorder=3
+                )
+                
+                # Add to summed flux
+                summed_flux += mol_flux_interp
+        
+        return summed_flux
+
+    def _plot_summed_spectrum(self, wave_data, summed_flux):
+        """Helper method to plot the summed model spectrum."""
+        if np.any(summed_flux > 0):
+            # Plot summed spectrum as filled area
+            self.ax1.fill_between(
+                wave_data,
+                0,
+                summed_flux,
+                color='lightgray',
+                alpha=1.0,
+                label="Sum",
+                zorder=2
+            )
+            
+            # Don't plot additional line for summed spectrum to match original behavior
+
+    def _configure_plot_appearance(self):
+        """Helper method to configure plot labels, grid, and styling."""
+        self.ax1.set_xlabel('Wavelength (μm)', fontsize=12)
+        self.ax1.set_ylabel('Flux density (Jy)', fontsize=12)
+        self.ax1.set_title("Spectrum Overview", fontsize=14, pad=20)
+        
+        # Add grid for better readability
+        self.ax1.grid(True, alpha=0.3, linestyle=':', linewidth=0.5)
+        
+        # Configure legend to appear on top
+        legend = self.ax1.legend(
+            loc='upper right',
+            frameon=True,
+            fancybox=True,
+            shadow=True,
+            ncol=1,
+            fontsize=10
+        )
+        if legend:
+            legend.get_frame().set_alpha(0.9)
+            legend.set_zorder(10)  # Set z-order after creation
+        
+        # Set background color if available in theme
+        if 'plot_background' in self.theme:
+            self.ax1.set_facecolor(self.theme['plot_background'])
+
+    def _optimize_y_limits(self, wave_data, flux_data):
+        """Helper method to set optimal y-axis limits based on current view range."""
+        if len(flux_data) == 0:
+            return
+        
+        # Get current x-limits to determine visible data
+        xlim = self.ax1.get_xlim()
+        mask = (wave_data >= xlim[0]) & (wave_data <= xlim[1])
+        
+        if not np.any(mask):
+            # If no data in current view, use full range
+            flux_visible = flux_data
+        else:
+            flux_visible = flux_data[mask]
+        
+        # Calculate percentiles for robust limit setting
+        flux_min = np.nanpercentile(flux_visible, 5)  # 5th percentile
+        flux_max = np.nanpercentile(flux_visible, 95)  # 95th percentile
+        
+        # Add margin
+        flux_range = flux_max - flux_min
+        margin = flux_range * 0.1 if flux_range > 0 else abs(flux_max) * 0.1
+        
+        y_min = max(0, flux_min - margin)  # Don't go below zero for flux
+        y_max = flux_max + margin
+        
+        # Ensure reasonable limits
+        if y_max <= y_min:
+            y_max = y_min + 1e-10
+        
+        self.ax1.set_ylim(y_min, y_max)
+
+    def flux_integral(self, lam, flux, err, lam_min, lam_max):
+        """
+        Calculate flux integral in the selected wavelength range.
+        
+        Parameters
+        ----------
+        lam : array
+            Wavelength array
+        flux : array
+            Flux array
+        err : array
+            Error array
+        lam_min : float
+            Minimum wavelength
+        lam_max : float
+            Maximum wavelength
+            
+        Returns
+        -------
+        tuple
+            (line_flux_meas, line_err_meas) in erg/s/cm^2
+        """
+        # Calculate flux integral
+        integral_range = np.where(np.logical_and(lam > lam_min, lam < lam_max))
+        line_flux_meas = np.trapz(flux[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+        line_flux_meas = -line_flux_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
+        
+        if err is not None:
+            line_err_meas = np.trapz(err[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+            line_err_meas = -line_err_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
+        else:
+            line_err_meas = 0.0
+            
+        return line_flux_meas, line_err_meas
