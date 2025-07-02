@@ -130,10 +130,17 @@ class Molecule:
             distance = self.distance
         )
 
+        print("Here are the parameters right now, we finna boutta add intensity:")
+        print(self.__str__())
+
         self.spectrum.add_intensity(
             intensity=self.intensity,
-            dA=self.radius * 2 ** np.pi
+            dA=self.radius ** 2 * np.pi
         )
+
+        print("Here are the spectrums lists after adding intensity:")
+        print(f'Spectrum _I_list: {self.spectrum._I_list}')
+        print(f'Spectrum _lam_list: {self.spectrum._lam_list}')
 
     def calculate_intensity(self):
         # Use values from user_save_data or fallback to defaults
@@ -158,3 +165,33 @@ class Molecule:
         lam_grid = self.spectrum._lamgrid
         flux_grid = self.spectrum.flux
         return np.interp(wavelength_array, lam_grid, flux_grid)
+    
+    def prepare_plot_data(self, wave_data):
+        """
+        Prepares wavelength and flux data aligned to the global observational wavelength grid.
+
+        Args:
+            wave_data (np.ndarray): The wavelength grid (microns) used for observational data and plots.
+
+        Sets:
+            self.plot_lam : wavelength array matching wave_data
+            self.plot_flux: flux density array interpolated to wave_data
+        """
+        if self.spectrum is None:
+            raise ValueError(f"Spectrum for molecule '{self.name}' is not initialized.")
+        
+        # Interpolate molecule flux onto the global wavelength grid
+        interpolated_flux = np.interp(wave_data, self.spectrum.lamgrid, self.spectrum.flux_jy, left=0, right=0)
+        
+        # Store results
+        self.plot_lam = wave_data
+        self.plot_flux = interpolated_flux
+        return (self.plot_lam, self.plot_flux)
+
+    def __str__(self):
+        attrs = vars(self)
+        def truncate(val):
+            s = str(val)
+            return s if len(s) <= 3000 else s[:3000] + '...<truncated>'
+        attr_str = '\n'.join(f"{key}={truncate(value)}" for key, value in attrs.items())
+        return f"Molecule(\n{attr_str}\n)"
