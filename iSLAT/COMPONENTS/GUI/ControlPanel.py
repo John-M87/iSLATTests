@@ -42,10 +42,22 @@ class ControlPanel:
         self.dropdown.bind("<<ComboboxSelected>>", lambda event: setattr(self.islat, 'active_molecule', self.molecule_var.get()))
 
     def reload_molecule_dropdown(self):
+        
+        print(self.islat.molecules_dict.keys())
         dropdown_options = list(self.islat.molecules_dict.keys()) + ["SUM", "ALL"]
         self.dropdown['values'] = dropdown_options
-        if self.molecule_var.get() not in dropdown_options:
-            self.molecule_var.set(dropdown_options[0])
+        
+        # Handle case where current selection is no longer valid
+        current_value = self.molecule_var.get()
+        if current_value not in dropdown_options:
+            # If there are molecules available, default to the first one
+            if len(self.islat.molecules_dict) > 0:
+                self.molecule_var.set(list(self.islat.molecules_dict.keys())[0])
+                setattr(self.islat, 'active_molecule', self.molecule_var.get())
+            # If no molecules, default to "SUM"
+            else:
+                self.molecule_var.set("SUM")
+                setattr(self.islat, 'active_molecule', "SUM")
 
     def create_entry(self, label_text, row, column, attribute_name, callback = None, bind_object=None):
         """
