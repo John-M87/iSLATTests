@@ -37,7 +37,13 @@ class GUI:
         # Spectrum file selector
         file_frame = tk.LabelFrame(parent, text="Spectrum File")
         file_frame.grid(row=2, column=0, sticky="ew", padx=5, pady=5)
-        self.file_label = tk.Label(file_frame, text="Loaded: File")
+        
+        # Initialize with default text or show loaded file name if available
+        default_text = "No file loaded"
+        if hasattr(self.islat_class, 'loaded_spectrum_name'):
+            default_text = f"Loaded: {self.islat_class.loaded_spectrum_name}"
+        
+        self.file_label = tk.Label(file_frame, text=default_text)
         self.file_label.pack()
         tk.Button(file_frame, text="Load Spectrum", command=self.islat_class.load_spectrum).pack()
         self._add_popout_button_to_corner(file_frame, "Spectrum File", file_frame, parent, 2, 0, "grid", {"sticky": "ew", "padx": 5, "pady": 5})
