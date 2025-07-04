@@ -339,10 +339,16 @@ class iSLAT:
             print(f"  Wavelength range: {self.wave_data.min():.3f} - {self.wave_data.max():.3f}")
             print(f"  Data points: {len(self.wave_data)}")
 
+            # Store the loaded file path and name
+            self.loaded_spectrum_file = file_path
+            self.loaded_spectrum_name = os.path.basename(file_path)
+
             # Update any dependent components if spectrum is loaded after first start
             if hasattr(self, "GUI"):
                 if hasattr(self.GUI, "plot"):
                     self.GUI.plot.update_all_plots()
+                if hasattr(self.GUI, "file_label"):
+                    self.GUI.file_label.config(text=f"Loaded: {self.loaded_spectrum_name}")
                 #if hasattr(self.GUI, "control_panel"):
                     #self.GUI.control_panel.update_controls()
             # If model spectrum or other calculations depend on spectrum, update them
