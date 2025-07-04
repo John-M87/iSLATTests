@@ -2,6 +2,7 @@ import os
 import csv
 import json
 import pandas as pd
+import numpy as np
 from .iSLATDefaultInputParms import molecules_data
 
 save_folder_path = "SAVES"
@@ -157,3 +158,24 @@ def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_n
     # Save the line to the CSV file
     df.to_csv(filename, mode='a', header=not os.path.exists(filename), index=False)
     print(f"Saved line at ~{line_info['lam']:.4f} μm to {filename}")
+
+def read_spectral_data(file_path : str):
+    """
+    read_spectral_data() reads the spectral data from the provided file path.
+    Returns a DataFrame with the spectral data.
+    """
+    if os.path.exists(file_path):
+        try:
+            if (file_path.endswith('.csv') or file_path.endswith('.txt')) and os.path.isfile(file_path):
+                df = pd.read_csv(file_path)
+                return df
+            elif file_path.endswith('.dat') and os.path.isfile(file_path):
+                columns_to_load = ['wave', 'flux']
+                df = pd.DataFrame(np.loadtxt(file_path), columns=columns_to_load)
+                return df
+        except Exception as e:
+            print(f"Error reading spectral data: {e}")
+            return pd.DataFrame()
+    else:
+        print("Spectral data file does not exist.")
+        return pd.DataFrame()

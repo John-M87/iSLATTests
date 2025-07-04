@@ -6,5 +6,7 @@
     "default_active_molecule": "H2O",
     "line_save_directory": "LINESAVES",
     "line_save_file_name": "saved_lines.csv",
+    "wave_data_scalar": 1.0,
+    "flux_data_scalar": 1.0,
     "theme": "LightTheme"
 }

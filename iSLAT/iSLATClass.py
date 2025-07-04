@@ -17,7 +17,7 @@ import datetime
 
 context = ssl.create_default_context(cafile=certifi.where ())
 
-from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv
+from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
 from .ir_model import *
 from .COMPONENTS.chart_window import MoleculeSelector
@@ -253,19 +253,55 @@ class iSLAT:
         os.makedirs("HITRANdata", exist_ok=True)
 
     def load_spectrum(self, file_path=None):
-        filetypes = [('CSV Files', '*.csv')]
+        #filetypes = [('CSV Files', '*.csv'), ('TXT Files', '*.txt'), ('DAT Files', '*.dat')]
         spectra_directory = os.path.abspath("EXAMPLE-data")
         if file_path is None:
-            file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', filetypes=filetypes, initialdir=spectra_directory)
+            file_path = filedialog.askopenfilename(
+                title='Choose Spectrum Data File', 
+                #filetypes=filetypes, 
+                initialdir=spectra_directory
+            )
 
         if file_path:
-            df = pd.read_csv(file_path)
-            self.wave_data = np.array(df['wave'].values)
+            # Use the new read_spectral_data function
+            df = read_spectral_data(file_path)
+            
+            if df.empty:
+                print(f"Failed to load spectrum from {file_path}")
+                return
+            
+            # Check if required columns exist
+            required_columns = ['wave', 'flux']
+            optional_columns = ['err', 'cont']
+            
+            if not all(col in df.columns for col in required_columns):
+                print(f"Error: Required columns {required_columns} not found in {file_path}")
+                print(f"Available columns: {list(df.columns)}")
+                return
+            
+            # Load required data
+            self.wave_data = np.array(df['wave'].values) * self.user_settings.get("wave_data_scalar", 1.0)
             self.wave_data_original = self.wave_data.copy()
-            self.flux_data = np.array(df['flux'].values)
-            self.err_data = np.array(df['err'].values)
-            self.continuum_data = np.array(df['cont'].values)
-            print(f"Loaded spectrum from {file_path}")
+            self.flux_data = np.array(df['flux'].values) * self.user_settings.get("flux_data_scalar", 1.0)
+            
+            # Load optional data with defaults if not present
+            if 'err' in df.columns:
+                self.err_data = np.array(df['err'].values)
+            else:
+                # Create default error array (e.g., 10% of flux)
+                self.err_data = np.abs(self.flux_data) * 0.1
+                print("Warning: No 'err' column found. Using 10% of flux as default error.")
+            
+            if 'cont' in df.columns:
+                self.continuum_data = np.array(df['cont'].values)
+            else:
+                # Create default continuum array (zeros or ones)
+                self.continuum_data = np.ones_like(self.flux_data)
+                print("Warning: No 'cont' column found. Using ones as default continuum.")
+            
+            print(f"Successfully loaded spectrum from {file_path}")
+            print(f"  Wavelength range: {self.wave_data.min():.3f} - {self.wave_data.max():.3f}")
+            print(f"  Data points: {len(self.wave_data)}")
 
             # Update any dependent components if spectrum is loaded after first start
             if hasattr(self, "GUI"):
