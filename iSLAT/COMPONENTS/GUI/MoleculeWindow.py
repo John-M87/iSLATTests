@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import colorchooser
+from tkinter import ttk, colorchooser
 
 class MoleculeWindow:
     def __init__(self, name, parent_frame, molecule_data, output_plot, config, islat):
@@ -20,31 +20,71 @@ class MoleculeWindow:
         self.frame = tk.LabelFrame(self.parent_frame, text="Molecules")
         #self.frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        headers = ["Molecule", "Temp", "Radius", "Density", "On", "Color"]
+        # Create a canvas and scrollbar for scrolling
+        self.canvas = tk.Canvas(self.frame, height=300)
+        self.scrollbar = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+        # Bind mousewheel to canvas (cross-platform)
+        def _on_mousewheel(event):
+            self.canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _on_mousewheel_linux(event):
+            self.canvas.yview_scroll(-1, "units")
+        
+        def _on_mousewheel_linux_up(event):
+            self.canvas.yview_scroll(1, "units")
+            
+        # Windows and Mac
+        self.canvas.bind("<MouseWheel>", _on_mousewheel)
+        # Linux
+        self.canvas.bind("<Button-4>", _on_mousewheel_linux_up)
+        self.canvas.bind("<Button-5>", _on_mousewheel_linux)
+
+        headers = ["Molecule", "Temp", "Radius", "Density", "On", "Color", "Delete"]
         for col, text in enumerate(headers):
-            tk.Label(self.frame, text=text).grid(row=0, column=col)
+            tk.Label(self.scrollable_frame, text=text).grid(row=0, column=col, padx=2, pady=2)
 
     def update_table(self):
-        for i, mol_name in enumerate(self.molecules_dict.keys()):
-            mol_data = self.molecules_dict[mol_name]
+        # Clear existing widgets in the scrollable frame (except headers)
+        for widget in self.scrollable_frame.winfo_children()[7:]:  # Skip the 7 header labels
+            widget.destroy()
+        
+        # Clear the molecules dict
+        self.molecules.clear()
 
-            lbl = tk.Label(self.frame, text=mol_name)
-            lbl.grid(row=i+1, column=0)
+        for i, mol_name in enumerate(self.islat.molecules_dict.keys()):
+            mol_data = self.islat.molecules_dict[mol_name]
 
-            temp_entry = tk.Entry(self.frame, width=6)
+            lbl = tk.Label(self.scrollable_frame, text=mol_name)
+            lbl.grid(row=i+1, column=0, padx=2, pady=1, sticky="w")
+
+            temp_entry = tk.Entry(self.scrollable_frame, width=6)
             temp_entry.insert(0, f"{mol_data.temp}")
-            temp_entry.grid(row=i+1, column=1)
+            temp_entry.grid(row=i+1, column=1, padx=2, pady=1)
 
-            rad_entry = tk.Entry(self.frame, width=6)
+            rad_entry = tk.Entry(self.scrollable_frame, width=6)
             rad_entry.insert(0, f"{mol_data.radius}")
-            rad_entry.grid(row=i+1, column=2)
+            rad_entry.grid(row=i+1, column=2, padx=2, pady=1)
 
-            dens_entry = tk.Entry(self.frame, width=6)
+            dens_entry = tk.Entry(self.scrollable_frame, width=6)
             dens_entry.insert(0, f"{mol_data.n_mol:.1e}")
-            dens_entry.grid(row=i+1, column=3)
+            dens_entry.grid(row=i+1, column=3, padx=2, pady=1)
 
             on_var = tk.BooleanVar(value=mol_data.is_visible)
-            on_btn = tk.Checkbutton(self.frame, variable=on_var, command=self.update_lines)
+            on_btn = tk.Checkbutton(self.scrollable_frame, variable=on_var, command=self.update_lines)
+            on_btn.grid(row=i+1, column=4, padx=2, pady=1)
             on_btn.grid(row=i+1, column=4)
 
             # Link Entry widgets and color directly to molecule object attributes
@@ -66,21 +106,21 @@ class MoleculeWindow:
 
             mol_obj = self.islat.molecules_dict[mol_name]
 
-            temp_entry = tk.Entry(self.frame, width=6)
+            temp_entry = tk.Entry(self.scrollable_frame, width=6)
             temp_entry.insert(0, f"{mol_obj.temp}")
-            temp_entry.grid(row=i+1, column=1)
+            temp_entry.grid(row=i+1, column=1, padx=2, pady=1)
             temp_entry.bind("<FocusOut>", lambda e, entry=temp_entry, m=mol_obj: make_entry_callback(entry, "temp", m)())
             temp_entry.bind("<Return>", lambda e, entry=temp_entry, m=mol_obj: make_entry_callback(entry, "temp", m)())
 
-            rad_entry = tk.Entry(self.frame, width=6)
+            rad_entry = tk.Entry(self.scrollable_frame, width=6)
             rad_entry.insert(0, f"{mol_obj.radius}")
-            rad_entry.grid(row=i+1, column=2)
+            rad_entry.grid(row=i+1, column=2, padx=2, pady=1)
             rad_entry.bind("<FocusOut>", lambda e, entry=rad_entry, m=mol_obj: make_entry_callback(entry, "radius", m)())
             rad_entry.bind("<Return>", lambda e, entry=rad_entry, m=mol_obj: make_entry_callback(entry, "radius", m)())
 
-            dens_entry = tk.Entry(self.frame, width=6)
+            dens_entry = tk.Entry(self.scrollable_frame, width=6)
             dens_entry.insert(0, f"{mol_obj.n_mol:.1e}")
-            dens_entry.grid(row=i+1, column=3)
+            dens_entry.grid(row=i+1, column=3, padx=2, pady=1)
             dens_entry.bind("<FocusOut>", lambda e, entry=dens_entry, m=mol_obj: make_entry_callback(entry, "n_mol", m)())
             dens_entry.bind("<Return>", lambda e, entry=dens_entry, m=mol_obj: make_entry_callback(entry, "n_mol", m)())
 
@@ -88,8 +128,8 @@ class MoleculeWindow:
             def on_toggle(var=on_var, m=mol_obj):
                 m.is_visible = var.get()
                 self.update_lines()
-            on_btn = tk.Checkbutton(self.frame, variable=on_var, command=on_toggle)
-            on_btn.grid(row=i+1, column=4)
+            on_btn = tk.Checkbutton(self.scrollable_frame, variable=on_var, command=on_toggle)
+            on_btn.grid(row=i+1, column=4, padx=2, pady=1)
 
             color = getattr(mol_obj, "color", self.theme["default_molecule_colors"][i % len(self.theme["default_molecule_colors"])])
             def pick_and_set_color(mol_name=mol_name, mol_obj=mol_obj, btn=None):
@@ -99,9 +139,14 @@ class MoleculeWindow:
                     btn.config(bg=color_code)
                     self.molecules[mol_name]["color"] = color_code
                     self.update_lines()
-            color_btn = tk.Button(self.frame, bg=color, width=4)
+            color_btn = tk.Button(self.scrollable_frame, bg=color, width=4)
             color_btn.config(command=lambda m=mol_name, mo=mol_obj, b=color_btn: pick_and_set_color(m, mo, b))
-            color_btn.grid(row=i+1, column=5)
+            color_btn.grid(row=i+1, column=5, padx=2, pady=1)
+
+            # Add delete button
+            delete_btn = tk.Button(self.scrollable_frame, text="X", bg="red", fg="white", width=3,
+                                 command=lambda m=mol_name: self.delete_molecule(m))
+            delete_btn.grid(row=i+1, column=6, padx=2, pady=1)
 
             self.molecules[mol_name] = {
                 "temp_entry": temp_entry,
@@ -109,10 +154,31 @@ class MoleculeWindow:
                 "dens_entry": dens_entry,
                 "on_var": on_var,
                 "color": color,
-                "color_btn": color_btn
+                "color_btn": color_btn,
+                "delete_btn": delete_btn
             }
 
         self.update_lines()
+
+    def delete_molecule(self, mol_name):
+        """Delete a molecule from the GUI and the molecules dictionary."""
+        if mol_name in self.islat.molecules_dict:
+            # Remove from the main molecules dictionary
+            del self.islat.molecules_dict[mol_name]
+            
+            # Clear any model lines for this molecule from the plot
+            self.plot.clear_model_lines()
+            
+            # Update the control panel molecule dropdown if it exists
+            if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'control_panel'):
+                self.islat.GUI.control_panel.reload_molecule_dropdown()
+            
+            # Refresh the table to reflect the changes
+            self.update_table()
+            
+            # Update the plot
+            self.islat.update_model_spectrum()
+            self.plot.update_all_plots()
 
     def pick_color(self, mol_name):
         color_code = colorchooser.askcolor(title=f"Pick color for {mol_name}")[1]
@@ -123,6 +189,10 @@ class MoleculeWindow:
     def update_lines(self):
         self.plot.clear_model_lines()
         for mol, props in self.molecules.items():
+            # Check if molecule still exists in the dictionary (not deleted)
+            if mol not in self.islat.molecules_dict:
+                continue
+                
             if props["on_var"].get():
                 temp = float(props["temp_entry"].get())
                 rad = float(props["rad_entry"].get())
@@ -137,7 +207,8 @@ class MoleculeWindow:
                 m_obj.is_visible = True
                 #self.plot.add_model_line(mol, temp, rad, dens, color)
             elif not props["on_var"].get():
-                m_obj = self.islat.molecules_dict[mol].is_visible = False
+                if mol in self.islat.molecules_dict:  # Check existence before access
+                    self.islat.molecules_dict[mol].is_visible = False
         self.islat.update_model_spectrum()
         self.plot.update_all_plots()
         #self.plot.update_model_plot()

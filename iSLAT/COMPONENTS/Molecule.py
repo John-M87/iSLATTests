@@ -130,17 +130,17 @@ class Molecule:
             distance = self.distance
         )
 
-        print("Here are the parameters right now, we finna boutta add intensity:")
-        print(self.__str__())
+        '''print("Here are the parameters right now, we finna boutta add intensity:")
+        print(self.__str__())'''
 
         self.spectrum.add_intensity(
             intensity=self.intensity,
             dA=self.radius ** 2 * np.pi
         )
 
-        print("Here are the spectrums lists after adding intensity:")
+        '''print("Here are the spectrums lists after adding intensity:")
         print(f'Spectrum _I_list: {self.spectrum._I_list}')
-        print(f'Spectrum _lam_list: {self.spectrum._lam_list}')
+        print(f'Spectrum _lam_list: {self.spectrum._lam_list}')'''
 
     def calculate_intensity(self):
         t_kin = self.t_kin
