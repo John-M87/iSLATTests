@@ -350,10 +350,13 @@ class iSLATPlot:
                 c = p[prefix + "center"].value
                 fwhm = p[prefix + "fwhm"].value / c * ccum
                 fwhm_err = (p[prefix + "fwhm"].stderr / c * ccum) if p[prefix + "fwhm"].stderr is not None else np.nan
-                sigma_freq = ccum / (c ** 2) * p[prefix + "sigma"].value
+                print("Height:", p[prefix + "height"].value)
+                print("Sigma:", p[prefix + "sigma"].value)
+                sigma_freq = (ccum / (c ** 2)) * p[prefix + "sigma"].value
                 sigma_freq_err = (ccum / (c ** 2) * p[prefix + "sigma"].stderr) if p[prefix + "sigma"].stderr is not None else np.nan
                 gauss_area = p[prefix + "height"].value * sigma_freq * np.sqrt(2 * np.pi) * 1.e-23
                 if p[prefix + "height"].stderr is not None:
+                    #print("Heyyyyy")
                     gauss_area_err = np.abs(gauss_area * np.sqrt(
                         (p[prefix + "height"].stderr / p[prefix + "height"].value) ** 2 +
                         (sigma_freq_err / sigma_freq) ** 2))
@@ -420,6 +423,7 @@ class iSLATPlot:
             gauss_fit = model.fit(y_fit, params, x=x_fit, weights=1/err_fit, nan_policy='omit')
             fit_results = extract_fit_results(gauss_fit, [""])
             self.fit_result = gauss_fit, fit_results, x_fit
+            print("Fit result:", self.fit_result)
             return self.fit_result
 
     def onselect(self, xmin, xmax):

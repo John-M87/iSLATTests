@@ -63,7 +63,7 @@ class iSLAT:
         self.user_saved_molecules = read_from_user_csv()
 
         self.wavelength_range = wavelength_range
-        self._display_range = (23.52, 25.41)
+        self._display_range = (4, 6)
 
         self.min_vu = 1 / (self.wavelength_range[0] / 1E6) / 100.
         self.max_vu = 1 / (self.wavelength_range[1] / 1E6) / 100.
@@ -253,18 +253,23 @@ class iSLAT:
         os.makedirs("HITRANdata", exist_ok=True)
 
     def load_spectrum(self, file_path=None):
-        filetypes = [('CSV Files', '*.csv')]
+        #filetypes = [('CSV Files', '*.csv')]
         spectra_directory = os.path.abspath("EXAMPLE-data")
         if file_path is None:
-            file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', filetypes=filetypes, initialdir=spectra_directory)
+            file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', initialdir=spectra_directory)
+            #file_path = filedialog.askopenfilename(title='Choose Spectrum Data File', filetypes=filetypes, initialdir=spectra_directory)
 
         if file_path:
-            df = pd.read_csv(file_path)
+            #df = pd.read_csv(file_path)
+            #npdata = np.loadtxt(file_path)#, delimiter=',', skiprows=0, usecols=(0, 1), unpack=True)
+            df = pd.DataFrame(np.loadtxt(file_path), columns=['wave', 'flux'])
+            df['wave'] = df["wave"]/1.0205
+            df['flux'] = df["flux"] * (1.845 * 10**-5)  
             self.wave_data = np.array(df['wave'].values)
             self.wave_data_original = self.wave_data.copy()
             self.flux_data = np.array(df['flux'].values)
-            self.err_data = np.array(df['err'].values)
-            self.continuum_data = np.array(df['cont'].values)
+            #self.err_data = np.array(df['err'].values)
+            #self.continuum_data = np.array(df['cont'].values)
             print(f"Loaded spectrum from {file_path}")
 
             # Update any dependent components if spectrum is loaded after first start

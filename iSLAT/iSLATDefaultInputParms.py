@@ -36,6 +36,7 @@ max_lamb = 28.'''
 wavelength_range = (4.5, 28.0)  # Default wavelength range in microns
 min_wavelength, max_wavelength = wavelength_range
 dist = 160.0
+#dist = 10 * 10**7 
 star_rv = 0.0
 fwhm = 130.  # FWHM of the observed lines or instrument
 pix_per_fwhm = 10  # number of pixels per fwhm element
