@@ -146,54 +146,90 @@ class iSLAT:
         self.load_spectrum()
         self.init_gui()
     
-    def add_molecule_from_hitran(self, refresh = True, hitran_file = None, molecule_name = None, base_molecule = None, isotope = None):
+    def add_molecule_from_hitran(self, refresh = True, hitran_files = None, molecule_names = None, base_molecules = None, isotopes = None):
         """
-        Adds a molecule to the iSLAT instance from a HITRAN file.
-        If mol_name is not provided, it will be extracted from the file name.
-        """
-        if hitran_file is None:
-            hitran_file = filedialog.askopenfilename(title='Choose HITRAN Data File', filetypes=[('PAR Files', '*.par')], initialdir=os.path.abspath("HITRANdata"))
+        Adds one or more molecules to the iSLAT instance from HITRAN files.
+        If molecule_names are not provided, they will be extracted from the file names.
         
-        if not hitran_file:
-            print("No HITRAN file selected.")
+        Parameters:
+        -----------
+        refresh : bool
+            Whether to refresh the GUI after adding molecules
+        hitran_files : str or list
+            Single file path or list of file paths. If None, opens file dialog for multiple selection
+        molecule_names : str or list
+            Single molecule name or list of molecule names corresponding to files
+        base_molecules : str or list
+            Single base molecule or list of base molecules (currently unused)
+        isotopes : int or list
+            Single isotope or list of isotopes (currently unused)
+        """
+        if hitran_files is None:
+            hitran_files = filedialog.askopenfilenames(
+                title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)', 
+                filetypes=[('PAR Files', '*.par')], 
+                initialdir=os.path.abspath("HITRANdata")
+            )
+        
+        if not hitran_files:
+            print("No HITRAN files selected.")
             return
         
-        molecule_name = molecule_name
-
-        molecule_file_name = os.path.basename(hitran_file)
-
-        if molecule_name is None:
-            # Clean up the molecule name for use as a Python identifier and display
-            molecule_name = molecule_file_name
-            molecule_name = molecule_name.translate({ord(i): None for i in '_$^{}'})
-            molecule_name = molecule_name.translate({ord(i): "_" for i in ' -'})
-            if molecule_name and molecule_name[0].isdigit():
-                molecule_name = 'm_' + molecule_name
-            molecule_name = molecule_name.upper()
-
-        #if base_molecule is None:
-        #    base_molecule = self.basem.get(mol_name, None)
-
-        #if isotope is None:
-        #    isotope = self.isot.get(mol_name, None)
-
-        new_molecule = Molecule(
-            hitran_data=hitran_file,
-            name=molecule_name,
-            wavelength_range=self.wavelength_range,
-            initial_molecule_parameters=self.initial_molecule_parameters.get(molecule_name, self.molecules_parameters_default)
-
-        )
-        self.molecules_dict.add_molecules([new_molecule])
-
-        if refresh:
-            if hasattr(self, "GUI"):
-                if hasattr(self.GUI, "molecule_table"):
-                    self.GUI.molecule_table.update_table()
-                if hasattr(self.GUI, "control_panel"):
-                    self.GUI.control_panel.reload_molecule_dropdown()
-                if hasattr(self.GUI, "plot"):
-                    self.GUI.plot.update_all_plots()
+        # Convert single file to list for consistent processing
+        if isinstance(hitran_files, str):
+            hitran_files = [hitran_files]
+        
+        # Convert molecule_names to list if provided as single string
+        if molecule_names is not None and isinstance(molecule_names, str):
+            molecule_names = [molecule_names]
+        
+        new_molecules = []
+        
+        for i, hitran_file in enumerate(hitran_files):
+            # Get molecule name for this file
+            if molecule_names is not None and i < len(molecule_names):
+                molecule_name = molecule_names[i]
+            else:
+                # Extract molecule name from file name
+                molecule_file_name = os.path.basename(hitran_file)
+                molecule_name = molecule_file_name
+                # Clean up the molecule name for use as a Python identifier and display
+                molecule_name = molecule_name.translate({ord(i): None for i in '_$^{}'})
+                molecule_name = molecule_name.translate({ord(i): "_" for i in ' -'})
+                if molecule_name and molecule_name[0].isdigit():
+                    molecule_name = 'm_' + molecule_name
+                molecule_name = molecule_name.upper()
+            
+            print(f"Loading molecule '{molecule_name}' from file: {hitran_file}")
+            
+            try:
+                new_molecule = Molecule(
+                    hitran_data=hitran_file,
+                    name=molecule_name,
+                    wavelength_range=self.wavelength_range,
+                    initial_molecule_parameters=self.initial_molecule_parameters.get(molecule_name, self.molecules_parameters_default)
+                )
+                new_molecules.append(new_molecule)
+                print(f"Successfully created molecule: {molecule_name}")
+                
+            except Exception as e:
+                print(f"Error loading molecule '{molecule_name}' from {hitran_file}: {str(e)}")
+                continue
+        
+        if new_molecules:
+            self.molecules_dict.add_molecules(new_molecules)
+            print(f"Added {len(new_molecules)} molecules to the dictionary.")
+            
+            if refresh:
+                if hasattr(self, "GUI"):
+                    if hasattr(self.GUI, "molecule_table"):
+                        self.GUI.molecule_table.update_table()
+                    if hasattr(self.GUI, "control_panel"):
+                        self.GUI.control_panel.reload_molecule_dropdown()
+                    if hasattr(self.GUI, "plot"):
+                        self.GUI.plot.update_all_plots()
+        else:
+            print("No molecules were successfully loaded.")
 
     def check_HITRAN(self):
         """
