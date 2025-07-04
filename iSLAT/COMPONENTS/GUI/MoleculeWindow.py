@@ -64,47 +64,40 @@ class MoleculeWindow:
         # Clear the molecules dict
         self.molecules.clear()
 
+        # Link Entry widgets and color directly to molecule object attributes
+        def make_entry_callback(entry, attr, mol_obj):
+            def callback(*args):
+                val = entry.get()
+                try:
+                    if attr == "n_mol":
+                        val = float(val)
+                    elif attr == "temp":
+                        val = float(val)
+                    elif attr == "radius":
+                        val = float(val)
+                    elif attr == "displaylabel":
+                        # For label changes, we also need to update any GUI dropdowns
+                        old_label = getattr(mol_obj, attr, mol_obj.name)
+                        if val != old_label:
+                            self.update_control_panel_dropdown()
+                    setattr(mol_obj, attr, val)
+                    self.update_lines()
+                except ValueError:
+                    pass  # Ignore invalid input
+            return callback
+
         for i, mol_name in enumerate(self.islat.molecules_dict.keys()):
-            mol_data = self.islat.molecules_dict[mol_name]
-
-            lbl = tk.Label(self.scrollable_frame, text=mol_name)
-            lbl.grid(row=i+1, column=0, padx=2, pady=1, sticky="w")
-
-            temp_entry = tk.Entry(self.scrollable_frame, width=6)
-            temp_entry.insert(0, f"{mol_data.temp}")
-            temp_entry.grid(row=i+1, column=1, padx=2, pady=1)
-
-            rad_entry = tk.Entry(self.scrollable_frame, width=6)
-            rad_entry.insert(0, f"{mol_data.radius}")
-            rad_entry.grid(row=i+1, column=2, padx=2, pady=1)
-
-            dens_entry = tk.Entry(self.scrollable_frame, width=6)
-            dens_entry.insert(0, f"{mol_data.n_mol:.1e}")
-            dens_entry.grid(row=i+1, column=3, padx=2, pady=1)
-
-            on_var = tk.BooleanVar(value=mol_data.is_visible)
-            on_btn = tk.Checkbutton(self.scrollable_frame, variable=on_var, command=self.update_lines)
-            on_btn.grid(row=i+1, column=4, padx=2, pady=1)
-            on_btn.grid(row=i+1, column=4)
-
-            # Link Entry widgets and color directly to molecule object attributes
-            def make_entry_callback(entry, attr, mol_obj):
-                def callback(*args):
-                    val = entry.get()
-                    try:
-                        if attr == "n_mol":
-                            val = float(val)
-                        elif attr == "temp":
-                            val = float(val)
-                        elif attr == "radius":
-                            val = float(val)
-                        setattr(mol_obj, attr, val)
-                        self.update_lines()
-                    except ValueError:
-                        pass  # Ignore invalid input
-                return callback
-
             mol_obj = self.islat.molecules_dict[mol_name]
+
+            # Make molecule name editable
+            name_entry = tk.Entry(self.scrollable_frame, width=8)
+            display_label = getattr(mol_obj, 'displaylabel', mol_name)
+            name_entry.insert(0, display_label)
+            name_entry.grid(row=i+1, column=0, padx=2, pady=1, sticky="w")
+            
+            # Add callback for name entry
+            name_entry.bind("<FocusOut>", lambda e, entry=name_entry, m=mol_obj: make_entry_callback(entry, "displaylabel", m)())
+            name_entry.bind("<Return>", lambda e, entry=name_entry, m=mol_obj: make_entry_callback(entry, "displaylabel", m)())
 
             temp_entry = tk.Entry(self.scrollable_frame, width=6)
             temp_entry.insert(0, f"{mol_obj.temp}")
@@ -149,6 +142,7 @@ class MoleculeWindow:
             delete_btn.grid(row=i+1, column=6, padx=2, pady=1)
 
             self.molecules[mol_name] = {
+                "name_entry": name_entry,
                 "temp_entry": temp_entry,
                 "rad_entry": rad_entry,
                 "dens_entry": dens_entry,
@@ -159,6 +153,11 @@ class MoleculeWindow:
             }
 
         self.update_lines()
+
+    def update_control_panel_dropdown(self):
+        """Update the control panel molecule dropdown when molecule labels change."""
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'control_panel'):
+            self.islat.GUI.control_panel.reload_molecule_dropdown()
 
     def delete_molecule(self, mol_name):
         """Delete a molecule from the GUI and the molecules dictionary."""

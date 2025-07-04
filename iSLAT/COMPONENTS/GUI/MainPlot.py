@@ -191,7 +191,10 @@ class iSLATPlot:
 
         if color is None:
             color = molecule_obj.color
-        line, = self.ax1.plot(molecule_obj.spectrum.lamgrid, model_flux, linestyle='-', color=color, alpha=0.7, label=f"{mol_name}")
+        
+        # Use display label instead of mol_name for the plot legend
+        display_label = getattr(molecule_obj, 'displaylabel', mol_name)
+        line, = self.ax1.plot(molecule_obj.spectrum.lamgrid, model_flux, linestyle='-', color=color, alpha=0.7, label=display_label)
 
         self.model_lines.append(line)
         self.ax1.legend()
@@ -703,7 +706,8 @@ class iSLATPlot:
             data = wavegrid[mol_mask]
             flux = active_molecule.spectrum.flux_jy[mol_mask]
             if len(data) > 0 and len(flux) > 0:
-                self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", linewidth=1, label=active_molecule.name)
+                label = getattr(active_molecule, 'displaylabel', active_molecule.name)
+                self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", linewidth=1, label=label)
             max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0
         else:
             max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0

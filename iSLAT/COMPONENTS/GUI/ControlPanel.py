@@ -39,25 +39,58 @@ class ControlPanel:
         self.dropdown.grid(row=row, column=column + 1, padx=5, pady=5)
 
         # Update self.islat.active_molecule when a new molecule is selected
-        self.dropdown.bind("<<ComboboxSelected>>", lambda event: setattr(self.islat, 'active_molecule', self.molecule_var.get()))
+        self.dropdown.bind("<<ComboboxSelected>>", self.on_molecule_selected)
+
+    def on_molecule_selected(self, event=None):
+        """Handle molecule selection from dropdown, mapping display label to molecule name."""
+        selected_label = self.molecule_var.get()
+        
+        # Handle special cases
+        if selected_label in ["SUM", "ALL"]:
+            setattr(self.islat, 'active_molecule', selected_label)
+            return
+        
+        # Find the molecule name that corresponds to this display label
+        for mol_name, mol_obj in self.islat.molecules_dict.items():
+            display_label = getattr(mol_obj, 'displaylabel', mol_name)
+            if display_label == selected_label:
+                setattr(self.islat, 'active_molecule', mol_name)
+                return
+        
+        # If no match found, default to the first molecule or SUM
+        if len(self.islat.molecules_dict) > 0:
+            first_mol_name = list(self.islat.molecules_dict.keys())[0]
+            setattr(self.islat, 'active_molecule', first_mol_name)
+        else:
+            setattr(self.islat, 'active_molecule', "SUM")
 
     def reload_molecule_dropdown(self):
         
-        print(self.islat.molecules_dict.keys())
-        dropdown_options = list(self.islat.molecules_dict.keys()) + ["SUM", "ALL"]
-        self.dropdown['values'] = dropdown_options
+        #print(self.islat.molecules_dict.keys())
+        # Use display labels instead of molecule names
+        dropdown_options = []
+        for mol_name, mol_obj in self.islat.molecules_dict.items():
+            display_label = getattr(mol_obj, 'displaylabel', mol_name)
+            dropdown_options.append(display_label)
+        dropdown_options += ["SUM", "ALL"]
         
-        # Handle case where current selection is no longer valid
-        current_value = self.molecule_var.get()
-        if current_value not in dropdown_options:
-            # If there are molecules available, default to the first one
-            if len(self.islat.molecules_dict) > 0:
-                self.molecule_var.set(list(self.islat.molecules_dict.keys())[0])
-                setattr(self.islat, 'active_molecule', self.molecule_var.get())
-            # If no molecules, default to "SUM"
-            else:
-                self.molecule_var.set("SUM")
-                setattr(self.islat, 'active_molecule', "SUM")
+        if hasattr(self, 'dropdown') and self.dropdown:
+            self.dropdown['values'] = dropdown_options
+            
+            # Handle case where current selection is no longer valid
+            current_value = self.molecule_var.get()
+            if current_value not in dropdown_options:
+                # If there are molecules available, default to the first one
+                if len(self.islat.molecules_dict) > 0:
+                    first_mol_name = list(self.islat.molecules_dict.keys())[0]
+                    first_mol = self.islat.molecules_dict[first_mol_name]
+                    first_display_label = getattr(first_mol, 'displaylabel', first_mol_name)
+                    self.molecule_var.set(first_display_label)
+                    setattr(self.islat, 'active_molecule', first_mol_name)  # Use molecule name, not display label
+                # If no molecules, default to "SUM"
+                else:
+                    self.molecule_var.set("SUM")
+                    setattr(self.islat, 'active_molecule', "SUM")
 
     def create_entry(self, label_text, row, column, attribute_name, callback = None, bind_object=None):
         """
