@@ -113,15 +113,30 @@ class iSLAT:
             mole_save_data = mole_save_data
 
         new_molecules = []
-        for mol in mole_save_data.values():
-            mol_name = mol["Molecule Name"]
-            if mol_name not in self.molecules_dict:
-                new_molecule = Molecule(
-                    user_save_data=mol,
-                    wavelength_range=self.wavelength_range,
-                    initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
-                )
-                new_molecules.append(new_molecule)
+        
+        # Handle both dictionary format (old) and list format (new from load_parameters)
+        if isinstance(mole_save_data, dict):
+            # Old format: dictionary of dictionaries
+            for mol in mole_save_data.values():
+                mol_name = mol["Molecule Name"]
+                if mol_name not in self.molecules_dict:
+                    new_molecule = Molecule(
+                        user_save_data=mol,
+                        wavelength_range=self.wavelength_range,
+                        initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
+                    )
+                    new_molecules.append(new_molecule)
+        elif isinstance(mole_save_data, list):
+            # New format: list of dictionaries (from load_parameters)
+            for mol in mole_save_data:
+                mol_name = mol["Molecule Name"]
+                if mol_name not in self.molecules_dict:
+                    new_molecule = Molecule(
+                        user_save_data=mol,
+                        wavelength_range=self.wavelength_range,
+                        initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
+                    )
+                    new_molecules.append(new_molecule)
 
         if new_molecules:
             self.molecules_dict.add_molecules(new_molecules)
