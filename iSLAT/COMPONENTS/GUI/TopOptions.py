@@ -3,15 +3,15 @@ from tkinter import ttk, messagebox
 from .GUIFunctions import create_button
 
 class TopOptions:
-    def __init__(self, master, islat, theme):
+    def __init__(self, master, islat, theme, data_field=None):
         self.master = master
         self.islat = islat
         self.theme = theme
+        self.data_field = data_field
         #self.theme = self.master.theme
 
         # Create the frame for top options
         self.frame = tk.Frame(master, borderwidth=2, relief="groove")
-        self.frame.pack(side="top", fill="x")
 
         # Create buttons for top options
         create_button(self.frame, self.theme, "HITRAN Query", self.hitran_query, 0, 0)
@@ -24,7 +24,19 @@ class TopOptions:
         create_button(self.frame, self.theme, "Toggle Legend", self.toggle_legend, 1, 3)
     
     def hitran_query(self):
-        print("Perform HITRAN query")
+        """
+        Open the HITRAN molecule selector window.
+        This replicates the functionality from the original iSLAT HITRAN query feature.
+        """
+        try:
+            from iSLAT.COMPONENTS.chart_window import MoleculeSelector
+            # Use the root window from the islat class for the MoleculeSelector
+            root_window = getattr(self.islat, 'root', self.master)
+            MoleculeSelector(root_window, self.data_field)
+        except Exception as e:
+            print(f"Error opening HITRAN query: {e}")
+            if self.data_field:
+                self.data_field.insert_text(f"Error opening HITRAN query: {e}", console_print=True)
     
     def spectra_browser(self):
         print("Open spectra browser")
