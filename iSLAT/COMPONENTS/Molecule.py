@@ -54,29 +54,29 @@ class Molecule:
             self.name = usd.get('Molecule Name', kwargs.get('name', 'Unknown Molecule'))
             self.filepath = usd.get('File Path', kwargs.get('filepath', None))
             self.displaylabel = usd.get('Molecule Label', self.name)
-            self.temp = float(usd.get('Temp', kwargs.get('temp', None)))
-            self.radius = float(usd.get('Rad', kwargs.get('radius', None)))
-            self.n_mol = float(usd.get('N_Mol', kwargs.get('n_mol', None)))
+            temp_val = usd.get('Temp', kwargs.get('temp', None))
+            radius_val = usd.get('Rad', kwargs.get('radius', None))
+            n_mol_val = usd.get('N_Mol', kwargs.get('n_mol', None))
             self.color = usd.get('Color', kwargs.get('color', None))
             self.is_visible = usd.get('Vis', kwargs.get('is_visible', True))
-            self.distance = float(usd.get('Dist', kwargs.get('distance', default_parms.dist)))
+            distance_val = usd.get('Dist', kwargs.get('distance', default_parms.dist))
             # Optional: handle StellarRV, FWHM, Broad if needed
             self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
-            self.fwhm = float(usd.get('FWHM', default_parms.fwhm))
+            fwhm_val = usd.get('FWHM', default_parms.fwhm)
             self.broad = float(usd.get('Broad', default_parms.broadening))
         else:
             #if hasattr(self, 'hitran_data'):
             self.name = kwargs.get('name', kwargs.get('displaylabel', kwargs.get('filepath', 'Unknown Molecule')))
             self.filepath = kwargs.get('filepath', (self.hitran_data if 'hitran_data' in kwargs else None))
             self.displaylabel = kwargs.get('displaylabel', kwargs.get('name', 'Unknown Molecule'))
-            self.temp = kwargs.get('temp', self.initial_molecule_parameters.get('t_kin', 300.0))
-            self.radius = kwargs.get('radius', self.initial_molecule_parameters.get('radius_init', 1.0))
-            self.n_mol = kwargs.get('n_mol', None)
+            temp_val = kwargs.get('temp', self.initial_molecule_parameters.get('t_kin', 300.0))
+            radius_val = kwargs.get('radius', self.initial_molecule_parameters.get('radius_init', 1.0))
+            n_mol_val = kwargs.get('n_mol', self.initial_molecule_parameters.get('n_mol', None))
             self.color = kwargs.get('color', None)
             self.is_visible = kwargs.get('is_visible', True)
-            self.distance = kwargs.get('distance', default_parms.dist)
+            distance_val = kwargs.get('distance', default_parms.dist)
             self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
-            self.fwhm = kwargs.get('fwhm', default_parms.fwhm)
+            fwhm_val = kwargs.get('fwhm', default_parms.fwhm)
             self.broad = kwargs.get('broad', default_parms.broadening)
 
         #self.hitran_data = hitran_data
@@ -103,24 +103,27 @@ class Molecule:
         self.mol_data = MolData(self.name, self.filepath)
 
         # Set kinetic temperature
-        self.t_kin = self.initial_molecule_parameters.get('t_kin', (self.temp if self.temp is not None else self.initial_molecule_parameters.get('t_kin', 300.0)))
-        self.scale_exponent = self.initial_molecule_parameters.get('scale_exponent', self.initial_molecule_parameters.get('scale_exponent', 1.0))
-        self.scale_number = self.initial_molecule_parameters.get('scale_number', self.initial_molecule_parameters.get('scale_number', 1.0))
-        self.radius_init = self.initial_molecule_parameters.get('radius_init', (self.radius if self.radius is not None else self.initial_molecule_parameters.get('radius_init', 1.0)))
+        self.t_kin = self.initial_molecule_parameters.get('t_kin', (temp_val if temp_val is not None else 300.0))
+        self.scale_exponent = self.initial_molecule_parameters.get('scale_exponent', 1.0)
+        self.scale_number = self.initial_molecule_parameters.get('scale_number', 1.0)
+        self.radius_init = self.initial_molecule_parameters.get('radius_init', (radius_val if radius_val is not None else 1.0))
 
-        # Store current values temporarily before setting up properties
-        temp_val = self.temp if self.temp is not None else self.t_kin
-        radius_val = self.radius if self.radius is not None else self.radius_init
+        # Calculate n_mol_init from scale_number and scale_exponent
         self.n_mol_init = float(self.scale_number * (10 ** self.scale_exponent))
-        n_mol_val = self.n_mol if self.n_mol is not None else self.n_mol_init
-        distance_val = self.distance if hasattr(self, 'distance') else default_parms.dist
+        
+        # Use provided n_mol_val if available, otherwise use computed n_mol_init
+        final_n_mol = n_mol_val if n_mol_val is not None else self.n_mol_init
+        final_temp = temp_val if temp_val is not None else self.t_kin
+        final_radius = radius_val if radius_val is not None else self.radius_init
+        final_distance = distance_val if distance_val is not None else default_parms.dist
+        final_fwhm = fwhm_val if fwhm_val is not None else default_parms.fwhm
 
         # Initialize private attributes for properties
-        self._temp = temp_val
-        self._radius = radius_val
-        self._n_mol = n_mol_val
-        self._distance = distance_val
-        self._fwhm = self.fwhm
+        self._temp = float(final_temp)
+        self._radius = float(final_radius)
+        self._n_mol = float(final_n_mol)
+        self._distance = float(final_distance)
+        self._fwhm = float(final_fwhm)
 
         #self.intrinsic_line_width = intrinsic_line_width
         self.model_pixel_res = kwargs.get('model_pixel_res', default_parms.model_pixel_res)  # Pixel resolution for the model spectrum
@@ -223,6 +226,9 @@ class Molecule:
     @n_mol.setter
     def n_mol(self, value):
         """Column density setter - recalculates intensity when changed"""
+        if value is None:
+            # If None is passed, use the computed n_mol_init
+            value = getattr(self, 'n_mol_init', 1e17)
         self._n_mol = float(value)
         if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
             self.calculate_intensity()
