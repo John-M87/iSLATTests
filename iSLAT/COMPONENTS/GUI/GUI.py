@@ -24,8 +24,13 @@ class GUI:
         parent.grid_rowconfigure(1, weight=1)
         parent.grid_columnconfigure(0, weight=1)
 
-        # Top control buttons
-        self.top_options = TopOptions(parent, self.islat_class, theme=self.theme)
+        # Main data field - create this first so we can pass it to other components
+        self.data_field = DataField("Main Data Field", "", parent)
+        self.data_field.frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
+        self._add_popout_button_to_corner(self.data_field.frame, "Main Data Field", self.data_field.frame, parent, 4, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
+
+        # Top control buttons - now we can pass data_field
+        self.top_options = TopOptions(parent, self.islat_class, theme=self.theme, data_field=self.data_field)
         self.top_options.frame.grid(row=0, column=0, sticky="ew", padx=5, pady=2)
         self._add_popout_button_to_corner(self.top_options.frame, "Top Options", self.top_options, parent, 0, 0, "grid", {"sticky": "ew", "padx": 5, "pady": 2})
 
@@ -53,11 +58,6 @@ class GUI:
         control_panel_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
         self.control_panel = ControlPanel(control_panel_frame, self.islat_class)
         self._add_popout_button_to_corner(control_panel_frame, "Control Panel", control_panel_frame, parent, 3, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
-
-        # Main data field
-        self.data_field = DataField("Main Data Field", "", parent)
-        self.data_field.frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
-        self._add_popout_button_to_corner(self.data_field.frame, "Main Data Field", self.data_field.frame, parent, 4, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
 
     def _add_popout_button_to_corner(self, widget, title, content, parent, row, column, manager, manager_kwargs):
         # Store geometry info for re-adding
