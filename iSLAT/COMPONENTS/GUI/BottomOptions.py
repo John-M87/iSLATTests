@@ -1,5 +1,6 @@
 import numpy as np
 import tkinter as tk
+import traceback
 #import pandas as pd
 #import os
 #from tkinter import ttk
@@ -84,50 +85,62 @@ class BottomOptions:
 
     def fit_selected_line(self, deblend=False):
         """Fit the currently selected line using LMFIT (like the original fit_onselect function)."""
-        self.data_field.clear()
-        
-        if not hasattr(self.main_plot, 'selected_wave') or self.main_plot.selected_wave is None:
-            self.data_field.insert_text("No region selected for fitting.\n")
+
+        if not hasattr(self.main_plot, 'current_selection') or self.main_plot.current_selection is None:
+            self.data_field.insert_text("No region selected for fitting.\n", clear_first=False)
             return
 
         try:
+            # Add separator line to distinguish fit results from previous content
+            self.data_field.insert_text("\n" + "="*50 + "\n", clear_first=False)
+            self.data_field.insert_text("FITTING RESULTS:\n", clear_first=False)
+            
             # Compute the fit using the main plot's fitting function
             if deblend:
                 fit_result = self.main_plot.compute_fit_line(deblend=True)
-                if fit_result:
-                    self.data_field.insert_text("De-blended line fit results:\n")
-                    self.data_field.insert_text(str(fit_result))
-                    self.data_field.insert_text("\nDe-blended line saved in /LINESAVES!\n")
+                if fit_result and len(fit_result) >= 2:
+                    gauss_fit, fit_results_list, x_fit = fit_result
+                    self.data_field.insert_text("De-blended line fit results:\n", clear_first=False)
+                    
+                    for i, result in enumerate(fit_results_list):
+                        self.data_field.insert_text(f"\nComponent {i+1}:\n", console_print=True, clear_first=False)
+                        self.data_field.insert_text(f"Centroid (μm) = {result['center']} +/- {result.get('center_err', 0)}", console_print=True, clear_first=False)
+                        self.data_field.insert_text(f"FWHM (km/s) = {result['fwhm']} +/- {result.get('fwhm_err', 0)}", console_print=True, clear_first=False)
+                        self.data_field.insert_text(f"Area (erg/s/cm2) = {result['gauss_area']} +/- {result.get('gauss_area_err', 0)}", console_print=True, clear_first=False)
+
+                    self.data_field.insert_text("\nDe-blended line fit completed!\n", console_print=True, clear_first=False)
                 else:
-                    self.data_field.insert_text("De-blended fit failed or insufficient data.\n")
+                    self.data_field.insert_text("De-blended fit failed or insufficient data.\n", clear_first=False)
             else:
                 fit_result = self.main_plot.compute_fit_line(deblend=False)
-                if fit_result and hasattr(fit_result, 'params'):
-                    # Format output similar to original iSLAT
-                    center = fit_result.params['center'].value
-                    center_err = fit_result.params['center'].stderr if fit_result.params['center'].stderr else 0
+                if fit_result and len(fit_result) >= 2:
+                    gauss_fit, fit_results_list, x_fit = fit_result
                     
-                    # Calculate FWHM in km/s
-                    fwhm_um = fit_result.params['fwhm'].value
-                    fwhm_kms = fwhm_um / center * 2.99792458e5  # speed of light in km/s
-                    fwhm_err = fit_result.params['fwhm'].stderr / center * 2.99792458e5 if fit_result.params['fwhm'].stderr else 0
-                    
-                    # Calculate area (simplified)
-                    area = fit_result.params['amplitude'].value * 1e-23  # Convert to erg/s/cm2
-                    area_err = fit_result.params['amplitude'].stderr * 1e-23 if fit_result.params['amplitude'].stderr else 0
-                    
-                    self.data_field.insert_text("Gaussian fit results:\n")
-                    self.data_field.insert_text(f"Centroid (μm) = {center:.5f} +/- {center_err:.5f}\n")
-                    self.data_field.insert_text(f"FWHM (km/s) = {fwhm_kms:.1f} +/- {fwhm_err:.1f}\n")
-                    self.data_field.insert_text(f"Area (erg/s/cm2) = {area:.3e} +/- {area_err:.3e}\n")
+                    if fit_results_list and len(fit_results_list) > 0:
+                        result = fit_results_list[0]  # Single Gaussian result
+                        
+                        self.islat.GUI.data_field.insert_text("Gaussian fit results:\n", clear_first=False)
+                        self.islat.GUI.data_field.insert_text(f"Centroid (μm) = {result['center']:.5f} +/- {result.get('center_err', 0):.5f}", clear_first=False)
+                        self.islat.GUI.data_field.insert_text(f"FWHM (km/s) = {result['fwhm']:.1f} +/- {result.get('fwhm_err', 0):.1f}", clear_first=False)
+                        self.islat.GUI.data_field.insert_text(f"Area (erg/s/cm2) = {result['gauss_area']:.3e} +/- {result.get('gauss_area_err', 0):.3e}", clear_first=False)
+
+                        # Add fit quality metrics if available
+                        if hasattr(gauss_fit, 'chisqr'):
+                            self.data_field.insert_text(f"Chi-squared = {gauss_fit.chisqr:.3f}", clear_first=False)
+                        if hasattr(gauss_fit, 'redchi'):
+                            self.data_field.insert_text(f"Reduced Chi-squared = {gauss_fit.redchi:.3f}", clear_first=False)
+                    else:
+                        self.data_field.insert_text("Fit completed but no parameters returned.\n", clear_first=False)
                 else:
-                    self.data_field.insert_text("Fit failed or insufficient data.\n")
+                    self.data_field.insert_text("Fit failed or insufficient data.\n", clear_first=False)
             
             # Update plots
-            self.main_plot.update_all_plots()
+            #self.main_plot.update_all_plots()
+            self.main_plot.plot_line_inspection(highlight_strongest=False)
             
         except Exception as e:
-            self.data_field.insert_text(f"Error during fitting: {e}\n")
+            self.data_field.insert_text(f"Error during fitting: {e}\n", clear_first=False)
+            self.data_field.insert_text(f"Traceback: {traceback.format_exc()}\n", clear_first=False)
 
     def fit_saved_lines(self):
         """Fit all saved lines sequentially."""

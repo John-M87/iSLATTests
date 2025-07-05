@@ -450,7 +450,7 @@ class iSLATPlot:
             xmax=xmax
         )
 
-    def plot_spectrum_around_line(self, xmin=None, xmax=None):
+    def plot_spectrum_around_line(self, xmin=None, xmax=None, highlight_strongest=True):
         if xmin is None:
             xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
         if xmax is None:
@@ -466,7 +466,7 @@ class iSLATPlot:
 
         # Clear previous active_lines before plotting new ones
         self.active_lines.clear()
-        self.plot_line_inspection(xmin, xmax, line_data)
+        self.plot_line_inspection(xmin, xmax, line_data, highlight_strongest=highlight_strongest)
         self.plot_population_diagram(line_data)
         self.canvas.mpl_connect('pick_event', self.on_pick_line)
     
@@ -495,50 +495,8 @@ class iSLATPlot:
                 if 'text_obj' in value and value['text_obj'] is not None:
                     value['text_obj'].set_color('orange')
                 
-                # Calculate flux integral in selected range
-                if hasattr(self, 'current_selection') and self.current_selection:
-                    xmin, xmax = self.current_selection
-                    # Calculate flux integral
-                    err_data = getattr(self.islat, 'err_data', None)
-                    line_flux, line_err = self.flux_integral(
-                        self.islat.wave_data, 
-                        self.islat.flux_data, 
-                        err_data, 
-                        xmin, 
-                        xmax
-                    )
-                else:
-                    line_flux = [0.0]
-                
-                # Extract line information
-                lam = value.get('lam', None)
-                e_up = value.get('e', None)
-                a_stein = value.get('a', None)
-                g_up = value.get('g', None)
-                inten = value.get('inten', None)
-                up_lev = value.get('up_lev', 'N/A')
-                low_lev = value.get('low_lev', 'N/A')
-                tau_val = value.get('tau', 'N/A')
-                
-                # Format values to match original output
-                wavelength_str = f"{lam:.6f}" if lam is not None else 'N/A'
-                einstein_str = f"{a_stein:.3e}" if a_stein is not None else 'N/A'
-                energy_str = f"{e_up:.0f}" if e_up is not None else 'N/A'
-                tau_str = f"{tau_val:.3f}" if isinstance(tau_val, (float, int)) else str(tau_val)
-                flux_str = f"{line_flux[0]:.3e}" if isinstance(line_flux, (list, tuple)) and len(line_flux) > 0 else f"{line_flux:.3e}"
-
-                # Display line information in the original format
-                info_str = (
-                    "Strongest line:\n"
-                    f"Upper level = {up_lev}\n"
-                    f"Lower level = {low_lev}\n"
-                    f"Wavelength (μm) = {wavelength_str}\n"
-                    f"Einstein-A coeff. (1/s) = {einstein_str}\n"
-                    f"Upper level energy (K) = {energy_str}\n"
-                    f"Opacity = {tau_str}\n"
-                    f"Flux in sel. range (erg/s/cm2) = {flux_str}"
-                )
-                self.islat.GUI.data_field.insert_text(info_str)
+                # Display line information using the helper method
+                self._display_line_info(value)
 
         self.canvas.draw_idle()
 
@@ -614,9 +572,91 @@ class iSLATPlot:
         self.strongest_active_line = strongest_triplet
         return strongest_triplet
 
+    def find_strongest_line_from_data(self):
+        """
+        Alternative method to find strongest line directly from line data,
+        which returns a dictionary with line information ready for display.
+        """
+        if not hasattr(self, 'current_selection') or self.current_selection is None:
+            return None
+            
+        xmin, xmax = self.current_selection
+        
+        # Get line data for the selected range
+        line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+        if line_data.empty:
+            return None
+            
+        # Find the line with maximum intensity
+        max_idx = line_data['intens'].idxmax()
+        strongest_line_data = line_data.loc[max_idx]
+        
+        # Create a dictionary with the line information
+        line_info = {
+            'lam': strongest_line_data['lam'],
+            'e': strongest_line_data['e_up'], 
+            'a': strongest_line_data['a_stein'],
+            'g': strongest_line_data['g_up'],
+            'inten': strongest_line_data['intens'],
+            'up_lev': strongest_line_data.get('lev_up', 'N/A'),
+            'low_lev': strongest_line_data.get('lev_low', 'N/A'),
+            'tau': strongest_line_data.get('tau', 'N/A'),
+            'wavelength': strongest_line_data['lam'],  # For compatibility
+            'intensity': strongest_line_data['intens'],  # For compatibility
+            'flux': strongest_line_data['intens']  # For compatibility
+        }
+        
+        return line_info
+
+    def flux_integral(self, wave_data, flux_data, err_data, xmin, xmax):
+        """
+        Calculate the flux integral in a given wavelength range.
+        
+        Parameters:
+        -----------
+        wave_data : array
+            Wavelength array
+        flux_data : array
+            Flux array
+        err_data : array or None
+            Error array (optional)
+        xmin, xmax : float
+            Wavelength range
+            
+        Returns:
+        --------
+        line_flux : float
+            Integrated flux
+        line_err : float
+            Error on integrated flux
+        """
+        mask = (wave_data >= xmin) & (wave_data <= xmax)
+        if not np.any(mask):
+            return 0.0, 0.0
+            
+        wave_region = wave_data[mask]
+        flux_region = flux_data[mask]
+        
+        if len(wave_region) < 2:
+            return 0.0, 0.0
+            
+        # Integrate using trapezoidal rule
+        line_flux = np.trapz(flux_region, wave_region)
+        
+        # Calculate error if available
+        if err_data is not None:
+            err_region = err_data[mask]
+            # Simple error propagation for integration
+            line_err = np.sqrt(np.sum(err_region**2)) * (wave_region[-1] - wave_region[0]) / len(wave_region)
+        else:
+            line_err = 0.0
+            
+        return line_flux, line_err
+
     def highlight_strongest_line(self):
         """
         Highlights the strongest line (by height) in orange by default, others in green.
+        Also automatically displays the strongest line information in the data field.
         """
         strongest = self.find_strongest_line()
         for line, scatter, value in self.active_lines:
@@ -626,6 +666,7 @@ class iSLATPlot:
                 scatter.set_facecolor('green')
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('green')
+        
         if strongest is not None:
             line, scatter, value = strongest
             if line is not None:
@@ -634,9 +675,82 @@ class iSLATPlot:
                 scatter.set_facecolor('orange')
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('orange')
+            
+            # Automatically display strongest line information in data field
+            self._display_line_info(value)
+        
         self.canvas.draw_idle()
 
-    def plot_line_inspection(self, xmin, xmax, line_data):
+    def _display_line_info(self, value, clear_data_field=True):
+        """
+        Helper method to display line information in the data field.
+        """
+        # Calculate flux integral in selected range
+        if hasattr(self, 'current_selection') and self.current_selection:
+            xmin, xmax = self.current_selection
+            # Calculate flux integral
+            err_data = getattr(self.islat, 'err_data', None)
+            line_flux, line_err = self.flux_integral(
+                self.islat.wave_data, 
+                self.islat.flux_data, 
+                err_data, 
+                xmin, 
+                xmax
+            )
+        else:
+            line_flux = [0.0]
+        
+        # Extract line information
+        lam = value.get('lam', None)
+        e_up = value.get('e', None)
+        a_stein = value.get('a', None)
+        g_up = value.get('g', None)
+        inten = value.get('inten', None)
+        up_lev = value.get('up_lev', 'N/A')
+        low_lev = value.get('low_lev', 'N/A')
+        tau_val = value.get('tau', 'N/A')
+        
+        # Format values to match original output
+        wavelength_str = f"{lam:.6f}" if lam is not None else 'N/A'
+        einstein_str = f"{a_stein:.3e}" if a_stein is not None else 'N/A'
+        energy_str = f"{e_up:.0f}" if e_up is not None else 'N/A'
+        tau_str = f"{tau_val:.3f}" if isinstance(tau_val, (float, int)) else str(tau_val)
+        flux_str = f"{line_flux[0]:.3e}" if isinstance(line_flux, (list, tuple)) and len(line_flux) > 0 else f"{line_flux:.3e}"
+
+        # Display line information in the original format
+        info_str = (
+            "\n--- Line Information ---\n"
+            "Strongest line:\n"
+            f"Upper level = {up_lev}\n"
+            f"Lower level = {low_lev}\n"
+            f"Wavelength (μm) = {wavelength_str}\n"
+            f"Einstein-A coeff. (1/s) = {einstein_str}\n"
+            f"Upper level energy (K) = {energy_str}\n"
+            f"Opacity = {tau_str}\n"
+            f"Flux in sel. range (erg/s/cm2) = {flux_str}\n"
+        )
+        
+        # Add the information without clearing the data field
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'data_field'):
+            self.islat.GUI.data_field.insert_text(info_str, clear_first=clear_data_field)
+
+    def plot_line_inspection(self, xmin=None, xmax=None, line_data=None, highlight_strongest=True):
+        if xmin is None:
+            xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
+        if xmax is None:
+            xmax = self.last_xmax if hasattr(self, 'last_xmax') else None
+        
+        if xmin is None or xmax is None:
+            self.canvas.draw_idle()
+            return
+        
+        if line_data is None or line_data.empty:
+            line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+            if line_data.empty:
+                self.ax2.clear()
+                self.canvas.draw_idle()
+                return
+
         # First update the basic line inspection plot
         self.update_line_inspection_plot(xmin=xmin, xmax=xmax)
         
@@ -664,7 +778,8 @@ class iSLATPlot:
         self.canvas.draw_idle()
 
         # Highlight the strongest line by default
-        self.highlight_strongest_line()
+        if highlight_strongest:
+            self.highlight_strongest_line()
 
     def plot_population_diagram(self, line_data):
         self.update_population_diagram()

@@ -26,9 +26,13 @@ class DataField:
         self.text.pack(side="left", fill="both", expand=True)
         self.scrollbar.pack(side="right", fill="y")
 
-    def insert_text(self, content, clear_first=True):
+    def insert_text(self, content, clear_first=True, console_print = False):
         if clear_first:
             self.clear()
+
+        if console_print:
+            print(content)
+
         self.text.insert("end", str(content) + "\n")
         self.text.see("end")
 
