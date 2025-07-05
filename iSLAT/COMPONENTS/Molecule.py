@@ -108,10 +108,19 @@ class Molecule:
         self.scale_number = self.initial_molecule_parameters.get('scale_number', self.initial_molecule_parameters.get('scale_number', 1.0))
         self.radius_init = self.initial_molecule_parameters.get('radius_init', (self.radius if self.radius is not None else self.initial_molecule_parameters.get('radius_init', 1.0)))
 
-        self.temp = self.temp if self.temp is not None else self.t_kin
-        self.radius = self.radius if self.radius is not None else self.radius_init
+        # Store current values temporarily before setting up properties
+        temp_val = self.temp if self.temp is not None else self.t_kin
+        radius_val = self.radius if self.radius is not None else self.radius_init
         self.n_mol_init = float(self.scale_number * (10 ** self.scale_exponent))
-        self.n_mol = self.n_mol if self.n_mol is not None else self.n_mol_init
+        n_mol_val = self.n_mol if self.n_mol is not None else self.n_mol_init
+        distance_val = self.distance if hasattr(self, 'distance') else default_parms.dist
+
+        # Initialize private attributes for properties
+        self._temp = temp_val
+        self._radius = radius_val
+        self._n_mol = n_mol_val
+        self._distance = distance_val
+        self._fwhm = self.fwhm
 
         #self.intrinsic_line_width = intrinsic_line_width
         self.model_pixel_res = kwargs.get('model_pixel_res', default_parms.model_pixel_res)  # Pixel resolution for the model spectrum
@@ -127,7 +136,7 @@ class Molecule:
             lam_max = self.wavelength_range[1],
             dlambda = self.model_pixel_res,
             R = self.model_line_width,
-            distance = self.distance
+            distance = self._distance
         )
 
         '''print("Here are the parameters right now, we finna boutta add intensity:")
@@ -135,7 +144,7 @@ class Molecule:
 
         self.spectrum.add_intensity(
             intensity=self.intensity,
-            dA=self.radius ** 2 * np.pi
+            dA=self._radius ** 2 * np.pi
         )
 
         '''print("Here are the spectrums lists after adding intensity:")
@@ -143,9 +152,9 @@ class Molecule:
         print(f'Spectrum _lam_list: {self.spectrum._lam_list}')'''
 
     def calculate_intensity(self):
-        t_kin = self.t_kin
-        n_mol = self.n_mol
-        dv = self.fwhm
+        t_kin = getattr(self, '_temp', self.t_kin)
+        n_mol = getattr(self, '_n_mol', self.n_mol_init)
+        dv = getattr(self, '_fwhm', self.broad)  # Use _fwhm if available, fallback to broad
         print(f"Calculating intensity for {self.name} with T={t_kin}, n_mol={n_mol}, dv={dv}")
         self.intensity.calc_intensity(
             t_kin=t_kin,
@@ -179,6 +188,100 @@ class Molecule:
         self.plot_lam = wave_data
         self.plot_flux = interpolated_flux
         return (self.plot_lam, self.plot_flux)
+
+    @property
+    def temp(self):
+        """Temperature getter"""
+        return self._temp
+    
+    @temp.setter
+    def temp(self, value):
+        """Temperature setter - recalculates intensity when changed"""
+        self._temp = float(value)
+        self.t_kin = self._temp
+        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
+            self.calculate_intensity()
+            self._update_spectrum()
+    
+    @property
+    def radius(self):
+        """Radius getter"""
+        return self._radius
+    
+    @radius.setter
+    def radius(self, value):
+        """Radius setter - updates spectrum area when changed"""
+        self._radius = float(value)
+        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
+            self._update_spectrum()
+    
+    @property
+    def n_mol(self):
+        """Column density getter"""
+        return self._n_mol
+    
+    @n_mol.setter
+    def n_mol(self, value):
+        """Column density setter - recalculates intensity when changed"""
+        self._n_mol = float(value)
+        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
+            self.calculate_intensity()
+            self._update_spectrum()
+    
+    @property
+    def distance(self):
+        """Distance getter"""
+        return self._distance
+    
+    @distance.setter
+    def distance(self, value):
+        """Distance setter - updates spectrum when changed"""
+        self._distance = float(value)
+        if hasattr(self, 'spectrum'):
+            self._recreate_spectrum()
+    
+    @property
+    def fwhm(self):
+        """FWHM getter"""
+        return self._fwhm
+    
+    @fwhm.setter
+    def fwhm(self, value):
+        """FWHM setter - recalculates intensity when changed"""
+        self._fwhm = float(value)
+        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
+            self.calculate_intensity()
+            self._update_spectrum()
+    
+    def _update_spectrum(self):
+        """Update the spectrum with current intensity and area"""
+        if hasattr(self, 'spectrum') and hasattr(self, 'intensity'):
+            # Clear previous intensity data
+            self.spectrum._I_list = []
+            self.spectrum._lam_list = []
+            self.spectrum._dA_list = []
+            
+            # Add updated intensity with current radius
+            self.spectrum.add_intensity(
+                intensity=self.intensity,
+                dA=self._radius ** 2 * np.pi
+            )
+    
+    def _recreate_spectrum(self):
+        """Recreate the spectrum when distance or other fundamental parameters change"""
+        if hasattr(self, 'intensity'):
+            self.spectrum = Spectrum(
+                lam_min=self.wavelength_range[0],
+                lam_max=self.wavelength_range[1],
+                dlambda=self.model_pixel_res,
+                R=self.model_line_width,
+                distance=self._distance
+            )
+            
+            self.spectrum.add_intensity(
+                intensity=self.intensity,
+                dA=self._radius ** 2 * np.pi
+            )
 
     def __str__(self):
         attrs = vars(self)
