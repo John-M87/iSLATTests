@@ -38,6 +38,12 @@ class Molecule:
         Initialize a molecule with its parameters.
         All parameters are now instance-level.
         """
+        # Initialize caching system
+        self._flux_cache = {}
+        self._spectrum_valid = False
+        self._intensity_valid = False
+        self._interpolated_flux_cache = {}
+        
         # Load user saved data if provided
         if 'hitran_data' in kwargs:
             print("Generating new molecule from default parameters.")
@@ -122,8 +128,16 @@ class Molecule:
             intensity=self.intensity,
             dA=self._radius ** 2 * np.pi
         )
+        
+        # Mark spectrum and intensity as valid after initial calculation
+        self._spectrum_valid = True
+        self._intensity_valid = True
 
     def calculate_intensity(self):
+        """Calculate intensity only if not cached or if parameters changed"""
+        if self._intensity_valid:
+            return
+            
         t_kin = getattr(self, '_temp', self.t_kin)
         n_mol = getattr(self, '_n_mol', self.n_mol_init)
         dv = getattr(self, '_fwhm', default_parms.fwhm)
@@ -132,17 +146,51 @@ class Molecule:
             n_mol=n_mol,
             dv=dv
         )
+        
+        # Mark intensity as valid and invalidate spectrum
+        self._intensity_valid = True
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         # Notify that intensity has been recalculated
         self._notify_my_parameter_change('intensity_recalculated', None, None)
 
+    def _clear_flux_caches(self):
+        """Clear all cached flux data"""
+        self._flux_cache.clear()
+        self._interpolated_flux_cache.clear()
+
     def get_flux(self, wavelength_array):
+        """Get flux with caching for performance"""
+        # Create a cache key from the wavelength array
+        cache_key = hash(wavelength_array.tobytes()) if hasattr(wavelength_array, 'tobytes') else str(wavelength_array)
+        
+        if cache_key in self._interpolated_flux_cache and self._spectrum_valid:
+            return self._interpolated_flux_cache[cache_key]
+        
+        # Ensure spectrum is valid
+        self._ensure_spectrum_valid()
+        
         lam_grid = self.spectrum._lamgrid
         flux_grid = self.spectrum.flux
-        return np.interp(wavelength_array, lam_grid, flux_grid)
+        interpolated_flux = np.interp(wavelength_array, lam_grid, flux_grid)
+        
+        # Cache the result
+        self._interpolated_flux_cache[cache_key] = interpolated_flux
+        return interpolated_flux
+    
+    def _ensure_spectrum_valid(self):
+        """Ensure spectrum is calculated and up to date"""
+        if not self._spectrum_valid:
+            if not self._intensity_valid:
+                self.calculate_intensity()
+            self._update_spectrum()
+            self._spectrum_valid = True
     
     def prepare_plot_data(self, wave_data):
         """
         Prepares wavelength and flux data aligned to the global observational wavelength grid.
+        Uses caching for performance.
 
         Args:
             wave_data (np.ndarray): The wavelength grid (microns) used for observational data and plots.
@@ -154,12 +202,27 @@ class Molecule:
         if self.spectrum is None:
             raise ValueError(f"Spectrum for molecule '{self.name}' is not initialized.")
         
+        # Create cache key for this wave_data
+        cache_key = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        
+        # Check if we have cached data and spectrum is still valid
+        if cache_key in self._flux_cache and self._spectrum_valid:
+            self.plot_lam, self.plot_flux = self._flux_cache[cache_key]
+            return (self.plot_lam, self.plot_flux)
+        
+        # Ensure spectrum is valid before interpolation
+        self._ensure_spectrum_valid()
+        
         # Interpolate molecule flux onto the global wavelength grid
         interpolated_flux = np.interp(wave_data, self.spectrum.lamgrid, self.spectrum.flux_jy, left=0, right=0)
         
         # Store results
         self.plot_lam = wave_data
         self.plot_flux = interpolated_flux
+        
+        # Cache the results
+        self._flux_cache[cache_key] = (self.plot_lam, self.plot_flux)
+        
         return (self.plot_lam, self.plot_flux)
 
     @property
@@ -173,9 +236,12 @@ class Molecule:
         old_value = self._temp
         self._temp = float(value)
         self.t_kin = self._temp
-        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
-            self.calculate_intensity()
-            self._update_spectrum()
+        
+        # Invalidate caches
+        self._intensity_valid = False
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('temp', old_value, self._temp)
     
     @property
@@ -188,8 +254,11 @@ class Molecule:
         """Radius setter - updates spectrum area when changed"""
         old_value = self._radius
         self._radius = float(value)
-        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
-            self._update_spectrum()
+        
+        # Invalidate spectrum cache (but not intensity)
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('radius', old_value, self._radius)
     
     @property
@@ -205,9 +274,12 @@ class Molecule:
             value = getattr(self, 'n_mol_init', 1e17)
         old_value = self._n_mol
         self._n_mol = float(value)
-        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
-            self.calculate_intensity()
-            self._update_spectrum()
+        
+        # Invalidate caches
+        self._intensity_valid = False
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('n_mol', old_value, self._n_mol)
     
     @property
@@ -220,8 +292,11 @@ class Molecule:
         """Distance setter - updates spectrum when changed"""
         old_value = self._distance
         self._distance = float(value)
-        if hasattr(self, 'spectrum'):
-            self._recreate_spectrum()
+        
+        # Distance changes require spectrum recreation
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('distance', old_value, self._distance)
     
     @property
@@ -234,9 +309,12 @@ class Molecule:
         """FWHM setter - recalculates intensity when changed"""
         old_value = self._fwhm
         self._fwhm = float(value)
-        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
-            self.calculate_intensity()
-            self._update_spectrum()
+        
+        # Invalidate caches
+        self._intensity_valid = False
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('fwhm', old_value, self._fwhm)
 
     @property
@@ -261,14 +339,21 @@ class Molecule:
         """Intrinsic line width setter"""
         old_value = self.broad
         self.broad = float(value)
-        if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
-            self.calculate_intensity()
-            self._update_spectrum()
+        
+        # Invalidate caches
+        self._intensity_valid = False
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('intrinsic_line_width', old_value, self.broad)
     
     def _update_spectrum(self):
         """Update the spectrum with current intensity and area"""
         if hasattr(self, 'spectrum') and hasattr(self, 'intensity'):
+            # Ensure intensity is valid first
+            if not self._intensity_valid:
+                self.calculate_intensity()
+                
             # Clear previous intensity data
             self.spectrum._I_list = []
             self.spectrum._lam_list = []
@@ -279,10 +364,18 @@ class Molecule:
                 intensity=self.intensity,
                 dA=self._radius ** 2 * np.pi
             )
+            
+            # Mark spectrum as valid and clear flux caches
+            self._spectrum_valid = True
+            self._clear_flux_caches()
     
     def _recreate_spectrum(self):
         """Recreate the spectrum when distance or other fundamental parameters change"""
         if hasattr(self, 'intensity'):
+            # Ensure intensity is valid first
+            if not self._intensity_valid:
+                self.calculate_intensity()
+                
             self.spectrum = Spectrum(
                 lam_min=self.wavelength_range[0],
                 lam_max=self.wavelength_range[1],
@@ -295,6 +388,10 @@ class Molecule:
                 intensity=self.intensity,
                 dA=self._radius ** 2 * np.pi
             )
+            
+            # Mark spectrum as valid and clear flux caches
+            self._spectrum_valid = True
+            self._clear_flux_caches()
 
     def __str__(self):
         attrs = vars(self)

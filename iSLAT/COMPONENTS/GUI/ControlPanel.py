@@ -42,12 +42,17 @@ class ControlPanel:
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
         """Handle global parameter changes from MoleculeDict"""
-        # Update plots when any global parameter changes
-        plot_obj = self._get_plot_object()
-        if plot_obj:
-            # Update all plots including population diagram
-            if hasattr(plot_obj, 'update_all_plots'):
-                plot_obj.update_all_plots()
+        # Use coordinator for updates
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('model_spectrum')
+            self.islat.request_update('plots')
+        else:
+            # Fallback to direct update
+            plot_obj = self._get_plot_object()
+            if plot_obj:
+                # Update all plots including population diagram
+                if hasattr(plot_obj, 'update_all_plots'):
+                    plot_obj.update_all_plots()
             # Specifically update population diagram if it exists
             if hasattr(plot_obj, 'update_population_diagram'):
                 plot_obj.update_population_diagram()
@@ -306,7 +311,11 @@ class ControlPanel:
         self._reload_molecule_dropdown()
 
     def update_plots(self):
-        """Public method for triggering plot updates"""
-        plot_obj = self._get_plot_object()
-        if plot_obj and hasattr(plot_obj, 'update_all_plots'):
-            plot_obj.update_all_plots()
+        """Public method for triggering plot updates using coordinator"""
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('plots')
+        else:
+            # Fallback to direct update
+            plot_obj = self._get_plot_object()
+            if plot_obj and hasattr(plot_obj, 'update_all_plots'):
+                plot_obj.update_all_plots()

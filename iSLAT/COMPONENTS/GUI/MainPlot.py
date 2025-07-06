@@ -42,8 +42,41 @@ class iSLATPlot:
 
         self.model_lines = []
 
-        self.compute_sum_flux_visible()
-        self.islat.update_model_spectrum()
+        # Initial setup without redundant calculations
+        self.summed_flux = np.array([])
+        
+        # Register callbacks for parameter and molecule changes
+        self._register_update_callbacks()
+        
+        # Use coordinator if available, otherwise fallback to direct calls
+        if hasattr(self.islat, '_update_coordinator') and self.islat._update_coordinator:
+            self.islat.request_update('model_spectrum')
+            self.islat.request_update('plots')
+        else:
+            self.compute_sum_flux_visible()
+            self.islat.update_model_spectrum()
+            self.update_all_plots()
+
+    def _register_update_callbacks(self):
+        """Register callbacks to handle parameter and molecule changes"""
+        # Register for molecule parameter changes
+        from iSLAT.COMPONENTS.Molecule import Molecule
+        Molecule.add_molecule_parameter_change_callback(self.on_molecule_parameter_changed)
+        
+        # Register for global parameter changes if molecules_dict exists
+        if hasattr(self.islat, 'molecules_dict'):
+            self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_changed)
+        
+        # Register for active molecule changes
+        self.islat.add_active_molecule_change_callback(self._on_active_molecule_changed)
+    
+    def _on_active_molecule_changed(self, old_molecule, new_molecule):
+        """Handle active molecule changes"""
+        self.on_active_molecule_changed()
+    
+    def _on_global_parameter_changed(self, parameter_name, old_value, new_value):
+        """Handle global parameter changes that affect all molecules"""
+        # Refresh plots when global parameters change
         self.update_all_plots()
 
     def match_display_range(self):
@@ -234,46 +267,23 @@ class iSLATPlot:
 
     def compute_sum_flux_all(self):
         """
-        Computes the sum of all model fluxes (regardless of visibility) and updates the summed_flux array,
-        ensuring all fluxes are interpolated onto the common wave_data grid.
+        Computes the sum of all model fluxes (regardless of visibility) using cached data.
         """
-        summed_flux = np.zeros_like(self.islat.wave_data)
-        for mol in self.islat.molecules_dict.values():
-            # Interpolate molecule's flux onto the common grid
-            flux_on_common_grid = np.interp(
-                self.islat.wave_data,
-                mol.spectrum.lamgrid,
-                mol.spectrum.flux_jy,
-                left=0.0, right=0.0
-            )
-            summed_flux += flux_on_common_grid
-        self.summed_flux = summed_flux
-        return summed_flux
+        if hasattr(self.islat, 'molecules_dict') and hasattr(self.islat, 'wave_data'):
+            self.summed_flux = self.islat.molecules_dict.get_summed_flux(self.islat.wave_data, visible_only=False)
+        else:
+            self.summed_flux = np.zeros_like(self.islat.wave_data) if hasattr(self.islat, 'wave_data') else np.array([])
+        return self.summed_flux
 
     def compute_sum_flux_visible(self):
         """
-        Optimized method to compute sum of visible molecule fluxes.
-        Uses vectorized operations where possible.
+        Optimized method to compute sum of visible molecule fluxes using cached data.
         """
-        if not hasattr(self.islat, 'wave_data') or self.islat.wave_data is None:
-            return np.array([])
-        
-        summed_flux = np.zeros_like(self.islat.wave_data)
-        
-        for mol in self.islat.molecules_dict.values():
-            if mol.is_visible and hasattr(mol, 'spectrum'):
-                # Vectorized interpolation
-                mol_flux = np.interp(
-                    self.islat.wave_data,
-                    mol.spectrum.lamgrid,
-                    mol.spectrum.flux_jy,
-                    left=0.0, 
-                    right=0.0
-                )
-                summed_flux += mol_flux
-        
-        self.summed_flux = summed_flux
-        return summed_flux
+        if hasattr(self.islat, 'molecules_dict') and hasattr(self.islat, 'wave_data'):
+            self.summed_flux = self.islat.molecules_dict.get_summed_flux(self.islat.wave_data, visible_only=True)
+        else:
+            self.summed_flux = np.zeros_like(self.islat.wave_data) if hasattr(self.islat, 'wave_data') else np.array([])
+        return self.summed_flux
 
     def plot_sum_line(self, wave, flux, label=None, color=None, compute = True):
         """
@@ -457,11 +467,17 @@ class iSLATPlot:
             xmax = self.last_xmax if hasattr(self, 'last_xmax') else None
 
         if xmin is None or xmax is None:
+            # If no selection but we need to update population diagram due to molecule/parameter changes
+            self.update_population_diagram()
             self.canvas.draw_idle()
             return
 
         line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
         if line_data.empty:
+            # Clear active lines and update population diagram even if no lines in range
+            self.active_lines.clear()
+            self.update_population_diagram()
+            self.canvas.draw_idle()
             return
 
         # Clear previous active_lines before plotting new ones
@@ -782,18 +798,34 @@ class iSLATPlot:
             self.highlight_strongest_line()
 
     def plot_population_diagram(self, line_data):
+        # First update the base population diagram with current molecule parameters
         self.update_population_diagram()
+        
+        # Ensure we have valid line data
+        if line_data is None or line_data.empty:
+            return
+        
+        # Recalculate values using current molecule parameters
         values = self.get_active_line_values(line_data)
+        
+        # Clear existing active line scatter points and rebuild
+        for line, scatter, value in self.active_lines:
+            if scatter is not None:
+                scatter.remove()
+        
         # Update the scatter part of self.active_lines
         # Ensure self.active_lines has the same length as values
         while len(self.active_lines) < len(values):
             self.active_lines.append([None, None, values[len(self.active_lines)]])
+        
+        # Add new scatter points with updated parameters
         for idx, v in enumerate(values):
-            if v['rd_yax'] is not None:
+            if idx < len(self.active_lines) and v['rd_yax'] is not None:
                 sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color='green', edgecolors='black', picker=True)
-                # Update the second value in each triplet in self.active_lines to the new scatter object (sc)
+                # Update the scatter object and value in active_lines
                 self.active_lines[idx][1] = sc
                 self.active_lines[idx][2] = v
+        
         self.canvas.draw_idle()
         self.highlight_strongest_line()
 
@@ -885,6 +917,10 @@ class iSLATPlot:
         self.ax3.set_title(f'{active_mol.displaylabel} Population diagram', fontsize='medium')
 
         molecule_obj = active_mol
+        
+        # Ensure molecule spectrum is up to date before getting intensity table
+        molecule_obj._ensure_spectrum_valid()
+        
         int_pars = molecule_obj.intensity.get_table
         int_pars.index = range(len(int_pars.index))
 
@@ -1038,18 +1074,16 @@ class iSLATPlot:
         """
         Helper method to plot individual molecule spectra and return summed flux.
         Returns the summed flux on the full wavelength grid.
+        Uses cached flux data for performance.
         """
         summed_flux = np.zeros_like(wave_data)
         
         # Sort molecules by peak intensity for better visual layering
         mol_intensities = []
         for mol in visible_molecules:
-            mol_flux_interp = np.interp(
-                wave_data,
-                mol.spectrum.lamgrid,
-                mol.spectrum.flux_jy,
-                left=0.0, right=0.0
-            )
+            # Use cached prepared plot data instead of direct interpolation
+            mol.prepare_plot_data(wave_data)
+            mol_flux_interp = mol.plot_flux
             peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
             mol_intensities.append((peak_intensity, mol, mol_flux_interp))
         
@@ -1183,3 +1217,47 @@ class iSLATPlot:
             line_err_meas = 0.0
             
         return line_flux_meas, line_err_meas
+
+    def on_active_molecule_changed(self):
+        """
+        Called when the active molecule changes.
+        Updates plot titles and refreshes displays with current selection if available.
+        """
+        # Update the population diagram title
+        if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
+            if isinstance(self.islat.active_molecule, str):
+                self.ax3.set_title(f'{self.islat.active_molecule} - Population diagram not available')
+            else:
+                self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram')
+        
+        # Clear active lines since they belong to the previous molecule
+        self.active_lines.clear()
+        
+        # If we have a current selection, refresh the line inspection and population diagram
+        if hasattr(self, 'current_selection') and self.current_selection:
+            xmin, xmax = self.current_selection
+            self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
+        else:
+            # Just update the population diagram without active lines
+            self.update_population_diagram()
+            self.canvas.draw_idle()
+
+    def on_molecule_parameter_changed(self, molecule_name, parameter_name, old_value, new_value):
+        """
+        Called when any molecule parameter changes.
+        Refreshes displays if the changed molecule is the active one.
+        """
+        # Check if the changed molecule is the active one
+        if (hasattr(self.islat, 'active_molecule') and 
+            self.islat.active_molecule and 
+            hasattr(self.islat.active_molecule, 'name') and
+            self.islat.active_molecule.name == molecule_name):
+            
+            # If we have a current selection, refresh the line inspection and population diagram
+            if hasattr(self, 'current_selection') and self.current_selection:
+                xmin, xmax = self.current_selection
+                self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
+            else:
+                # Just update the population diagram without active lines
+                self.update_population_diagram()
+                self.canvas.draw_idle()

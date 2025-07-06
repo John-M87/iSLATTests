@@ -8,6 +8,10 @@ class MoleculeDict(dict):
         super().__init__(*args, **kwargs)
         self.fluxes = {}
         
+        # Caching system for combined fluxes
+        self._summed_flux_cache = {}
+        self._cache_wave_data_hash = None
+        
         # Global parameters that affect all molecules
         self._global_dist = default_parms.dist
         self._global_star_rv = default_parms.star_rv
@@ -98,12 +102,62 @@ class MoleculeDict(dict):
         print("MoleculeDict cleared.")
 
     def update_molecule_fluxes(self, wave_data=None):
-        """Update stored fluxes for all molecules with current wave_data"""
+        """Update stored fluxes for all molecules with current wave_data - with caching"""
+        if wave_data is None:
+            return
+            
+        # Create cache key for wave_data
+        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        
+        # Only update if wave_data changed
+        if self._cache_wave_data_hash == wave_data_hash:
+            return
+            
         for mol_name, molecule in self.items():
-            if wave_data is not None and hasattr(molecule, 'prepare_plot_data'):
+            if hasattr(molecule, 'prepare_plot_data'):
                 molecule.prepare_plot_data(wave_data)
                 if hasattr(molecule, 'plot_flux'):
                     self.fluxes[mol_name] = molecule.plot_flux
+        
+        # Clear summed flux cache when wave data changes
+        self._summed_flux_cache.clear()
+        self._cache_wave_data_hash = wave_data_hash
+    
+    def get_summed_flux(self, wave_data, visible_only=True):
+        """Get summed flux for all visible molecules with caching"""
+        import numpy as np
+        
+        # Create cache key
+        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        visible_molecules = [name for name, mol in self.items() if mol.is_visible] if visible_only else list(self.keys())
+        cache_key = (wave_data_hash, tuple(sorted(visible_molecules)))
+        
+        # Check cache
+        if cache_key in self._summed_flux_cache:
+            return self._summed_flux_cache[cache_key]
+        
+        # Calculate summed flux
+        summed_flux = np.zeros_like(wave_data)
+        
+        for mol_name in visible_molecules:
+            if mol_name in self:
+                molecule = self[mol_name]
+                # Ensure molecule has up-to-date plot data
+                molecule.prepare_plot_data(wave_data)
+                if hasattr(molecule, 'plot_flux'):
+                    summed_flux += molecule.plot_flux
+        
+        # Cache result
+        self._summed_flux_cache[cache_key] = summed_flux
+        return summed_flux
+    
+    def _clear_flux_caches(self):
+        """Clear all flux caches when parameters change"""
+        self._summed_flux_cache.clear()
+        self._cache_wave_data_hash = None
+        for molecule in self.values():
+            if hasattr(molecule, '_clear_flux_caches'):
+                molecule._clear_flux_caches()
     
     def get_molecule_flux(self, mol_name):
         """Get the flux for a specific molecule"""
@@ -140,6 +194,7 @@ class MoleculeDict(dict):
         old_value = self._global_dist
         self._global_dist = float(value)
         self._notify_global_parameter_change('dist', old_value, self._global_dist)
+        self._clear_flux_caches()
         # Update all molecule instances
         for molecule in self.values():
             molecule.distance = self._global_dist
@@ -153,6 +208,7 @@ class MoleculeDict(dict):
         old_value = self._global_star_rv
         self._global_star_rv = float(value)
         self._notify_global_parameter_change('star_rv', old_value, self._global_star_rv)
+        self._clear_flux_caches()
         # Update all molecule instances
         for molecule in self.values():
             molecule.stellar_rv = self._global_star_rv
@@ -166,6 +222,7 @@ class MoleculeDict(dict):
         old_value = self._global_fwhm
         self._global_fwhm = float(value)
         self._notify_global_parameter_change('fwhm', old_value, self._global_fwhm)
+        self._clear_flux_caches()
         # Update model parameters that depend on FWHM
         self._update_model_parameters()
         # Update all molecule instances
@@ -181,6 +238,7 @@ class MoleculeDict(dict):
         old_value = self._global_intrinsic_line_width
         self._global_intrinsic_line_width = float(value)
         self._notify_global_parameter_change('intrinsic_line_width', old_value, self._global_intrinsic_line_width)
+        self._clear_flux_caches()
         # Update all molecule instances
         for molecule in self.values():
             molecule.intrinsic_line_width = self._global_intrinsic_line_width
@@ -194,6 +252,7 @@ class MoleculeDict(dict):
         old_value = self._global_wavelength_range
         self._global_wavelength_range = tuple(value)
         self._notify_global_parameter_change('wavelength_range', old_value, self._global_wavelength_range)
+        self._clear_flux_caches()
         # Update model parameters that depend on wavelength range
         self._update_model_parameters()
         # Update all molecule instances

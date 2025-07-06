@@ -284,6 +284,11 @@ class MoleculeWindow:
             if "color" in props:
                 mol_obj.color = props["color"]
         
-        # Update the model spectrum and plots
-        self.islat.update_model_spectrum()
-        self.plot.update_all_plots()
+        # Update the model spectrum and plots using coordinator
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('model_spectrum')
+            self.islat.request_update('plots')
+        else:
+            # Fallback to direct update
+            self.islat.update_model_spectrum()
+            self.plot.update_all_plots()
