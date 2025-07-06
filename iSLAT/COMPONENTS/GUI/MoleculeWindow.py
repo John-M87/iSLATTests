@@ -120,6 +120,9 @@ class MoleculeWindow:
                     # Only update lines for numeric parameters to avoid infinite loops
                     if attr in ["temp", "radius", "n_mol"]:
                         self.update_lines()
+                        # Also trigger any update_model_spectrum method if it exists
+                        if hasattr(self.islat, 'update_model_spectrum'):
+                            self.islat.update_model_spectrum()
                 except ValueError:
                     pass  # Ignore invalid input
             

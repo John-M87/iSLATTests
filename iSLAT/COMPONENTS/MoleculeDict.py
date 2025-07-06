@@ -1,35 +1,54 @@
 from iSLAT.COMPONENTS.Molecule import Molecule
+import iSLAT.iSLATDefaultInputParms as default_parms
 
 class MoleculeDict(dict):
-    """A dictionary to store Molecule objects with their names as keys, and to preform operations on the collection of molecules."""
+    """A dictionary to store Molecule objects with their names as keys, and to perform operations on the collection of molecules."""
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fluxes = {}
+        
+        # Global parameters that affect all molecules
+        self._global_dist = default_parms.dist
+        self._global_star_rv = default_parms.star_rv
+        self._global_fwhm = default_parms.fwhm
+        self._global_intrinsic_line_width = default_parms.intrinsic_line_width
+        self._global_wavelength_range = default_parms.wavelength_range
+        self._global_model_line_width = default_parms.model_line_width
+        self._global_model_pixel_res = default_parms.model_pixel_res
+        
+        # Callbacks to notify when global parameters change
+        self._global_parameter_change_callbacks = []
 
-    def add_molecule(self, mol_entry, intrinsic_line_width, wavelength_range, model_pixel_res, model_line_width, distance, hitran_data):
+    def add_molecule(self, mol_entry, intrinsic_line_width=None, wavelength_range=None, model_pixel_res=None, model_line_width=None, distance=None, hitran_data=None):
         """Add a new molecule to the dictionary using molecule entry data."""
         mol_name = mol_entry["name"]
+
+        # Use global parameters if not specifically provided
+        effective_intrinsic_line_width = intrinsic_line_width if intrinsic_line_width is not None else self._global_intrinsic_line_width
+        effective_wavelength_range = wavelength_range if wavelength_range is not None else self._global_wavelength_range
+        effective_model_pixel_res = model_pixel_res if model_pixel_res is not None else self._global_model_pixel_res
+        effective_model_line_width = model_line_width if model_line_width is not None else self._global_model_line_width
+        effective_distance = distance if distance is not None else self._global_dist
 
         # Create a Molecule instance
         molecule = Molecule(
             name=mol_name,
             filepath=mol_entry["file"],
             displaylabel=mol_entry["label"],
-            color = self.save_file_data.get(mol_name, {}).get("Color"),
-
+            color=self.save_file_data.get(mol_name, {}).get("Color"),
             initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, {}),
-            wavelength_range = wavelength_range,
-            intrinsic_line_width=self.save_file_data[mol_name]["Broad"],
-            model_pixel_res=model_pixel_res,
-            model_line_width=model_line_width,
-            
-            distance = self.save_file_data.get(mol_name, {}).get("Dist", distance),
-            radius = self.save_file_data.get(mol_name, {}).get("Rad", None),
-            temp = self.save_file_data.get(mol_name, {}).get("Temp", None),
-            n_mol = self.save_file_data.get(mol_name, {}).get("N_Mol", None),
+            wavelength_range=effective_wavelength_range,
+            broad=effective_intrinsic_line_width,
+            model_pixel_res=effective_model_pixel_res,
+            model_line_width=effective_model_line_width,
+            distance=effective_distance,
+            fwhm=self._global_fwhm,
+            stellar_rv=self._global_star_rv,
+            radius=self.save_file_data.get(mol_name, {}).get("Rad", None),
+            temp=self.save_file_data.get(mol_name, {}).get("Temp", None),
+            n_mol=self.save_file_data.get(mol_name, {}).get("N_Mol", None),
             is_visible=self.save_file_data.get(mol_name, {}).get("Vis", True),
-
             hitran_data=hitran_data
         )
 
@@ -37,6 +56,11 @@ class MoleculeDict(dict):
         self[mol_name] = molecule
 
         print(f"Molecule Initialized: {mol_name}")
+        
+        # Update fluxes if the molecule has plot data
+        if hasattr(molecule, 'plot_flux'):
+            self.fluxes[mol_name] = molecule.plot_flux
+            
         return molecule
 
     def add_molecules(self, *molecules):
@@ -72,3 +96,120 @@ class MoleculeDict(dict):
         super().clear()
         self.fluxes.clear()
         print("MoleculeDict cleared.")
+
+    def update_molecule_fluxes(self, wave_data=None):
+        """Update stored fluxes for all molecules with current wave_data"""
+        for mol_name, molecule in self.items():
+            if wave_data is not None and hasattr(molecule, 'prepare_plot_data'):
+                molecule.prepare_plot_data(wave_data)
+                if hasattr(molecule, 'plot_flux'):
+                    self.fluxes[mol_name] = molecule.plot_flux
+    
+    def get_molecule_flux(self, mol_name):
+        """Get the flux for a specific molecule"""
+        if mol_name in self.fluxes:
+            return self.fluxes[mol_name]
+        elif mol_name in self and hasattr(self[mol_name], 'plot_flux'):
+            return self[mol_name].plot_flux
+        return None
+
+    def add_global_parameter_change_callback(self, callback):
+        """Add a callback function to be called when global parameters change"""
+        self._global_parameter_change_callbacks.append(callback)
+    
+    def remove_global_parameter_change_callback(self, callback):
+        """Remove a callback function"""
+        if callback in self._global_parameter_change_callbacks:
+            self._global_parameter_change_callbacks.remove(callback)
+    
+    def _notify_global_parameter_change(self, parameter_name, old_value, new_value):
+        """Notify all callbacks that a global parameter has changed"""
+        for callback in self._global_parameter_change_callbacks:
+            try:
+                callback(parameter_name, old_value, new_value)
+            except Exception as e:
+                print(f"Error in global parameter change callback: {e}")
+    
+    # Global parameter properties with change notification
+    @property
+    def global_dist(self):
+        return self._global_dist
+    
+    @global_dist.setter
+    def global_dist(self, value):
+        old_value = self._global_dist
+        self._global_dist = float(value)
+        self._notify_global_parameter_change('dist', old_value, self._global_dist)
+        # Update all molecule instances
+        for molecule in self.values():
+            molecule.distance = self._global_dist
+    
+    @property
+    def global_star_rv(self):
+        return self._global_star_rv
+    
+    @global_star_rv.setter
+    def global_star_rv(self, value):
+        old_value = self._global_star_rv
+        self._global_star_rv = float(value)
+        self._notify_global_parameter_change('star_rv', old_value, self._global_star_rv)
+        # Update all molecule instances
+        for molecule in self.values():
+            molecule.stellar_rv = self._global_star_rv
+    
+    @property
+    def global_fwhm(self):
+        return self._global_fwhm
+    
+    @global_fwhm.setter
+    def global_fwhm(self, value):
+        old_value = self._global_fwhm
+        self._global_fwhm = float(value)
+        self._notify_global_parameter_change('fwhm', old_value, self._global_fwhm)
+        # Update model parameters that depend on FWHM
+        self._update_model_parameters()
+        # Update all molecule instances
+        for molecule in self.values():
+            molecule.fwhm = self._global_fwhm
+    
+    @property
+    def global_intrinsic_line_width(self):
+        return self._global_intrinsic_line_width
+    
+    @global_intrinsic_line_width.setter
+    def global_intrinsic_line_width(self, value):
+        old_value = self._global_intrinsic_line_width
+        self._global_intrinsic_line_width = float(value)
+        self._notify_global_parameter_change('intrinsic_line_width', old_value, self._global_intrinsic_line_width)
+        # Update all molecule instances
+        for molecule in self.values():
+            molecule.intrinsic_line_width = self._global_intrinsic_line_width
+    
+    @property
+    def global_wavelength_range(self):
+        return self._global_wavelength_range
+    
+    @global_wavelength_range.setter
+    def global_wavelength_range(self, value):
+        old_value = self._global_wavelength_range
+        self._global_wavelength_range = tuple(value)
+        self._notify_global_parameter_change('wavelength_range', old_value, self._global_wavelength_range)
+        # Update model parameters that depend on wavelength range
+        self._update_model_parameters()
+        # Update all molecule instances
+        for molecule in self.values():
+            molecule.wavelength_range = self._global_wavelength_range
+            molecule._recreate_spectrum()
+    
+    def _update_model_parameters(self):
+        """Update model parameters when wavelength range or fwhm changes"""
+        import numpy as np
+        self._global_model_line_width = default_parms.cc / self._global_fwhm
+        self._global_model_pixel_res = (np.mean(self._global_wavelength_range) / default_parms.cc * self._global_fwhm) / default_parms.pix_per_fwhm
+        
+        # Update all molecule instances to use new model parameters
+        for molecule in self.values():
+            molecule.model_line_width = self._global_model_line_width
+            molecule.model_pixel_res = self._global_model_pixel_res
+            # Recreate spectrum with new parameters
+            molecule._recreate_spectrum()

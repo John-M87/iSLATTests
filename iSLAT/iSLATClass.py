@@ -24,9 +24,7 @@ from .COMPONENTS.chart_window import MoleculeSelector
 from .COMPONENTS.Hitran_data import get_Hitran_data
 from .COMPONENTS.partition_function_writer import write_partition_function
 from .COMPONENTS.line_data_writer import write_line_data
-from .COMPONENTS.slabfit_config import *
-from .COMPONENTS.slabfit_loader import *
-from .COMPONENTS.slabfit_runner import *
+from .COMPONENTS.slabfit import *
 from .iSLATDefaultInputParms import *
 #from .iSLATFileHandling import *
 from .COMPONENTS.GUI import *
@@ -64,6 +62,12 @@ class iSLAT:
 
         self.wavelength_range = wavelength_range
         self._display_range = (23.52, 25.41)
+
+        # Store parameters for later MoleculeDict initialization
+        self._dist = dist
+        self._star_rv = star_rv
+        self._fwhm = fwhm
+        self._intrinsic_line_width = intrinsic_line_width
 
         self.min_vu = 1 / (self.wavelength_range[0] / 1E6) / 100.
         self.max_vu = 1 / (self.wavelength_range[1] / 1E6) / 100.
@@ -104,6 +108,12 @@ class iSLAT:
     def init_molecules(self, mole_save_data=None):
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
+            # Initialize global parameters
+            self.molecules_dict.global_dist = self._dist
+            self.molecules_dict.global_star_rv = self._star_rv
+            self.molecules_dict.global_fwhm = self._fwhm
+            self.molecules_dict.global_intrinsic_line_width = self._intrinsic_line_width
+            self.molecules_dict.global_wavelength_range = self.wavelength_range
         if not hasattr(self, "user_saved_molecules"):
                 self.user_saved_molecules = read_from_user_csv()
         
@@ -284,6 +294,12 @@ class iSLAT:
         print("Loading default molecules...")
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
+            # Initialize global parameters
+            self.molecules_dict.global_dist = self._dist
+            self.molecules_dict.global_star_rv = self._star_rv
+            self.molecules_dict.global_fwhm = self._fwhm
+            self.molecules_dict.global_intrinsic_line_width = self._intrinsic_line_width
+            self.molecules_dict.global_wavelength_range = self.wavelength_range
 
         if reset:
             # Clear existing molecules if reset is True
