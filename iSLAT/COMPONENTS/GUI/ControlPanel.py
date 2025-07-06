@@ -14,35 +14,60 @@ class ControlPanel:
         # Initialize all UI components
         self._create_all_components()
         
-        # Register for global parameter change notifications
+        # Register for change notifications using the new callback system
         self._register_callbacks()
 
     def _register_callbacks(self):
-        """Register callbacks for global parameter changes"""
+        """Register callbacks using the new iSLAT callback system"""
         try:
+            # Register for active molecule changes using the iSLAT callback system
+            if hasattr(self.islat, 'add_active_molecule_change_callback'):
+                self.islat.add_active_molecule_change_callback(self._on_active_molecule_change)
+            
+            # Register for global parameter changes if molecules_dict is available
             if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-                # Register callback for when global parameters change
                 self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
-            else:
-                pass  # molecules_dict not available for callback registration
-        except Exception as e:
-            print(f"ControlPanel: Error registering global parameter callback: {e}")
-        
-        try:
-            # Register callback for individual molecule parameter changes
+            
+            # Register for individual molecule parameter changes
             from iSLAT.COMPONENTS.Molecule import Molecule
             Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
+            
         except Exception as e:
-            print(f"ControlPanel: Error registering molecule parameter callback: {e}")
+            print(f"ControlPanel: Error registering callbacks: {e}")
+
+    def _on_active_molecule_change(self, old_molecule, new_molecule):
+        """Handle active molecule changes from the iSLAT callback system"""
+        # Update the dropdown selection to match the new active molecule
+        if hasattr(self, 'molecule_var') and hasattr(self, 'dropdown'):
+            # Get the display label for the new molecule
+            if hasattr(new_molecule, 'displaylabel'):
+                display_label = new_molecule.displaylabel
+            elif hasattr(new_molecule, 'name'):
+                display_label = new_molecule.name
+            elif isinstance(new_molecule, str):
+                display_label = new_molecule  # For "SUM", "ALL", etc.
+            else:
+                display_label = str(new_molecule)
+            
+            # Update dropdown without triggering callback
+            self.molecule_var.set(display_label)
+        
+        # Trigger population diagram update for the new molecule
+        self._trigger_population_diagram_update()
 
     def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
         """Handle individual molecule parameter changes"""
-        # Update population diagram specifically when molecule parameters change
-        self._trigger_population_diagram_update()
+        # Use the iSLAT update coordinator for efficient updates
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('model_spectrum')
+            self.islat.request_update('plots')
+        else:
+            # Fallback for direct updates
+            self._trigger_population_diagram_update()
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
         """Handle global parameter changes from MoleculeDict"""
-        # Use coordinator for updates
+        # Use the iSLAT update coordinator for efficient updates
         if hasattr(self.islat, 'request_update'):
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
@@ -50,12 +75,9 @@ class ControlPanel:
             # Fallback to direct update
             plot_obj = self._get_plot_object()
             if plot_obj:
-                # Update all plots including population diagram
                 if hasattr(plot_obj, 'update_all_plots'):
                     plot_obj.update_all_plots()
-            # Specifically update population diagram if it exists
-            if hasattr(plot_obj, 'update_population_diagram'):
-                plot_obj.update_population_diagram()
+            self._trigger_population_diagram_update()
 
     def _create_all_components(self):
         """Create all control panel components in order"""
@@ -66,10 +88,18 @@ class ControlPanel:
         self.reload_molecule_dropdown()
 
     def _debounced_update(self, callback):
-        """Debounce updates to prevent excessive calls"""
+        """Debounce updates to prevent excessive calls using iSLAT's update coordinator"""
         if self._debounce_after_id:
             self.master.after_cancel(self._debounce_after_id)
-        self._debounce_after_id = self.master.after(100, callback)
+        
+        def execute_update():
+            callback()
+            # Use iSLAT's update coordinator for plot updates
+            if hasattr(self.islat, 'request_update'):
+                self.islat.request_update('model_spectrum')
+                self.islat.request_update('plots')
+        
+        self._debounce_after_id = self.master.after(100, execute_update)
 
     def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
         """Create a simple entry field with label and change callback"""
@@ -101,8 +131,7 @@ class ControlPanel:
                 old_value = getattr(molecules_dict, param_name)
                 if abs(old_value - value) > 1e-10:  # Only update if actually different
                     setattr(molecules_dict, param_name, value)
-                    # Explicitly trigger population diagram update for molecule parameters
-                    self._trigger_population_diagram_update()
+                    # The global parameter change callback will handle updates automatically
             except (ValueError, AttributeError):
                 pass
         
@@ -176,16 +205,21 @@ class ControlPanel:
             pass
 
     def _set_display_range(self, start, end):
-        """Set the display range and update plots"""
+        """Set the display range and update plots using iSLAT's update system"""
         if hasattr(self.islat, 'display_range'):
             self.islat.display_range = (start, end)
         
-        plot_obj = self._get_plot_object()
-        if plot_obj:
-            if hasattr(plot_obj, 'match_display_range'):
-                plot_obj.match_display_range()
-            if hasattr(plot_obj, 'update_all_plots'):
-                plot_obj.update_all_plots()
+        # Use iSLAT's update coordinator for consistent updates
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('plots')
+        else:
+            # Fallback to direct update
+            plot_obj = self._get_plot_object()
+            if plot_obj:
+                if hasattr(plot_obj, 'match_display_range'):
+                    plot_obj.match_display_range()
+                if hasattr(plot_obj, 'update_all_plots'):
+                    plot_obj.update_all_plots()
 
     def _update_wavelength_range(self, value_str=None):
         """Update wavelength range for model calculations (not display)"""
@@ -202,38 +236,33 @@ class ControlPanel:
                 # Update the iSLAT wavelength range if it exists
                 if hasattr(self.islat, 'wavelength_range'):
                     self.islat.wavelength_range = (min_val, max_val)
+                # The global parameter change callback will handle updates automatically
         except (ValueError, AttributeError):
             pass
 
     def _on_molecule_selected(self, event=None):
-        """Handle molecule selection - only updates active molecule"""
+        """Handle molecule selection - uses iSLAT's active_molecule property"""
         selected_label = self.molecule_var.get()
         
-        # Handle special cases first
-        if selected_label in ["SUM", "ALL"]:
-            # For SUM/ALL, set active_molecule to a special string that won't break population diagram
-            self.islat._active_molecule = selected_label
-            # Update population diagram for special cases
-            self._trigger_population_diagram_update()
-            return
-            
-        # Handle regular molecules
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            # Find molecule by display label
-            for mol_name, mol_obj in self.islat.molecules_dict.items():
-                display_label = getattr(mol_obj, 'displaylabel', mol_name)
-                if display_label == selected_label:
-                    self.islat.active_molecule = mol_name  # Use the setter for proper handling
-                    # Update population diagram for the new molecule
-                    self._trigger_population_diagram_update()
-                    return
-            
-        # Default fallback if molecule not found
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            first_mol = next(iter(self.islat.molecules_dict.keys()), None)
-            if first_mol:
-                self.islat.active_molecule = first_mol
-                self._trigger_population_diagram_update()
+        # Use iSLAT's active_molecule setter which will trigger callbacks automatically
+        try:
+            if selected_label in ["SUM", "ALL"]:
+                # For special cases, set directly (iSLAT handles these)
+                self.islat.active_molecule = selected_label
+            elif hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                # Find molecule by display label
+                for mol_name, mol_obj in self.islat.molecules_dict.items():
+                    display_label = getattr(mol_obj, 'displaylabel', mol_name)
+                    if display_label == selected_label:
+                        self.islat.active_molecule = mol_name  # This will trigger callbacks
+                        return
+                
+                # Fallback if molecule not found
+                first_mol = next(iter(self.islat.molecules_dict.keys()), None)
+                if first_mol:
+                    self.islat.active_molecule = first_mol
+        except Exception as e:
+            print(f"Error setting active molecule: {e}")
 
     def _reload_molecule_dropdown(self):
         """Reload molecule dropdown options"""
@@ -311,7 +340,7 @@ class ControlPanel:
         self._reload_molecule_dropdown()
 
     def update_plots(self):
-        """Public method for triggering plot updates using coordinator"""
+        """Public method for triggering plot updates using iSLAT's update coordinator"""
         if hasattr(self.islat, 'request_update'):
             self.islat.request_update('plots')
         else:
@@ -319,3 +348,12 @@ class ControlPanel:
             plot_obj = self._get_plot_object()
             if plot_obj and hasattr(plot_obj, 'update_all_plots'):
                 plot_obj.update_all_plots()
+    
+    def cleanup(self):
+        """Clean up callbacks when control panel is destroyed"""
+        try:
+            # Remove callbacks to prevent memory leaks
+            if hasattr(self.islat, 'remove_active_molecule_change_callback'):
+                self.islat.remove_active_molecule_change_callback(self._on_active_molecule_change)
+        except Exception as e:
+            print(f"Error during ControlPanel cleanup: {e}")
