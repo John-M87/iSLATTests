@@ -114,9 +114,22 @@ class BottomOptions:
                         while f'component_{component_idx}' in line_params:
                             comp_params = line_params[f'component_{component_idx}']
                             self.data_field.insert_text(f"\nComponent {component_idx+1}:\n", clear_first=False)
-                            self.data_field.insert_text(f"Centroid (μm) = {comp_params['center']:.5f} +/- {comp_params.get('center_stderr', 0):.5f}", clear_first=False)
+                            
+                            # Handle None values in stderr parameters
+                            center_err = comp_params.get('center_stderr', 0)
+                            center_err_str = f"{center_err:.5f}" if center_err is not None else "N/A"
+                            
+                            amplitude_err = comp_params.get('amplitude_stderr', 0)  
+                            amplitude_err_str = f"{amplitude_err:.3e}" if amplitude_err is not None else "N/A"
+                            
+                            sigma_err = comp_params.get('sigma_stderr', 0)
+                            sigma_err_str = f"{sigma_err:.5f}" if sigma_err is not None else "N/A"
+                            
+                            self.data_field.insert_text(f"Centroid (μm) = {comp_params['center']:.5f} +/- {center_err_str}", clear_first=False)
                             self.data_field.insert_text(f"FWHM (μm) = {comp_params['fwhm']:.5f}", clear_first=False)
                             self.data_field.insert_text(f"Area = {comp_params['area']:.3e}", clear_first=False)
+                            self.data_field.insert_text(f"Amplitude = {comp_params['amplitude']:.3e} +/- {amplitude_err_str}", clear_first=False)
+                            self.data_field.insert_text(f"Sigma = {comp_params['sigma']:.5f} +/- {sigma_err_str}", clear_first=False)
                             component_idx += 1
                         
                         if component_idx == 0:
@@ -128,16 +141,35 @@ class BottomOptions:
                         self.data_field.insert_text("Gaussian fit results:\n", clear_first=False)
                         
                         if 'center' in line_params:
-                            self.data_field.insert_text(f"Centroid (μm) = {line_params['center']:.5f} +/- {line_params.get('center_stderr', 0):.5f}", clear_first=False)
+                            # Handle None values in stderr parameters
+                            center_err = line_params.get('center_stderr', 0)
+                            center_err_str = f"{center_err:.5f}" if center_err is not None else "N/A"
+                            
+                            amplitude_err = line_params.get('amplitude_stderr', 0)
+                            amplitude_err_str = f"{amplitude_err:.3e}" if amplitude_err is not None else "N/A"
+                            
+                            sigma_err = line_params.get('sigma_stderr', 0)
+                            sigma_err_str = f"{sigma_err:.5f}" if sigma_err is not None else "N/A"
+                            
+                            self.data_field.insert_text(f"Centroid (μm) = {line_params['center']:.5f} +/- {center_err_str}", clear_first=False)
                             self.data_field.insert_text(f"FWHM (μm) = {line_params['fwhm']:.5f}", clear_first=False)  
                             self.data_field.insert_text(f"Area = {line_params['area']:.3e}", clear_first=False)
+                            self.data_field.insert_text(f"Amplitude = {line_params['amplitude']:.3e} +/- {amplitude_err_str}", clear_first=False)
+                            self.data_field.insert_text(f"Sigma = {line_params['sigma']:.5f} +/- {sigma_err_str}", clear_first=False)
                         else:
                             self.data_field.insert_text("Could not extract fit parameters.\n", clear_first=False)
 
                     # Add fit quality metrics
                     if fit_stats:
-                        self.data_field.insert_text(f"Chi-squared = {fit_stats.get('chi_squared', 'N/A'):.3f}", clear_first=False)
-                        self.data_field.insert_text(f"Reduced Chi-squared = {fit_stats.get('reduced_chi_squared', 'N/A'):.3f}", clear_first=False)
+                        chi_squared = fit_stats.get('chi_squared', 'N/A')
+                        reduced_chi_squared = fit_stats.get('reduced_chi_squared', 'N/A')
+                        
+                        chi_sq_str = f"{chi_squared:.3f}" if isinstance(chi_squared, (int, float)) else str(chi_squared)
+                        red_chi_sq_str = f"{reduced_chi_squared:.3f}" if isinstance(reduced_chi_squared, (int, float)) else str(reduced_chi_squared)
+                        
+                        self.data_field.insert_text(f"Chi-squared = {chi_sq_str}", clear_first=False)
+                        self.data_field.insert_text(f"Reduced Chi-squared = {red_chi_sq_str}", clear_first=False)
+                        
                         if fit_stats.get('success', False):
                             self.data_field.insert_text("Fit converged successfully!", clear_first=False)
                         else:

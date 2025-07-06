@@ -10,6 +10,8 @@ This class handles all fitting operations including:
 """
 
 import numpy as np
+import json
+import os
 from datetime import datetime
 from lmfit.models import GaussianModel, PseudoVoigtModel
 from lmfit import Parameters, minimize, fit_report
@@ -40,6 +42,68 @@ class FittingEngine:
         self.last_fit_result = None
         self.last_fit_params = None
         self.fit_uncertainty = 1.0  # Default uncertainty factor
+        
+        # Line detection strategy configuration
+        self.line_detection_strategy = self._get_line_detection_strategy()
+        self.user_selected_centers = []  # For manual line selection strategy
+        
+    def _get_line_detection_strategy(self):
+        """
+        Get the line detection strategy from iSLAT user settings.
+        
+        Returns
+        -------
+        str
+            Line detection strategy: 'molecular_table', 'peak_detection', or 'user_selection'
+        """
+        try:
+            # Get from iSLAT user settings (no direct file I/O)
+            if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
+                return self.islat.user_settings.get('line_detection_strategy', 'user_selection')
+            
+            # Default fallback - use user_selection to match original iSLATOld behavior
+            return 'user_selection'
+            
+        except Exception as e:
+            print(f"Warning: Could not load line detection strategy from settings: {e}")
+            return 'user_selection'
+    
+    def set_line_detection_strategy(self, strategy):
+        """
+        Set the line detection strategy using iSLAT's settings management.
+        
+        Parameters
+        ----------
+        strategy : str
+            Strategy to use: 'molecular_table', 'peak_detection', or 'user_selection'
+        """
+        valid_strategies = ['molecular_table', 'peak_detection', 'user_selection']
+        if strategy not in valid_strategies:
+            raise ValueError(f"Invalid strategy. Must be one of: {valid_strategies}")
+        
+        self.line_detection_strategy = strategy
+        
+        # Update iSLAT user settings (let iSLAT handle persistence)
+        if hasattr(self.islat, 'user_settings'):
+            self.islat.user_settings['line_detection_strategy'] = strategy
+            
+            # If iSLAT has a method to save settings, use it
+            if hasattr(self.islat, 'save_user_settings'):
+                try:
+                    self.islat.save_user_settings()
+                except Exception as e:
+                    print(f"Warning: Could not save line detection strategy: {e}")
+    
+    def set_user_selected_centers(self, centers):
+        """
+        Set manually selected line centers for user_selection strategy.
+        
+        Parameters
+        ----------
+        centers : list
+            List of wavelength centers manually selected by user
+        """
+        self.user_selected_centers = list(centers)
         
     def set_fit_uncertainty(self, uncertainty):
         """Set the uncertainty factor for fitting operations."""
@@ -85,7 +149,7 @@ class FittingEngine:
             raise ValueError("Insufficient data points for fitting")
         
         if deblend:
-            return self._fit_multi_gaussian(fit_wave, fit_flux, initial_guess)
+            return self._fit_multi_gaussian(fit_wave, fit_flux, initial_guess, xmin, xmax)
         else:
             return self._fit_single_gaussian(fit_wave, fit_flux, initial_guess)
     
@@ -120,10 +184,14 @@ class FittingEngine:
         
         return result, fitted_wave, fitted_flux
     
-    def _fit_multi_gaussian(self, wave_data, flux_data, initial_guess=None):
+    def _fit_multi_gaussian(self, wave_data, flux_data, initial_guess=None, xmin=None, xmax=None):
         """Fit multiple Gaussian components for deblending."""
-        # Estimate number of components based on peaks
-        n_components = self._estimate_n_components(wave_data, flux_data)
+        # Estimate number of components and line centers based on detection strategy
+        n_components, line_centers = self._estimate_n_components(wave_data, flux_data, xmin, xmax)
+        
+        if n_components == 1:
+            # If only one component detected, use single Gaussian fit
+            return self._fit_single_gaussian(wave_data, flux_data, initial_guess)
         
         # Create composite model
         model = None
@@ -136,13 +204,23 @@ class FittingEngine:
             else:
                 model += GaussianModel(prefix=prefix)
             
-            # Estimate parameters for each component
+            # Estimate parameters for each component using detected line centers
             component_guess = self._estimate_component_params(
-                wave_data, flux_data, i, n_components
+                wave_data, flux_data, i, line_centers
             )
             
-            params.add(f'{prefix}center', value=component_guess['center'],
-                      min=wave_data.min(), max=wave_data.max())
+            # Set parameter bounds similar to MainPlotOld behavior
+            center_tolerance = 0.01  # Default tolerance
+            try:
+                if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
+                    center_tolerance = self.islat.user_settings.get('centrtolerance', 0.01)
+            except:
+                pass
+            
+            center = component_guess['center']
+            params.add(f'{prefix}center', value=center,
+                      min=max(wave_data.min(), center - center_tolerance),
+                      max=min(wave_data.max(), center + center_tolerance))
             params.add(f'{prefix}amplitude', value=component_guess['amplitude'], min=0)
             params.add(f'{prefix}sigma', value=component_guess['sigma'],
                       min=1e-6, max=(wave_data[-1] - wave_data[0]))
@@ -176,36 +254,203 @@ class FittingEngine:
         
         return {'center': center, 'amplitude': amplitude, 'sigma': sigma}
     
-    def _estimate_n_components(self, wave_data, flux_data):
-        """Estimate number of Gaussian components needed."""
-        # Simple peak finding - count local maxima
+    def _estimate_n_components(self, wave_data, flux_data, xmin=None, xmax=None):
+        """
+        Estimate number of Gaussian components needed based on detection strategy.
         
+        Parameters
+        ----------
+        wave_data : array_like
+            Wavelength data
+        flux_data : array_like
+            Flux data
+        xmin, xmax : float, optional
+            Wavelength range for analysis
+            
+        Returns
+        -------
+        int
+            Number of components
+        list
+            List of line centers (wavelengths)
+        """
+        if self.line_detection_strategy == 'molecular_table':
+            return self._estimate_components_from_molecular_table(wave_data, flux_data, xmin, xmax)
+        elif self.line_detection_strategy == 'user_selection':
+            return self._estimate_components_from_user_selection(wave_data, flux_data, xmin, xmax)
+        else:  # 'peak_detection' (default)
+            return self._estimate_components_from_peak_detection(wave_data, flux_data, xmin, xmax)
+    
+    def _estimate_components_from_peak_detection(self, wave_data, flux_data, xmin=None, xmax=None):
+        """Original peak detection method (default FittingEngine behavior)."""
         peaks, _ = find_peaks(flux_data, height=np.max(flux_data) * 0.1)
         n_components = max(1, min(len(peaks), 3))  # Limit to 3 components
         
-        return n_components
-    
-    def _estimate_component_params(self, wave_data, flux_data, component_idx, n_components):
-        """Estimate parameters for a specific component in multi-component fit."""
-        # Divide wavelength range into regions
-        wave_range = wave_data[-1] - wave_data[0]
-        region_size = wave_range / n_components
-        region_start = wave_data[0] + component_idx * region_size
-        region_end = region_start + region_size
-        
-        # Find peak in this region
-        mask = (wave_data >= region_start) & (wave_data <= region_end)
-        if np.any(mask):
-            region_flux = flux_data[mask]
-            region_wave = wave_data[mask]
-            max_idx = np.argmax(region_flux)
-            center = region_wave[max_idx]
-            amplitude = region_flux[max_idx]
+        # Extract peak centers
+        if len(peaks) > 0:
+            peak_centers = wave_data[peaks].tolist()
         else:
-            center = region_start + region_size / 2
-            amplitude = np.max(flux_data) / n_components
+            peak_centers = [wave_data[np.argmax(flux_data)]]
+            
+        return n_components, peak_centers
+    
+    def _estimate_components_from_molecular_table(self, wave_data, flux_data, xmin=None, xmax=None):
+        """Use molecular line tables like MainPlotOld does."""
+        try:
+            # Get line data from active molecule
+            if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
+                if xmin is None:
+                    xmin = wave_data.min()
+                if xmax is None:
+                    xmax = wave_data.max()
+                    
+                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                
+                if not line_data.empty:
+                    line_centers = line_data['lam'].values.tolist()
+                    
+                    # Apply tolerance filtering using iSLAT's user settings
+                    tolerance = 0.05  # Default tolerance
+                    try:
+                        if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
+                            tolerance = self.islat.user_settings.get('centrtolerance', 0.05)
+                    except:
+                        pass
+                    
+                    # Filter centers that are within the wavelength range and have sufficient data
+                    filtered_centers = []
+                    for center in line_centers:
+                        if xmin <= center <= xmax:
+                            # Check if there's sufficient data around this center
+                            center_mask = (wave_data >= center - tolerance) & (wave_data <= center + tolerance)
+                            if np.sum(center_mask) >= 5:  # Minimum points required
+                                filtered_centers.append(center)
+                    
+                    n_components = max(1, min(len(filtered_centers), 5))  # Limit to 5 components
+                    return n_components, filtered_centers[:n_components]
+        except Exception as e:
+            print(f"Warning: Could not use molecular table detection: {e}")
         
-        sigma = region_size / 4  # Conservative estimate
+        # Fallback to peak detection
+        return self._estimate_components_from_peak_detection(wave_data, flux_data, xmin, xmax)
+    
+    def _estimate_components_from_user_selection(self, wave_data, flux_data, xmin=None, xmax=None):
+        """
+        Use pre-selected line positions like iSLATOld does.
+        
+        In iSLATOld, this method gets line centers from the molecular data in the selected range,
+        similar to molecular_table but with manual user confirmation through the selection process.
+        """
+        # First try to use manually set user-selected centers
+        if self.user_selected_centers:
+            # Filter user centers that are within the current wavelength range
+            if xmin is None:
+                xmin = wave_data.min()
+            if xmax is None:
+                xmax = wave_data.max()
+                
+            valid_centers = [center for center in self.user_selected_centers 
+                            if xmin <= center <= xmax]
+            
+            if valid_centers:
+                n_components = len(valid_centers)
+                return n_components, valid_centers
+        
+        # If no manual centers set, mimic iSLATOld behavior:
+        # Use molecular line data from the selected region (like onselect_lines['lam'])
+        try:
+            if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
+                if xmin is None:
+                    xmin = wave_data.min()
+                if xmax is None:
+                    xmax = wave_data.max()
+                    
+                # Get line data in range (similar to onselect() in iSLATOld)
+                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                
+                if not line_data.empty:
+                    # Apply line_threshold filtering like iSLATOld
+                    line_threshold = 0.03  # Default from iSLATOld
+                    try:
+                        if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
+                            line_threshold = self.islat.user_settings.get('line_threshold', 0.03)
+                    except:
+                        pass
+                    
+                    # Filter lines above threshold (like iSLATOld does)
+                    max_intensity = line_data['intens'].max()
+                    threshold_intensity = max_intensity * line_threshold
+                    strong_lines = line_data[line_data['intens'] >= threshold_intensity]
+                    
+                    if not strong_lines.empty:
+                        line_centers = strong_lines['lam'].values.tolist()
+                        n_components = len(line_centers)
+                        return n_components, line_centers
+        except Exception as e:
+            print(f"Warning: Could not use user selection detection: {e}")
+        
+        print("Warning: No user-selected centers in current range, falling back to peak detection")
+        return self._estimate_components_from_peak_detection(wave_data, flux_data, xmin, xmax)
+    
+    def _estimate_component_params(self, wave_data, flux_data, component_idx, line_centers):
+        """
+        Estimate parameters for a specific component in multi-component fit.
+        
+        Parameters
+        ----------
+        wave_data : array_like
+            Wavelength data
+        flux_data : array_like
+            Flux data
+        component_idx : int
+            Index of component to estimate
+        line_centers : list
+            List of line centers from detection strategy
+            
+        Returns
+        -------
+        dict
+            Parameter estimates for this component
+        """
+        if component_idx < len(line_centers):
+            # Use detected line center
+            center = line_centers[component_idx]
+            
+            # Find the closest data point to this center
+            center_idx = np.argmin(np.abs(wave_data - center))
+            amplitude = flux_data[center_idx]
+            
+            # Estimate sigma based on typical line width or use tolerance settings from iSLAT
+            try:
+                if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
+                    # Use FWHM tolerance from settings if available
+                    fwhm_tolerance = self.islat.user_settings.get('fwhmtolerance', 0.01)
+                    sigma = fwhm_tolerance / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
+                else:
+                    sigma = 0.005  # Default sigma in wavelength units
+            except:
+                sigma = 0.005
+            
+        else:
+            # Fallback to region-based estimation (original method)
+            wave_range = wave_data[-1] - wave_data[0]
+            region_size = wave_range / max(len(line_centers), 1)
+            region_start = wave_data[0] + component_idx * region_size
+            region_end = region_start + region_size
+            
+            # Find peak in this region
+            mask = (wave_data >= region_start) & (wave_data <= region_end)
+            if np.any(mask):
+                region_flux = flux_data[mask]
+                region_wave = wave_data[mask]
+                max_idx = np.argmax(region_flux)
+                center = region_wave[max_idx]
+                amplitude = region_flux[max_idx]
+            else:
+                center = region_start + region_size / 2
+                amplitude = np.max(flux_data) / max(len(line_centers), 1)
+            
+            sigma = region_size / 4  # Conservative estimate
         
         return {'center': center, 'amplitude': amplitude, 'sigma': sigma}
     
@@ -428,11 +673,11 @@ class FittingEngine:
         # Extract parameters for single Gaussian fit
         if 'center' in params:
             line_params['center'] = params['center'].value
-            line_params['center_stderr'] = params['center'].stderr
+            line_params['center_stderr'] = params['center'].stderr if params['center'].stderr is not None else None
             line_params['amplitude'] = params['amplitude'].value
-            line_params['amplitude_stderr'] = params['amplitude'].stderr
+            line_params['amplitude_stderr'] = params['amplitude'].stderr if params['amplitude'].stderr is not None else None
             line_params['sigma'] = params['sigma'].value
-            line_params['sigma_stderr'] = params['sigma'].stderr
+            line_params['sigma_stderr'] = params['sigma'].stderr if params['sigma'].stderr is not None else None
             
             # Calculate derived parameters
             line_params['fwhm'] = 2.355 * params['sigma'].value  # 2*sqrt(2*ln(2))
@@ -445,11 +690,11 @@ class FittingEngine:
             component_params = {}
             
             component_params['center'] = params[f'{prefix}center'].value
-            component_params['center_stderr'] = params[f'{prefix}center'].stderr
+            component_params['center_stderr'] = params[f'{prefix}center'].stderr if params[f'{prefix}center'].stderr is not None else None
             component_params['amplitude'] = params[f'{prefix}amplitude'].value
-            component_params['amplitude_stderr'] = params[f'{prefix}amplitude'].stderr
+            component_params['amplitude_stderr'] = params[f'{prefix}amplitude'].stderr if params[f'{prefix}amplitude'].stderr is not None else None
             component_params['sigma'] = params[f'{prefix}sigma'].value
-            component_params['sigma_stderr'] = params[f'{prefix}sigma'].stderr
+            component_params['sigma_stderr'] = params[f'{prefix}sigma'].stderr if params[f'{prefix}sigma'].stderr is not None else None
             
             # Calculate derived parameters for component
             component_params['fwhm'] = 2.355 * params[f'{prefix}sigma'].value
@@ -568,3 +813,52 @@ class FittingEngine:
         except Exception as e:
             print(f"Error evaluating fit components: {e}")
             return {'total': self.last_fit_result.eval(x=x_data)}
+    
+    def get_line_detection_info(self):
+        """
+        Get information about the current line detection strategy.
+        
+        Returns
+        -------
+        dict
+            Information about current strategy and available options
+        """
+        info = {
+            'current_strategy': self.line_detection_strategy,
+            'available_strategies': [
+                {
+                    'name': 'molecular_table',
+                    'description': 'Use molecular line tables to determine centers (like MainPlotOld)',
+                    'requirements': 'Active molecule with intensity data'
+                },
+                {
+                    'name': 'peak_detection', 
+                    'description': 'Use peak detection algorithms (default FittingEngine)',
+                    'requirements': 'None'
+                },
+                {
+                    'name': 'user_selection',
+                    'description': 'Use pre-selected line positions (like iSLATOld)',
+                    'requirements': 'User-selected centers via set_user_selected_centers()'
+                }
+            ],
+            'user_selected_centers': self.user_selected_centers
+        }
+        return info
+    
+    def get_recommended_settings(self):
+        """
+        Get recommended UserSettings.json entries for line detection strategy.
+        
+        Returns
+        -------
+        dict
+            Recommended settings dictionary
+        """
+        return {
+            'line_detection_strategy': 'user_selection',  # Default to match original iSLATOld
+            'centrtolerance': 0.0001,  # From iSLATOld: centrtolerance = 0.0001
+            'fwhmtolerance': 5,        # From iSLATOld: fwhmtolerance = 5 (in km/s)
+            'line_threshold': 0.03,    # From iSLATOld: line_threshold = 0.03
+            'specsep': 0.01           # From iSLATOld: specsep = .01
+        }
