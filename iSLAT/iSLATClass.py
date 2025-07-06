@@ -6,24 +6,22 @@ print('Loading iSLAT ' + iSLAT_version + ': Please Wait ...')
 import numpy as np
 import pandas as pd
 import os
-import json
 
 #from lmfit.models import GaussianModel
 import tkinter as tk
 from tkinter import filedialog
 import ssl
 import certifi
-import datetime
 
 context = ssl.create_default_context(cafile=certifi.where ())
 
 from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
 from .ir_model import *
-from .COMPONENTS.chart_window import MoleculeSelector
+'''from .COMPONENTS.chart_window import MoleculeSelector
 from .COMPONENTS.Hitran_data import get_Hitran_data
 from .COMPONENTS.partition_function_writer import write_partition_function
-from .COMPONENTS.line_data_writer import write_line_data
+from .COMPONENTS.line_data_writer import write_line_data'''
 from .COMPONENTS.slabfit import *
 from .iSLATDefaultInputParms import *
 #from .iSLATFileHandling import *
@@ -34,7 +32,7 @@ from .COMPONENTS.MoleculeDict import MoleculeDict
 class UpdateCoordinator:
     """Centralized update coordinator to manage and debounce plot updates"""
     
-    def __init__(self, islat_instance):
+    def __init__(self, islat_instance : 'iSLAT'):
         self.islat = islat_instance
         self._update_after_id = None
         self._pending_updates = set()
@@ -73,8 +71,8 @@ class UpdateCoordinator:
     
     def _update_plots(self):
         """Update plot displays"""
-        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'main_plot'):
-            self.islat.GUI.main_plot.update_all_plots()
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot'):
+            self.islat.GUI.plot.update_all_plots()
 
 class iSLAT:
     """
@@ -86,10 +84,8 @@ class iSLAT:
         """
         Initialize the iSLAT application.
         """
-        #self.directorypath = os.path.dirname(os.path.abspath(__file__))
-        #print(f"iSLAT directory path: {self.directorypath}")
         self._hitran_data = {}
-        self.create_folders()
+        self.create_folders() # move this to file handeling
 
         # Initialize callback system for active molecule changes
         self._active_molecule_change_callbacks = []
@@ -98,10 +94,7 @@ class iSLAT:
         self._update_coordinator = None
 
         # Load settings
-        #self.user_settings = self.load_user_settings()
         self.user_settings = load_user_settings()
-        #self.update_default_molecule_parameters()
-        #self.update_initial_molecule_parameters()
         self.initial_molecule_parameters = read_initial_molecule_parameters()
         self.molecules_parameters_default = read_default_molecule_parameters()
         

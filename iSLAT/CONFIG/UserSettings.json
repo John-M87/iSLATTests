@@ -8,5 +8,8 @@
     "line_save_file_name": "saved_lines.csv",
     "wave_data_scalar": 1.0,
     "flux_data_scalar": 1.0,
+    "zorder_observed": 3,
+    "zorder_model": 2,
+    "zorder_summed": 1,
     "theme": "LightTheme"
 }

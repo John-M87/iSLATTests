@@ -109,7 +109,7 @@ class iSLATPlot:
                 self.ax1.set_xlim(wmin, wmax)
             else:
                 # If not set, initialize from current plot xlim
-                self.islat.display_range = list(self.ax1.get_xlim())
+                self.islat.display_range = tuple(self.ax1.get_xlim())
         else:
             # If islat has no display_range attribute, do nothing
             return
@@ -142,21 +142,21 @@ class iSLATPlot:
 
     def _set_initial_zoom_range(self):
         """Set the initial zoom range based on display_range or data range"""
-        try:
-            # Use display_range if available
-            if hasattr(self.islat, 'display_range') and self.islat.display_range:
-                xmin, xmax = self.islat.display_range
-                self.ax1.set_xlim(xmin, xmax)
-            elif hasattr(self.islat, 'wave_data') and self.islat.wave_data is not None:
-                # Fallback to full data range
-                self.ax1.set_xlim(self.islat.wave_data.min(), self.islat.wave_data.max())
+        #try:
+        # Use display_range if available
+        if hasattr(self.islat, 'display_range') and self.islat.display_range:
+            xmin, xmax = self.islat.display_range
+            self.ax1.set_xlim(xmin, xmax)
+        elif hasattr(self.islat, 'wave_data') and self.islat.wave_data is not None:
+            # Fallback to full data range
+            self.ax1.set_xlim(self.islat.wave_data.min(), self.islat.wave_data.max())
+        
+        # Update display to match and set optimal y-limits
+        self.match_display_range()
+        self.canvas.draw_idle()
             
-            # Update display to match and set optimal y-limits
-            self.match_display_range()
-            self.canvas.draw_idle()
-            
-        except Exception as e:
-            print(f"Warning: Could not set initial zoom range: {e}")
+        #except Exception as e:
+        #    print(f"Warning: Could not set initial zoom range: {e}")
 
     def make_span_selector(self):
         """
@@ -191,19 +191,30 @@ class iSLATPlot:
         summed_flux = self.compute_sum_flux_visible()
         
         # Get all molecules (let PlotRenderer handle visibility filtering)
-        all_molecules = list(self.islat.molecules_dict.values())
+        #all_molecules = list(self.islat.molecules_dict.values())
         
         # Delegate to PlotRenderer
         self.plot_renderer.render_main_spectrum_plot(
             self.islat.wave_data,
             self.islat.flux_data,
-            all_molecules,  # Pass all molecules, PlotRenderer will filter by visibility
+            molecules = list(self.islat.molecules_dict.values()),  # Pass all molecules, PlotRenderer will filter by visibility
             summed_flux=summed_flux,
             error_data=getattr(self.islat, 'err_data', None)
         )
         
         # Recreate span selector and redraw
         self.make_span_selector()
+        self.canvas.draw_idle()
+
+    def update_population_diagram(self):
+        """
+        Updates the population diagram plot.
+        Delegated to PlotRenderer for cleaner separation of concerns.
+        """
+        # Delegate to PlotRenderer
+        self.plot_renderer.render_population_diagram(self.islat.active_molecule)
+        #self.plot_spectrum_around_line()  # Ensure line inspection is updated
+
         self.canvas.draw_idle()
 
     def plot_data_line(self, wave, flux, label=None, color=None):
@@ -296,7 +307,6 @@ class iSLATPlot:
 
     def onselect(self, xmin, xmax):
         self.current_selection = (xmin, xmax)
-        #self.update_line_inspection_plot(xmin, xmax)
         mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
         self.selected_wave = self.islat.wave_data[mask]
         self.selected_flux = self.islat.flux_data[mask]
@@ -310,16 +320,13 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
 
-        # Fit and update line
-        #self.fit_result = self.islat.fit_selected_line(xmin, xmax)
-        #self.update_line_inspection_plot(xmin, xmax)
-        #self.update_population_diagram()
         self.plot_spectrum_around_line(
             xmin=xmin,
             xmax=xmax
         )
 
     def plot_spectrum_around_line(self, xmin=None, xmax=None, highlight_strongest=True):
+        print("Hey fucko")
         if xmin is None:
             xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
         if xmax is None:
@@ -666,6 +673,8 @@ class iSLATPlot:
         
         # Recalculate values using current molecule parameters
         values = self.get_active_line_values(line_data)
+
+        print("Here by me values matey:", values)
         
         # Clear existing active line scatter points and rebuild
         for line, scatter, value in self.active_lines:
@@ -680,6 +689,7 @@ class iSLATPlot:
         # Add new scatter points with updated parameters
         for idx, v in enumerate(values):
             if idx < len(self.active_lines) and v['rd_yax'] is not None:
+                print("We be in the if statement matey")
                 sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color='green', edgecolors='black', picker=True)
                 # Update the scatter object and value in active_lines
                 self.active_lines[idx][1] = sc
@@ -743,15 +753,6 @@ class iSLATPlot:
         self.ax2.set_xlabel("Wavelength (μm)")
         self.ax2.set_ylabel("Flux (Jy)")
 
-        self.canvas.draw_idle()
-
-    def update_population_diagram(self):
-        """
-        Updates the population diagram plot.
-        Delegated to PlotRenderer for cleaner separation of concerns.
-        """
-        # Delegate to PlotRenderer
-        self.plot_renderer.render_population_diagram(self.islat.active_molecule)
         self.canvas.draw_idle()
 
     def find_single_lines(self, xmin=None, xmax=None):
@@ -885,7 +886,7 @@ class iSLATPlot:
         """
         self.interaction_handler.handle_click_event(event)
     
-    def on_active_molecule_changed(self):
+    def on_active_molecule_changed(self): # a lot of this should be moved to the plot renderer
         """
         Called when the active molecule changes.
         Updates plot titles and refreshes displays with current selection if available.

@@ -268,7 +268,7 @@ class MoleculeWindow:
 
     def update_lines(self):
         """Update molecule visibility and recalculate model spectrum."""
-        self.plot.clear_model_lines()
+        #self.plot.clear_model_lines()
         for mol_name, props in self.molecules.items():
             # Check if molecule still exists in the dictionary (not deleted)
             if mol_name not in self.islat.molecules_dict:

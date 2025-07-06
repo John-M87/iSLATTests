@@ -260,7 +260,7 @@ class InteractionHandler:
         
         # Update display range in iSLAT
         if hasattr(self.islat, 'display_range'):
-            self.islat.display_range = list(new_xlim)
+            self.islat.display_range = tuple(new_xlim)
         
         # Trigger zoom callbacks
         self._trigger_zoom_callbacks('xlim_changed', new_xlim)

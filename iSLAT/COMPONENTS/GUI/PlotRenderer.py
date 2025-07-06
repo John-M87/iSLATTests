@@ -37,7 +37,7 @@ class PlotRenderer:
                 line.remove()
         self.model_lines.clear()
         
-    def render_main_spectrum_plot(self, wave_data, flux_data, visible_molecules, summed_flux=None, error_data=None):
+    def render_main_spectrum_plot(self, wave_data, flux_data, molecules, summed_flux=None, error_data=None):
         """Render the main spectrum plot with observed data, model spectra, and sum"""
         # Store current view limits
         current_xlim = self.ax1.get_xlim() if hasattr(self.ax1, 'get_xlim') else None
@@ -55,8 +55,8 @@ class PlotRenderer:
         self._plot_observed_spectrum(wave_data, flux_data, error_data)
         
         # Plot individual molecule spectra
-        if visible_molecules:
-            self._plot_model_spectra(wave_data, visible_molecules)
+        if molecules:
+            self._plot_model_spectra(wave_data, molecules)
             
         # Plot summed spectrum
         if summed_flux is not None and len(summed_flux) > 0:
@@ -84,7 +84,7 @@ class PlotRenderer:
                     color=self.theme.get("foreground", "black"),
                     linewidth=1,
                     label='Observed',
-                    zorder=1,
+                    zorder=self.theme.get("zorder_observed", 3),
                     elinewidth=0.5,
                     capsize=0
                 )
@@ -96,14 +96,14 @@ class PlotRenderer:
                     color=self.theme.get("foreground", "black"),
                     linewidth=1,
                     label='Observed',
-                    zorder=1
+                    zorder=self.theme.get("zorder_observed", 3)
                 )
     
-    def _plot_model_spectra(self, wave_data, visible_molecules):
+    def _plot_model_spectra(self, wave_data, molecules):
         """Plot individual molecule model spectra"""
         # Double-check visibility using the molecule's own is_visible attribute
         truly_visible = []
-        for mol in visible_molecules:
+        for mol in molecules:
             # Check for is_visible attribute and ensure it's True
             if getattr(mol, 'is_visible', False):
                 truly_visible.append(mol)
@@ -164,12 +164,12 @@ class PlotRenderer:
                     line, = self.ax1.plot(
                         plot_lam,
                         plot_flux,
-                        linestyle='-',
+                        linestyle='--',
                         color=color,
                         alpha=0.7,
                         linewidth=1,
                         label=label,
-                        zorder=3
+                        zorder=self.theme.get("zorder_model", 2)
                     )
                     self.model_lines.append(line)
                 except Exception as e:
@@ -186,7 +186,7 @@ class PlotRenderer:
                 color='lightgray',
                 alpha=1.0,
                 label='Sum',
-                zorder=2  # Behind individual molecule lines but above background
+                zorder=self.theme.get("zorder_summed", 1)
             )
     
     def _configure_main_plot_appearance(self):
