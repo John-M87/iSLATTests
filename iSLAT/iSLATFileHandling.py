@@ -18,6 +18,7 @@ default_molecule_parameters_file_name = "DefaultMoleculeParameters.json"
 default_initial_parameters_file_name = "DefaultMoleculeParameters.json"
 
 line_saves_file_name = "saved_lines.csv"
+atomic_lines_file_name = "LINELISTS/Atomic_lines.csv"
 
 def load_user_settings(file_path=user_configuration_file_path, file_name=user_configuration_file_name, theme_file_path=theme_file_path):
     """ load_user_settings() loads the user settings from the UserSettings.json file."""
@@ -279,3 +280,43 @@ def write_molecules_list_csv(molecules_dict, file_path=save_folder_path, file_na
     except Exception as e:
         print(f"Error saving molecules list: {e}")
         return None
+
+def load_atomic_lines(file_path=atomic_lines_file_name):
+    """
+    Load atomic line database from CSV file.
+    
+    Parameters
+    ----------
+    file_path : str
+        Path to the atomic lines CSV file
+        
+    Returns
+    -------
+    pandas.DataFrame
+        DataFrame containing atomic line data with columns: wave, species, line
+    """
+    try:
+        # Try to find the atomic lines file relative to the current working directory
+        if not os.path.exists(file_path):
+            # Try alternative paths
+            alt_paths = [
+                os.path.join('iSLAT', file_path),
+                os.path.join('..', file_path),
+                os.path.join(os.path.dirname(__file__), '..', file_path)
+            ]
+            
+            for alt_path in alt_paths:
+                if os.path.exists(alt_path):
+                    file_path = alt_path
+                    break
+            else:
+                print(f"Warning: Atomic lines file not found at {file_path} or alternative paths")
+                return pd.DataFrame()
+        
+        atomic_lines = pd.read_csv(file_path)
+        print(f"Loaded {len(atomic_lines)} atomic lines from {file_path}")
+        return atomic_lines
+        
+    except Exception as e:
+        print(f"Error loading atomic lines: {str(e)}")
+        return pd.DataFrame()

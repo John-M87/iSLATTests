@@ -10,8 +10,6 @@ This class handles all fitting operations including:
 """
 
 import numpy as np
-import json
-import os
 from datetime import datetime
 from lmfit.models import GaussianModel, PseudoVoigtModel
 from lmfit import Parameters, minimize, fit_report

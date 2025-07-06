@@ -10,15 +10,13 @@ This class handles all line analysis operations including:
 """
 
 import numpy as np
-import pandas as pd
 from datetime import datetime
 from scipy.signal import find_peaks, peak_widths
 from scipy.integrate import trapezoid, simpson
 from scipy.ndimage import median_filter
 from scipy.interpolate import interp1d
 import json
-import os
-
+import iSLAT.iSLATFileHandling as ifh
 
 class LineAnalyzer:
     """
@@ -44,7 +42,7 @@ class LineAnalyzer:
         self.noise_level = None
         
         # Load atomic/molecular line databases
-        self.atomic_lines = self._load_atomic_lines()
+        self.atomic_lines = ifh.load_atomic_lines()
         self.molecular_lines = {}  # Will be populated as needed
         
         # Detection parameters
@@ -52,24 +50,6 @@ class LineAnalyzer:
         self.min_line_width = 0.001  # microns
         self.max_line_width = 0.1    # microns
         self.continuum_window = 0.05  # microns for local continuum estimation
-    
-    def _load_atomic_lines(self):
-        """Load atomic line database from CSV file."""
-        try:
-            # Try to find the atomic lines file relative to the current working directory
-            atomic_file = os.path.join('iSLAT', 'LINELISTS', 'Atomic_lines.csv')
-            if not os.path.exists(atomic_file):
-                # Try alternative path
-                atomic_file = os.path.join('LINELISTS', 'Atomic_lines.csv')
-            
-            if os.path.exists(atomic_file):
-                return pd.read_csv(atomic_file)
-            else:
-                print(f"Warning: Atomic lines file not found at {atomic_file}")
-                return pd.DataFrame()
-        except Exception as e:
-            print(f"Error loading atomic lines: {str(e)}")
-            return pd.DataFrame()
     
     def set_detection_parameters(self, min_snr=None, min_width=None, max_width=None):
         """

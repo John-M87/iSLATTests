@@ -29,6 +29,7 @@ class BottomOptions:
         create_button(self.frame, self.theme, "Find Single Lines", self.find_single_lines, 0, 4)
         create_button(self.frame, self.theme, "Line De-blender", lambda: self.fit_selected_line(deblend=True), 0, 5)
         create_button(self.frame, self.theme, "Single Slab Fit", self.single_slab_fit, 0, 6)
+        create_button(self.frame, self.theme, "Show Atomic Lines", self.show_atomic_lines, 0, 7)
     
     def save_line(self):
         """Save the currently selected line to the line saves file."""
@@ -349,3 +350,109 @@ class BottomOptions:
                 self.data_field.insert_text(f"Exported to: {f}\n")
         except Exception as e:
             self.data_field.insert_text(f"Error exporting models: {e}\n")
+
+    def show_atomic_lines(self):
+        """
+        Show atomic lines as vertical dashed lines on the plot.
+        Replicates the functionality from the original iSLAT atomic lines feature.
+        """
+        try:
+            # Load atomic lines from file using the file handling module
+            atomic_lines = ifh.load_atomic_lines()
+            
+            if atomic_lines.empty:
+                self.data_field.insert_text("No atomic lines data found.\n")
+                return
+            
+            # Get the main plot axes
+            if hasattr(self.main_plot, 'ax1'):
+                ax1 = self.main_plot.ax1
+                
+                # Get wavelength and other data from the atomic lines DataFrame
+                wavelengths = atomic_lines['wave'].values
+                species = atomic_lines['species'].values
+                line_ids = atomic_lines['line'].values
+                
+                # Plot vertical lines for each atomic line
+                for i in range(len(wavelengths)):
+                    ax1.axvline(wavelengths[i], linestyle='--', color='tomato', alpha=0.7)
+                    
+                    # Adjust the y-coordinate to place labels within the plot borders
+                    ylim = ax1.get_ylim()
+                    label_y = ylim[1]
+                    
+                    # Adjust the x-coordinate to place labels just to the right of the line
+                    xlim = ax1.get_xlim()
+                    label_x = wavelengths[i] + 0.006 * (xlim[1] - xlim[0])
+                    
+                    # Add text label for the line
+                    label_text = f"{species[i]} {line_ids[i]}"
+                    ax1.text(label_x, label_y, label_text, fontsize=8, rotation=90, 
+                            va='top', ha='left', color='tomato')
+                
+                # Update the plot
+                self.main_plot.canvas.draw()
+                
+                # Update data field
+                self.data_field.insert_text(f"Displayed {len(wavelengths)} atomic lines on plot.\n")
+                self.data_field.insert_text("Atomic lines retrieved from file.\n")
+                
+            else:
+                self.data_field.insert_text("Main plot not available for atomic lines display.\n")
+                
+        except Exception as e:
+            self.data_field.insert_text(f"Error displaying atomic lines: {e}\n")
+            traceback.print_exc()
+
+    def show_atomic_lines(self):
+        """
+        Show atomic lines as vertical dashed lines on the plot.
+        Replicates the functionality from the original iSLAT atomic lines feature.
+        """
+        try:
+            # Load atomic lines from file using the file handling module
+            atomic_lines = ifh.load_atomic_lines()
+            
+            if atomic_lines.empty:
+                self.data_field.insert_text("No atomic lines data found.\n")
+                return
+            
+            # Get the main plot axes
+            if hasattr(self.main_plot, 'ax1'):
+                ax1 = self.main_plot.ax1
+                
+                # Get wavelength and other data from the atomic lines DataFrame
+                wavelengths = atomic_lines['wave'].values
+                species = atomic_lines['species'].values
+                line_ids = atomic_lines['line'].values
+                
+                # Plot vertical lines for each atomic line
+                for i in range(len(wavelengths)):
+                    ax1.axvline(wavelengths[i], linestyle='--', color='tomato', alpha=0.7)
+                    
+                    # Adjust the y-coordinate to place labels within the plot borders
+                    ylim = ax1.get_ylim()
+                    label_y = ylim[1]
+                    
+                    # Adjust the x-coordinate to place labels just to the right of the line
+                    xlim = ax1.get_xlim()
+                    label_x = wavelengths[i] + 0.006 * (xlim[1] - xlim[0])
+                    
+                    # Add text label for the line
+                    label_text = f"{species[i]} {line_ids[i]}"
+                    ax1.text(label_x, label_y, label_text, fontsize=8, rotation=90, 
+                            va='top', ha='left', color='tomato')
+                
+                # Update the plot
+                self.main_plot.canvas.draw()
+                
+                # Update data field
+                self.data_field.insert_text(f"Displayed {len(wavelengths)} atomic lines on plot.\n")
+                self.data_field.insert_text("Atomic lines retrieved from file.\n")
+                
+            else:
+                self.data_field.insert_text("Main plot not available for atomic lines display.\n")
+                
+        except Exception as e:
+            self.data_field.insert_text(f"Error displaying atomic lines: {e}\n")
+            traceback.print_exc()
