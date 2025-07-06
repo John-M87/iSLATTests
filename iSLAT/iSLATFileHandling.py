@@ -19,6 +19,7 @@ default_initial_parameters_file_name = "DefaultMoleculeParameters.json"
 
 line_saves_file_name = "saved_lines.csv"
 atomic_lines_file_name = "LINELISTS/Atomic_lines.csv"
+models_folder_path = "MODELS"
 
 def load_user_settings(file_path=user_configuration_file_path, file_name=user_configuration_file_name, theme_file_path=theme_file_path):
     """ load_user_settings() loads the user settings from the UserSettings.json file."""
