@@ -219,6 +219,7 @@ class Molecule:
         """Distance setter - updates spectrum when changed"""
         old_value = self._distance
         self._distance = float(value)
+        print(f"Molecule {self.name}: distance setter called, changing from {old_value} to {self._distance}")
         if hasattr(self, 'spectrum'):
             self._recreate_spectrum()
         self._notify_my_parameter_change('distance', old_value, self._distance)
@@ -233,6 +234,7 @@ class Molecule:
         """FWHM setter - recalculates intensity when changed"""
         old_value = self._fwhm
         self._fwhm = float(value)
+        print(f"Molecule {self.name}: fwhm setter called, changing from {old_value} to {self._fwhm}")
         if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
             self.calculate_intensity()
             self._update_spectrum()
@@ -242,6 +244,13 @@ class Molecule:
     def star_rv(self):
         """Stellar RV getter"""
         return getattr(self, 'stellar_rv', default_parms.star_rv)
+    
+    @star_rv.setter
+    def star_rv(self, value):
+        """Stellar RV setter"""
+        old_value = getattr(self, 'stellar_rv', default_parms.star_rv)
+        self.stellar_rv = float(value)
+        self._notify_my_parameter_change('stellar_rv', old_value, self.stellar_rv)
     
     @property
     def intrinsic_line_width(self):

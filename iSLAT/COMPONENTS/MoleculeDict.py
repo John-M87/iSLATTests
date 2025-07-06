@@ -139,6 +139,7 @@ class MoleculeDict(dict):
     def global_dist(self, value):
         old_value = self._global_dist
         self._global_dist = float(value)
+        print(f"MoleculeDict: global_dist setter called, changing from {old_value} to {self._global_dist}")
         self._notify_global_parameter_change('dist', old_value, self._global_dist)
         # Update all molecule instances
         for molecule in self.values():
@@ -165,6 +166,7 @@ class MoleculeDict(dict):
     def global_fwhm(self, value):
         old_value = self._global_fwhm
         self._global_fwhm = float(value)
+        print(f"MoleculeDict: global_fwhm setter called, changing from {old_value} to {self._global_fwhm}")
         self._notify_global_parameter_change('fwhm', old_value, self._global_fwhm)
         # Update model parameters that depend on FWHM
         self._update_model_parameters()
