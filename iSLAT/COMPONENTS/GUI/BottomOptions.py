@@ -116,7 +116,14 @@ class BottomOptions:
                 if fit_result and len(fit_result) >= 2:
                     gauss_fit, fit_results_list, x_fit = fit_result
                     
-                    if fit_results_list and len(fit_results_list) > 0:
+                    # Handle case where fit_results_list might be numpy array or list
+                    if fit_results_list is not None and len(fit_results_list) > 0:
+                        # Convert to list if it's a numpy array
+                        if hasattr(fit_results_list, 'tolist'):
+                            fit_results_list = fit_results_list.tolist()
+                        elif not isinstance(fit_results_list, list):
+                            fit_results_list = [fit_results_list]
+                        
                         result = fit_results_list[0]  # Single Gaussian result
                         
                         self.islat.GUI.data_field.insert_text("Gaussian fit results:\n", clear_first=False)

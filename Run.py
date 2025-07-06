@@ -1,6 +1,5 @@
 import os
 os.chdir("iSLAT")
-#print("The current directory is:", os.getcwd())
 
 from iSLAT.iSLATClass import iSLAT
 
