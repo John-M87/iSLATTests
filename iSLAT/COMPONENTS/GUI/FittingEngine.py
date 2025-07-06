@@ -209,24 +209,36 @@ class FittingEngine:
                 wave_data, flux_data, i, line_centers
             )
             
-            # Set parameter bounds similar to MainPlotOld behavior
-            center_tolerance = 0.01  # Default tolerance
-            try:
-                if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
-                    center_tolerance = self.islat.user_settings.get('centrtolerance', 0.01)
-            except:
-                pass
-            
+            # Set parameter bounds exactly like MainPlotOld behavior
             center = component_guess['center']
-            params.add(f'{prefix}center', value=center,
-                      min=max(wave_data.min(), center - center_tolerance),
-                      max=min(wave_data.max(), center + center_tolerance))
-            params.add(f'{prefix}amplitude', value=component_guess['amplitude'], min=0)
-            params.add(f'{prefix}sigma', value=component_guess['sigma'],
-                      min=1e-6, max=(wave_data[-1] - wave_data[0]))
+            amplitude = component_guess['amplitude'] 
+            sigma = component_guess['sigma']
+            
+            # Bounds exactly like MainPlotOld: center ± 0.01, sigma 0.0001-0.01, amplitude > 0
+            params.add(f'{prefix}center', value=center, min=center-0.01, max=center+0.01)
+            params.add(f'{prefix}sigma', value=sigma, min=0.0001, max=0.01)
+            params.add(f'{prefix}amplitude', value=amplitude, min=0)
         
-        # Perform fit
-        result = model.fit(flux_data, params, x=wave_data)
+        # Perform fit with weights and method like MainPlotOld
+        # Use error data if available, otherwise use ones
+        weights = None
+        if hasattr(self.islat, 'err_data') and self.islat.err_data is not None:
+            # Get error data for the same wavelength range
+            if xmin is not None and xmax is not None:
+                err_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+                err_fit = self.islat.err_data[err_mask]
+                if len(err_fit) == len(flux_data):
+                    weights = 1.0 / err_fit
+                else:
+                    weights = np.ones_like(flux_data)
+            else:
+                weights = np.ones_like(flux_data)
+        else:
+            weights = np.ones_like(flux_data)
+        
+        # Use same fitting method as MainPlotOld
+        result = model.fit(flux_data, params, x=wave_data, weights=weights, 
+                          method='leastsq', nan_policy='omit')
         
         # Generate fitted curve
         fitted_wave = np.linspace(wave_data.min(), wave_data.max(), 1000)
@@ -307,27 +319,47 @@ class FittingEngine:
                 line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
                 
                 if not line_data.empty:
-                    line_centers = line_data['lam'].values.tolist()
+                    # Get centers and intensities
+                    line_centers = np.array(line_data['lam'])
+                    intensities = np.array(line_data['intens'])
                     
-                    # Apply tolerance filtering using iSLAT's user settings
-                    tolerance = 0.05  # Default tolerance
-                    try:
-                        if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
-                            tolerance = self.islat.user_settings.get('centrtolerance', 0.05)
-                    except:
-                        pass
+                    # Remove duplicate/very close lines (like MainPlotOld)
+                    if len(line_centers) > 1:
+                        line_centers = np.sort(line_centers)
+                        min_sep = 1e-4  # μm, same as MainPlotOld
+                        filtered_centers = [line_centers[0]]
+                        filtered_intensities = [intensities[0]]
+                        
+                        for i, lc in enumerate(line_centers[1:], 1):
+                            if np.all(np.abs(lc - np.array(filtered_centers)) > min_sep):
+                                filtered_centers.append(lc)
+                                filtered_intensities.append(intensities[i])
+                        
+                        line_centers = np.array(filtered_centers)
+                        intensities = np.array(filtered_intensities)
                     
-                    # Filter centers that are within the wavelength range and have sufficient data
-                    filtered_centers = []
-                    for center in line_centers:
-                        if xmin <= center <= xmax:
-                            # Check if there's sufficient data around this center
-                            center_mask = (wave_data >= center - tolerance) & (wave_data <= center + tolerance)
-                            if np.sum(center_mask) >= 5:  # Minimum points required
-                                filtered_centers.append(center)
+                    # Sort line centers by intensity (descending) like MainPlotOld
+                    if len(line_centers) > 1:
+                        sort_idx = np.argsort(-intensities)
+                        line_centers = line_centers[sort_idx]
+                        intensities = intensities[sort_idx]
                     
-                    n_components = max(1, min(len(filtered_centers), 5))  # Limit to 5 components
-                    return n_components, filtered_centers[:n_components]
+                    # Check if we have sufficient data points for multi-gaussian fitting
+                    max_gaussians = len(line_centers)
+                    while max_gaussians > 0:
+                        num_params = 3 * max_gaussians  # center, sigma, amplitude per Gaussian
+                        if len(wave_data) >= num_params * 2:  # Same check as MainPlotOld
+                            break
+                        max_gaussians -= 1
+                    
+                    if max_gaussians == 0:
+                        max_gaussians = 1  # Always fit at least one component
+                    
+                    # Use only the most important (strongest) lines
+                    use_centers = line_centers[:max_gaussians].tolist()
+                    n_components = max_gaussians
+                    
+                    return n_components, use_centers
         except Exception as e:
             print(f"Warning: Could not use molecular table detection: {e}")
         
@@ -416,20 +448,11 @@ class FittingEngine:
             # Use detected line center
             center = line_centers[component_idx]
             
-            # Find the closest data point to this center
-            center_idx = np.argmin(np.abs(wave_data - center))
-            amplitude = flux_data[center_idx]
+            # Better amplitude estimation like MainPlotOld: (y_max - y_min) * scaling_factor
+            amplitude = (flux_data.max() - flux_data.min()) * 0.1  # Same as MainPlotOld
             
-            # Estimate sigma based on typical line width or use tolerance settings from iSLAT
-            try:
-                if hasattr(self.islat, 'user_settings') and self.islat.user_settings:
-                    # Use FWHM tolerance from settings if available
-                    fwhm_tolerance = self.islat.user_settings.get('fwhmtolerance', 0.01)
-                    sigma = fwhm_tolerance / (2 * np.sqrt(2 * np.log(2)))  # Convert FWHM to sigma
-                else:
-                    sigma = 0.005  # Default sigma in wavelength units
-            except:
-                sigma = 0.005
+            # Better sigma estimation: use fixed value like MainPlotOld
+            sigma = 0.001  # Same initial value as MainPlotOld
             
         else:
             # Fallback to region-based estimation (original method)
@@ -846,6 +869,56 @@ class FittingEngine:
         }
         return info
     
+    def debug_line_detection(self, wave_data, flux_data, xmin=None, xmax=None):
+        """
+        Debug method to show what each line detection strategy finds.
+        
+        Returns
+        -------
+        dict
+            Debug information for each strategy
+        """
+        debug_info = {}
+        
+        # Test molecular table strategy
+        try:
+            n_comp_mol, centers_mol = self._estimate_components_from_molecular_table(wave_data, flux_data, xmin, xmax)
+            debug_info['molecular_table'] = {
+                'n_components': n_comp_mol,
+                'centers': centers_mol,
+                'strategy': 'molecular_table'
+            }
+        except Exception as e:
+            debug_info['molecular_table'] = {'error': str(e)}
+        
+        # Test peak detection strategy
+        try:
+            n_comp_peak, centers_peak = self._estimate_components_from_peak_detection(wave_data, flux_data, xmin, xmax)
+            debug_info['peak_detection'] = {
+                'n_components': n_comp_peak,
+                'centers': centers_peak,
+                'strategy': 'peak_detection'
+            }
+        except Exception as e:
+            debug_info['peak_detection'] = {'error': str(e)}
+        
+        # Test user selection strategy
+        try:
+            n_comp_user, centers_user = self._estimate_components_from_user_selection(wave_data, flux_data, xmin, xmax)
+            debug_info['user_selection'] = {
+                'n_components': n_comp_user,
+                'centers': centers_user,
+                'strategy': 'user_selection'
+            }
+        except Exception as e:
+            debug_info['user_selection'] = {'error': str(e)}
+        
+        # Current strategy
+        debug_info['current_strategy'] = self.line_detection_strategy
+        debug_info['current_result'] = debug_info.get(self.line_detection_strategy, {'error': 'Unknown strategy'})
+        
+        return debug_info
+
     def get_recommended_settings(self):
         """
         Get recommended UserSettings.json entries for line detection strategy.
