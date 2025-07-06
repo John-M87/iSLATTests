@@ -858,10 +858,33 @@ class iSLATPlot:
         self.ax3.clear()
         self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
         self.ax3.set_xlabel(r'$E_{u}$ (K)')
-        self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram', fontsize='medium')
+        
+        # Handle special cases where active_molecule is not a Molecule object
+        active_mol = self.islat.active_molecule
+        if isinstance(active_mol, str) or active_mol is None:
+            # If active_molecule is "SUM", "ALL", or None, show a message and return
+            if active_mol in ["SUM", "ALL"]:
+                self.ax3.set_title(f'{active_mol} - Population diagram not available', fontsize='medium')
+                self.ax3.text(0.5, 0.5, f'Population diagram not available for {active_mol}', 
+                             transform=self.ax3.transAxes, ha='center', va='center')
+            else:
+                self.ax3.set_title('No molecule selected', fontsize='medium')
+                self.ax3.text(0.5, 0.5, 'No molecule selected', 
+                             transform=self.ax3.transAxes, ha='center', va='center')
+            self.canvas.draw_idle()
+            return
+        
+        # Check if it's a valid Molecule object with required attributes
+        if not (hasattr(active_mol, 'displaylabel') and hasattr(active_mol, 'intensity')):
+            self.ax3.set_title('Invalid molecule selected', fontsize='medium')
+            self.ax3.text(0.5, 0.5, 'Invalid molecule selected', 
+                         transform=self.ax3.transAxes, ha='center', va='center')
+            self.canvas.draw_idle()
+            return
 
-        molecule_obj = self.islat.active_molecule
-        #molecule_obj = self.islat.molecules_dict["H2O"]
+        self.ax3.set_title(f'{active_mol.displaylabel} Population diagram', fontsize='medium')
+
+        molecule_obj = active_mol
         int_pars = molecule_obj.intensity.get_table
         int_pars.index = range(len(int_pars.index))
 
@@ -873,8 +896,9 @@ class iSLATPlot:
         eu = int_pars['e_up']
 
         # Calculating the y-axis for the population diagram for each line in int_pars
+        # Use actual molecule parameters instead of hardcoded global constants
         area = np.pi * (molecule_obj.radius * au * 1e2) ** 2  # In cm^2
-        Dist = dist * pc
+        Dist = molecule_obj.distance * pc  # Use molecule's actual distance
         beam_s = area / Dist ** 2
         F = intens_mod * beam_s
         freq = ccum / wl

@@ -127,12 +127,13 @@ class Molecule:
         t_kin = getattr(self, '_temp', self.t_kin)
         n_mol = getattr(self, '_n_mol', self.n_mol_init)
         dv = getattr(self, '_fwhm', default_parms.fwhm)
-        print(f"Calculating intensity for {self.name} with T={t_kin}, n_mol={n_mol}, dv={dv}")
         self.intensity.calc_intensity(
             t_kin=t_kin,
             n_mol=n_mol,
             dv=dv
         )
+        # Notify that intensity has been recalculated
+        self._notify_my_parameter_change('intensity_recalculated', None, None)
 
     def get_flux(self, wavelength_array):
         lam_grid = self.spectrum._lamgrid
@@ -219,7 +220,6 @@ class Molecule:
         """Distance setter - updates spectrum when changed"""
         old_value = self._distance
         self._distance = float(value)
-        print(f"Molecule {self.name}: distance setter called, changing from {old_value} to {self._distance}")
         if hasattr(self, 'spectrum'):
             self._recreate_spectrum()
         self._notify_my_parameter_change('distance', old_value, self._distance)
@@ -234,7 +234,6 @@ class Molecule:
         """FWHM setter - recalculates intensity when changed"""
         old_value = self._fwhm
         self._fwhm = float(value)
-        print(f"Molecule {self.name}: fwhm setter called, changing from {old_value} to {self._fwhm}")
         if hasattr(self, 'intensity') and hasattr(self, 'spectrum'):
             self.calculate_intensity()
             self._update_spectrum()

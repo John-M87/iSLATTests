@@ -418,21 +418,29 @@ class iSLAT:
     def active_molecule(self, molecule):
         """
         Sets the active molecule based on the provided name or object.
-        If the molecule is not found, it throws an error and does not update the active molecule.
+        Special handling for "SUM" and "ALL" without triggering errors.
         """
         try:
             if isinstance(molecule, Molecule):
                 self._active_molecule = molecule
             elif isinstance(molecule, str):
-                if molecule in self.molecules_dict:
+                if molecule in ["SUM", "ALL"]:
+                    # Store as string for special handling
+                    self._active_molecule = molecule
+                elif molecule in self.molecules_dict:
                     self._active_molecule = self.molecules_dict[molecule]
                 else:
                     raise ValueError(f"Molecule '{molecule}' not found in the dictionary.")
             else:
                 raise TypeError("Active molecule must be a Molecule object or a string representing the molecule name.")
             
-            if hasattr(self, "GUI") and hasattr(self.GUI, "plot"):
+            # Only trigger plot updates for actual Molecule objects
+            if (hasattr(self, "GUI") and hasattr(self.GUI, "plot") 
+                and isinstance(self._active_molecule, Molecule)):
                 self.GUI.plot.update_all_plots()
+        except Exception as e:
+            print(f"Error setting active molecule: {e}")
+            # Don't change the active molecule if there's an error
                 #self.GUI.plot.update_line_inspection_plot()
 
         except (ValueError, TypeError) as e:

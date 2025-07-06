@@ -5,382 +5,308 @@ class ControlPanel:
     def __init__(self, master, islat):
         self.master = master
         self.islat = islat
+        self._debounce_after_id = None  # For debouncing updates
 
         # Create the control panel frame
         self.frame = tk.Frame(master, borderwidth=2, relief="groove")
         self.frame.pack(side="left", fill="y")
 
-        # Create and place entry fields
-        self.create_plot_start(0, 0)
-        self.create_plot_range(0, 2)
-        self.create_wavelength_range(1, 0, 1, 2)
-        self.create_global_parameters(2, 0)
-        self.create_molecule_dropdown(5, 0)
+        # Initialize all UI components
+        self._create_all_components()
         
+        # Register for global parameter change notifications
+        self._register_callbacks()
+
+    def _register_callbacks(self):
+        """Register callbacks for global parameter changes"""
+        try:
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                # Register callback for when global parameters change
+                self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
+            else:
+                pass  # molecules_dict not available for callback registration
+        except Exception as e:
+            print(f"ControlPanel: Error registering global parameter callback: {e}")
+        
+        try:
+            # Register callback for individual molecule parameter changes
+            from iSLAT.COMPONENTS.Molecule import Molecule
+            Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
+        except Exception as e:
+            print(f"ControlPanel: Error registering molecule parameter callback: {e}")
+
+    def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
+        """Handle individual molecule parameter changes"""
+        # Update population diagram specifically when molecule parameters change
+        self._trigger_population_diagram_update()
+
+    def _on_global_parameter_change(self, parameter_name, old_value, new_value):
+        """Handle global parameter changes from MoleculeDict"""
+        # Update plots when any global parameter changes
+        plot_obj = self._get_plot_object()
+        if plot_obj:
+            # Update all plots including population diagram
+            if hasattr(plot_obj, 'update_all_plots'):
+                plot_obj.update_all_plots()
+            # Specifically update population diagram if it exists
+            if hasattr(plot_obj, 'update_population_diagram'):
+                plot_obj.update_population_diagram()
+
+    def _create_all_components(self):
+        """Create all control panel components in order"""
+        self._create_display_controls(0, 0)
+        self._create_wavelength_controls(1, 0)  
+        self._create_global_parameter_controls(2, 0)
+        self._create_molecule_selector(5, 0)
         self.reload_molecule_dropdown()
 
-    def create_global_parameters(self, start_row, start_col):
-        """Create entry fields for global parameters that affect all molecules"""
-        
-        # Create bound entry fields using the same pattern as MoleculeWindow
-        def create_bound_global_entry(parent, molecules_dict, attr, label_text, row, col, width=8):
-            """Create an Entry widget bound to a molecules_dict global attribute with two-way synchronization."""
-            tk.Label(parent, text=label_text).grid(row=row, column=col, padx=5, pady=5)
-            
-            var = tk.StringVar()
-            
-            # Initialize with current value
-            if hasattr(molecules_dict, attr):
-                current_val = getattr(molecules_dict, attr)
-                var.set(str(current_val))
-            else:
-                # Use default values if molecules_dict is not available
-                import iSLAT.iSLATDefaultInputParms as default_parms
-                if attr == 'global_dist':
-                    var.set(str(default_parms.dist))
-                elif attr == 'global_star_rv':
-                    var.set(str(default_parms.star_rv))
-                elif attr == 'global_fwhm':
-                    var.set(str(default_parms.fwhm))
-                elif attr == 'global_intrinsic_line_width':
-                    var.set(str(default_parms.intrinsic_line_width))
-            
-            entry = tk.Entry(parent, textvariable=var, bg='lightgray', width=width)
-            entry.grid(row=row, column=col + 1, padx=5, pady=5)
-            
-            # Bind changes to update molecules_dict object - exactly like MoleculeWindow
-            def on_change(*args):
-                val = var.get()
-                try:
-                    val = float(val)
-                    if hasattr(molecules_dict, attr):
-                        print(f"ControlPanel: Setting {attr} to {val}")
-                        setattr(molecules_dict, attr, val)
-                        # The setters in MoleculeDict handle all the updates automatically
-                        # Now trigger plot updates like MoleculeWindow does
-                        self.update_plots()
-                except ValueError:
-                    pass  # Ignore invalid input
-            
-            var.trace_add("write", on_change)
-            
-            # Also bind Return and FocusOut for immediate updates
-            entry.bind("<Return>", lambda e: on_change())
-            entry.bind("<FocusOut>", lambda e: on_change())
-            
-            return entry, var
-        
-        # Only create global parameter entries if molecules_dict is available
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            molecules_dict = self.islat.molecules_dict
-            
-            # Distance
-            self.distance_entry, self.distance_var = create_bound_global_entry(
-                self.frame, molecules_dict, "global_dist", "Distance:", start_row, start_col)
-            
-            # Stellar RV
-            self.star_rv_entry, self.star_rv_var = create_bound_global_entry(
-                self.frame, molecules_dict, "global_star_rv", "Stellar RV:", start_row, start_col + 2)
-            
-            # FWHM
-            self.fwhm_entry, self.fwhm_var = create_bound_global_entry(
-                self.frame, molecules_dict, "global_fwhm", "FWHM:", start_row + 1, start_col)
-            
-            # Broadening
-            self.broadening_entry, self.broadening_var = create_bound_global_entry(
-                self.frame, molecules_dict, "global_intrinsic_line_width", "Broadening:", start_row + 1, start_col + 2)
-        else:
-            # Fallback labels if molecules_dict is not available
-            tk.Label(self.frame, text="Global parameters not available").grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+    def _debounced_update(self, callback):
+        """Debounce updates to prevent excessive calls"""
+        if self._debounce_after_id:
+            self.master.after_cancel(self._debounce_after_id)
+        self._debounce_after_id = self.master.after(100, callback)
 
-    def refresh_from_molecules_dict(self):
-        """Refresh all fields from the current molecules_dict values"""
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            # Update global parameter fields if they exist
-            if hasattr(self, 'distance_var'):
-                self.distance_var.set(str(self.islat.molecules_dict.global_dist))
-            if hasattr(self, 'star_rv_var'):
-                self.star_rv_var.set(str(self.islat.molecules_dict.global_star_rv))
-            if hasattr(self, 'fwhm_var'):
-                self.fwhm_var.set(str(self.islat.molecules_dict.global_fwhm))
-            if hasattr(self, 'broadening_var'):
-                self.broadening_var.set(str(self.islat.molecules_dict.global_intrinsic_line_width))
-            
-            # Update wavelength range fields if they exist
-            if hasattr(self, 'min_wavelength_var'):
-                self.min_wavelength_var.set(str(self.islat.molecules_dict.global_wavelength_range[0]))
-            if hasattr(self, 'max_wavelength_var'):
-                self.max_wavelength_var.set(str(self.islat.molecules_dict.global_wavelength_range[1]))
-                
-            # Reload molecule dropdown
-            self.reload_molecule_dropdown()
+    def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
+        """Create a simple entry field with label and change callback"""
+        tk.Label(self.frame, text=label_text).grid(row=row, column=col, padx=5, pady=5)
+        
+        var = tk.StringVar()
+        var.set(str(initial_value))
+        
+        entry = tk.Entry(self.frame, textvariable=var, bg='lightgray', width=width)
+        entry.grid(row=row, column=col + 1, padx=5, pady=5)
+        
+        def on_change(*args):
+            self._debounced_update(lambda: on_change_callback(var.get()))
+        
+        var.trace_add("write", on_change)
+        return entry, var
 
-    def create_molecule_dropdown(self, row, column):
-        """Create dropdown for molecule selection"""
+    def _create_bound_parameter_entry(self, label_text, param_name, row, col, width=8):
+        """Create an entry bound to a global parameter in molecules_dict"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return None, None
+            
+        molecules_dict = self.islat.molecules_dict
+        current_value = getattr(molecules_dict, param_name, 0)
+        
+        def update_parameter(value_str):
+            try:
+                value = float(value_str)
+                old_value = getattr(molecules_dict, param_name)
+                if abs(old_value - value) > 1e-10:  # Only update if actually different
+                    setattr(molecules_dict, param_name, value)
+                    # Explicitly trigger population diagram update for molecule parameters
+                    self._trigger_population_diagram_update()
+            except (ValueError, AttributeError):
+                pass
+        
+        return self._create_simple_entry(label_text, current_value, row, col, update_parameter, width)
+
+    def _create_display_controls(self, start_row, start_col):
+        """Create plot start and range controls for display view"""
+        # Plot start
+        initial_start = getattr(self.islat, 'display_range', [4.5, 5.5])[0]
+        self.plot_start_entry, self.plot_start_var = self._create_simple_entry(
+            "Plot start:", initial_start, start_row, start_col, self._update_display_range)
+        
+        # Plot range  
+        display_range = getattr(self.islat, 'display_range', [4.5, 5.5])
+        initial_range = display_range[1] - display_range[0]
+        self.plot_range_entry, self.plot_range_var = self._create_simple_entry(
+            "Plot range:", initial_range, start_row, start_col + 2, self._update_display_range)
+
+    def _create_wavelength_controls(self, start_row, start_col):
+        """Create wavelength range controls for model calculation range"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+            
+        molecules_dict = self.islat.molecules_dict
+        min_wave, max_wave = molecules_dict.global_wavelength_range
+        
+        self.min_wavelength_entry, self.min_wavelength_var = self._create_simple_entry(
+            "Min. Wave:", min_wave, start_row, start_col, self._update_wavelength_range)
+        self.max_wavelength_entry, self.max_wavelength_var = self._create_simple_entry(
+            "Max. Wave:", max_wave, start_row, start_col + 2, self._update_wavelength_range)
+
+    def _create_global_parameter_controls(self, start_row, start_col):
+        """Create global parameter entry fields using MoleculeDict properties"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            tk.Label(self.frame, text="Global parameters not available").grid(
+                row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+            return
+
+        # Define parameters with their labels - all info comes from MoleculeDict
+        parameters = [
+            ("Distance:", "global_dist", start_row, start_col),
+            ("Stellar RV:", "global_star_rv", start_row, start_col + 2),
+            ("FWHM:", "global_fwhm", start_row + 1, start_col),
+            ("Broadening:", "global_intrinsic_line_width", start_row + 1, start_col + 2)
+        ]
+        
+        # Store references for later updates
+        self._parameter_entries = {}
+        
+        for label, param_name, row, col in parameters:
+            entry, var = self._create_bound_parameter_entry(label, param_name, row, col)
+            if entry and var:
+                self._parameter_entries[param_name] = (entry, var)
+
+    def _create_molecule_selector(self, row, column):
+        """Create molecule dropdown selector"""
         tk.Label(self.frame, text="Molecule:").grid(row=row, column=column, padx=5, pady=5)
 
-        # Initialize dropdown options
-        dropdown_options = ["SUM", "ALL"]
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            for mol_name, mol_obj in self.islat.molecules_dict.items():
-                display_label = getattr(mol_obj, 'displaylabel', mol_name)
-                dropdown_options.insert(-2, display_label)  # Insert before SUM and ALL
-            
         self.molecule_var = tk.StringVar(self.frame)
-        self.molecule_var.set(dropdown_options[0])  # Default to the first option
-
-        self.dropdown = ttk.Combobox(self.frame, textvariable=self.molecule_var, values=dropdown_options)
+        self.dropdown = ttk.Combobox(self.frame, textvariable=self.molecule_var)
         self.dropdown.grid(row=row, column=column + 1, padx=5, pady=5)
+        self.dropdown.bind("<<ComboboxSelected>>", self._on_molecule_selected)
 
-        # Bind selection event
-        self.dropdown.bind("<<ComboboxSelected>>", self.on_molecule_selected)
-
-    def on_molecule_selected(self, event=None):
-        """Handle molecule selection from dropdown"""
-        selected_label = self.molecule_var.get()
-        
-        # Handle special cases
-        if selected_label in ["SUM", "ALL"]:
-            self.islat.active_molecule = selected_label
-            self.update_plots()  # Update plots when molecule selection changes
-            return
-        
-        # Find the molecule name that corresponds to this display label
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            for mol_name, mol_obj in self.islat.molecules_dict.items():
-                display_label = getattr(mol_obj, 'displaylabel', mol_name)
-                if display_label == selected_label:
-                    self.islat.active_molecule = mol_name
-                    self.update_plots()  # Update plots when molecule selection changes
-                    return
-        
-        # If no match found, default to SUM
-        self.islat.active_molecule = "SUM"
-        self.update_plots()  # Update plots even for default selection
-
-    def reload_molecule_dropdown(self):
-        """Reload the molecule dropdown when molecules are added/removed"""
-        if not hasattr(self, 'dropdown'):
-            return
-            
-        # Build new dropdown options
-        dropdown_options = []
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            for mol_name, mol_obj in self.islat.molecules_dict.items():
-                display_label = getattr(mol_obj, 'displaylabel', mol_name)
-                dropdown_options.append(display_label)
-        dropdown_options += ["SUM", "ALL"]
-        
-        # Update dropdown values
-        self.dropdown['values'] = dropdown_options
-        
-        # Handle case where current selection is no longer valid
-        current_value = self.molecule_var.get()
-        if current_value not in dropdown_options:
-            # Default to first available option
-            if dropdown_options:
-                self.molecule_var.set(dropdown_options[0])
-                if dropdown_options[0] in ["SUM", "ALL"]:
-                    self.islat.active_molecule = dropdown_options[0]
-                else:
-                    # Find the molecule name for this display label
-                    for mol_name, mol_obj in self.islat.molecules_dict.items():
-                        display_label = getattr(mol_obj, 'displaylabel', mol_name)
-                        if display_label == dropdown_options[0]:
-                            self.islat.active_molecule = mol_name
-                            break
-
-    def create_plot_start(self, row, column):
-        """Create plot start entry field"""
-        tk.Label(self.frame, text="Plot start:").grid(row=row, column=column, padx=5, pady=5)
-
-        self.plot_start_var = tk.StringVar()
-        if hasattr(self.islat, 'display_range'):
-            self.plot_start_var.set(str(self.islat.display_range[0]))
-        else:
-            self.plot_start_var.set("4.5")
-            
-        self.plot_start_entry = tk.Entry(self.frame, textvariable=self.plot_start_var, bg='lightgray', width=8)
-        self.plot_start_entry.grid(row=row, column=column + 1, padx=5, pady=5)
-
-        # Bind change events
-        self.plot_start_var.trace_add('write', lambda *args: self.update_display_range())
-        self.plot_start_entry.bind("<Return>", lambda e: self.update_display_range())
-        self.plot_start_entry.bind("<FocusOut>", lambda e: self.update_display_range())
-
-    def create_plot_range(self, row, column):
-        """Create plot range entry field"""
-        tk.Label(self.frame, text="Plot range:").grid(row=row, column=column, padx=5, pady=5)
-
-        self.plot_range_var = tk.StringVar()
-        if hasattr(self.islat, 'display_range'):
-            self.plot_range_var.set(str(self.islat.display_range[1] - self.islat.display_range[0]))
-        else:
-            self.plot_range_var.set("1.0")
-            
-        self.plot_range_entry = tk.Entry(self.frame, textvariable=self.plot_range_var, bg='lightgray', width=8)
-        self.plot_range_entry.grid(row=row, column=column + 1, padx=5, pady=5)
-
-        # Bind change events
-        self.plot_range_var.trace_add('write', lambda *args: self.update_display_range())
-        self.plot_range_entry.bind("<Return>", lambda e: self.update_display_range())
-        self.plot_range_entry.bind("<FocusOut>", lambda e: self.update_display_range())
-
-    def update_display_range(self):
-        """Update the display range when plot start or range changes"""
+    def _update_display_range(self, value_str=None):
+        """Update display range from either start or range change"""
         try:
             start = float(self.plot_start_var.get())
             range_val = float(self.plot_range_var.get())
-            new_range = (start, start + range_val)
-            
-            if hasattr(self.islat, 'display_range'):
-                self.islat.display_range = new_range
-                
-            # Try multiple ways to find the plot object for display range updates
-            plot_obj = None
-            if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot'):
-                plot_obj = self.islat.GUI.plot
-            elif hasattr(self.islat, 'main_plot'):
-                plot_obj = self.islat.main_plot
-            elif hasattr(self.islat, 'plot'):
-                plot_obj = self.islat.plot
-                
-            # Update plots when display range changes
-            if plot_obj:
-                if hasattr(plot_obj, 'match_display_range'):
-                    plot_obj.match_display_range()
-                # Also trigger a full plot update to ensure everything is refreshed
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
-        except ValueError:
-            pass  # Ignore invalid input
+            self._set_display_range(start, start + range_val)
+        except (ValueError, AttributeError):
+            pass
 
-    def create_wavelength_range(self, row_min, col_min, row_max, col_max):
-        """Create wavelength range entry fields"""
+    def _set_display_range(self, start, end):
+        """Set the display range and update plots"""
+        if hasattr(self.islat, 'display_range'):
+            self.islat.display_range = (start, end)
         
-        # Create bound entry fields for wavelength range using the same pattern
-        def create_bound_wavelength_entry(parent, molecules_dict, attr_name, label_text, row, col, index, width=8):
-            """Create an Entry widget bound to wavelength range with two-way synchronization."""
-            tk.Label(parent, text=label_text).grid(row=row, column=col, padx=5, pady=5)
+        plot_obj = self._get_plot_object()
+        if plot_obj:
+            if hasattr(plot_obj, 'match_display_range'):
+                plot_obj.match_display_range()
+            if hasattr(plot_obj, 'update_all_plots'):
+                plot_obj.update_all_plots()
+
+    def _update_wavelength_range(self, value_str=None):
+        """Update wavelength range for model calculations (not display)"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
             
-            var = tk.StringVar()
+        try:
+            min_val = float(self.min_wavelength_var.get())
+            max_val = float(self.max_wavelength_var.get())
             
-            # Initialize with current value
-            if hasattr(molecules_dict, 'global_wavelength_range'):
-                current_val = molecules_dict.global_wavelength_range[index]
-                var.set(str(current_val))
-            else:
-                # Use default values if molecules_dict is not available
-                import iSLAT.iSLATDefaultInputParms as default_parms
-                var.set(str(default_parms.wavelength_range[index]))
-            
-            entry = tk.Entry(parent, textvariable=var, bg='lightgray', width=width)
-            entry.grid(row=row, column=col + 1, padx=5, pady=5)
-            
-            # Bind changes to update molecules_dict object
-            def on_change(*args):
-                try:
-                    min_val = float(self.min_wavelength_var.get())
-                    max_val = float(self.max_wavelength_var.get())
-                    
-                    if min_val < max_val and hasattr(molecules_dict, 'global_wavelength_range'):
-                        print(f"ControlPanel: Setting wavelength range to ({min_val}, {max_val})")
-                        # Set the tuple directly - the setter handles all updates
-                        molecules_dict.global_wavelength_range = (min_val, max_val)
-                        # Also update islat for backward compatibility
-                        self.islat.wavelength_range = (min_val, max_val)
-                        # Trigger plot updates
-                        self.update_plots()
-                except ValueError:
-                    pass  # Ignore invalid input
-            
-            var.trace_add("write", on_change)
-            
-            # Also bind Return and FocusOut for immediate updates
-            entry.bind("<Return>", lambda e: on_change())
-            entry.bind("<FocusOut>", lambda e: on_change())
-            
-            return entry, var
+            if min_val < max_val:
+                molecules_dict = self.islat.molecules_dict
+                molecules_dict.global_wavelength_range = (min_val, max_val)
+                # Update the iSLAT wavelength range if it exists
+                if hasattr(self.islat, 'wavelength_range'):
+                    self.islat.wavelength_range = (min_val, max_val)
+        except (ValueError, AttributeError):
+            pass
+
+    def _on_molecule_selected(self, event=None):
+        """Handle molecule selection - only updates active molecule"""
+        selected_label = self.molecule_var.get()
         
-        # Only create wavelength range entries if molecules_dict is available
+        # Handle special cases first
+        if selected_label in ["SUM", "ALL"]:
+            # For SUM/ALL, set active_molecule to a special string that won't break population diagram
+            self.islat._active_molecule = selected_label
+            # Update population diagram for special cases
+            self._trigger_population_diagram_update()
+            return
+            
+        # Handle regular molecules
         if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            molecules_dict = self.islat.molecules_dict
+            # Find molecule by display label
+            for mol_name, mol_obj in self.islat.molecules_dict.items():
+                display_label = getattr(mol_obj, 'displaylabel', mol_name)
+                if display_label == selected_label:
+                    self.islat.active_molecule = mol_name  # Use the setter for proper handling
+                    # Update population diagram for the new molecule
+                    self._trigger_population_diagram_update()
+                    return
             
-            # Min wavelength
-            self.min_wavelength_entry, self.min_wavelength_var = create_bound_wavelength_entry(
-                self.frame, molecules_dict, "global_wavelength_range", "Min. Wave:", row_min, col_min, 0)
+        # Default fallback if molecule not found
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            first_mol = next(iter(self.islat.molecules_dict.keys()), None)
+            if first_mol:
+                self.islat.active_molecule = first_mol
+                self._trigger_population_diagram_update()
+
+    def _reload_molecule_dropdown(self):
+        """Reload molecule dropdown options"""
+        if not hasattr(self, 'dropdown'):
+            return
             
-            # Max wavelength
-            self.max_wavelength_entry, self.max_wavelength_var = create_bound_wavelength_entry(
-                self.frame, molecules_dict, "global_wavelength_range", "Max. Wave:", row_max, col_max, 1)
-        else:
-            # Fallback labels if molecules_dict is not available
-            tk.Label(self.frame, text="Min. Wave:").grid(row=row_min, column=col_min, padx=5, pady=5)
-            tk.Label(self.frame, text="N/A").grid(row=row_min, column=col_min + 1, padx=5, pady=5)
-            tk.Label(self.frame, text="Max. Wave:").grid(row=row_max, column=col_max, padx=5, pady=5)
-            tk.Label(self.frame, text="N/A").grid(row=row_max, column=col_max + 1, padx=5, pady=5)
+        options = ["SUM", "ALL"]
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            molecule_options = [
+                getattr(mol_obj, 'displaylabel', mol_name) 
+                for mol_name, mol_obj in self.islat.molecules_dict.items()
+            ]
+            options = molecule_options + options
+        
+        self.dropdown['values'] = options
+        
+        # Set default value if current selection is invalid
+        current_value = self.molecule_var.get()
+        if current_value not in options and options:
+            self.molecule_var.set(options[0])
+            self._on_molecule_selected()
+
+    def _get_plot_object(self):
+        """Get the plot object for updates"""
+        for attr_path in ['GUI.plot', 'main_plot', 'plot']:
+            obj = self.islat
+            for part in attr_path.split('.'):
+                if hasattr(obj, part):
+                    obj = getattr(obj, part)
+                else:
+                    obj = None
+                    break
+            if obj:
+                return obj
+        return None
+
+    def _trigger_population_diagram_update(self):
+        """Trigger an explicit population diagram update"""
+        plot_obj = self._get_plot_object()
+        if plot_obj and hasattr(plot_obj, 'update_population_diagram'):
+            # Always call update_population_diagram - it will handle invalid cases internally
+            plot_obj.update_population_diagram()
 
     def refresh_from_molecules_dict(self):
-        """Refresh all fields from the current molecules_dict values"""
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            # Update global parameter fields if they exist
-            if hasattr(self, 'distance_var'):
-                self.distance_var.set(str(self.islat.molecules_dict.global_dist))
-            if hasattr(self, 'star_rv_var'):
-                self.star_rv_var.set(str(self.islat.molecules_dict.global_star_rv))
-            if hasattr(self, 'fwhm_var'):
-                self.fwhm_var.set(str(self.islat.molecules_dict.global_fwhm))
-            if hasattr(self, 'broadening_var'):
-                self.broadening_var.set(str(self.islat.molecules_dict.global_intrinsic_line_width))
+        """Refresh all fields from current molecules_dict values"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
             
-            # Update wavelength range fields if they exist
-            if hasattr(self, 'min_wavelength_var'):
-                self.min_wavelength_var.set(str(self.islat.molecules_dict.global_wavelength_range[0]))
-            if hasattr(self, 'max_wavelength_var'):
-                self.max_wavelength_var.set(str(self.islat.molecules_dict.global_wavelength_range[1]))
-                
-            # Reload molecule dropdown
-            self.reload_molecule_dropdown()
+        molecules_dict = self.islat.molecules_dict
+        
+        # Re-register callbacks in case molecules_dict was created after ControlPanel
+        try:
+            molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
+        except:
+            pass  # Callback might already be registered
+        
+        # Update parameter entries stored in the dictionary
+        if hasattr(self, '_parameter_entries'):
+            for param_name, (entry, var) in self._parameter_entries.items():
+                if hasattr(molecules_dict, param_name):
+                    var.set(str(getattr(molecules_dict, param_name)))
+        
+        # Update wavelength range fields
+        if (hasattr(self, 'min_wavelength_var') and hasattr(self, 'max_wavelength_var') 
+            and hasattr(molecules_dict, 'global_wavelength_range')):
+            min_val, max_val = molecules_dict.global_wavelength_range
+            self.min_wavelength_var.set(str(min_val))
+            self.max_wavelength_var.set(str(max_val))
+        
+        self._reload_molecule_dropdown()
+
+    # Public interface methods for backward compatibility
+    def reload_molecule_dropdown(self):
+        """Public method for reloading molecule dropdown"""
+        self._reload_molecule_dropdown()
 
     def update_plots(self):
-        """Update model spectrum and all plots, similar to MoleculeWindow.update_lines()"""
-        try:
-            print("ControlPanel.update_plots() called")
-            
-            # Update the model spectrum
-            if hasattr(self.islat, 'update_model_spectrum'):
-                self.islat.update_model_spectrum()
-                print("Model spectrum updated")
-            
-            # Try multiple ways to find the plot object
-            plot_obj = None
-            
-            # First try: GUI.plot (should be the correct way)
-            if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot'):
-                plot_obj = self.islat.GUI.plot
-                print("Found plot via islat.GUI.plot")
-            
-            # Second try: main_plot (alternative reference)
-            elif hasattr(self.islat, 'main_plot'):
-                plot_obj = self.islat.main_plot
-                print("Found plot via islat.main_plot")
-                
-            # Third try: Check if islat has a plot attribute directly
-            elif hasattr(self.islat, 'plot'):
-                plot_obj = self.islat.plot
-                print("Found plot via islat.plot")
-            
-            # Update all plots if we found a plot object
-            if plot_obj and hasattr(plot_obj, 'update_all_plots'):
-                plot_obj.update_all_plots()
-                print("Plot update_all_plots() called successfully")
-            else:
-                print("Plot object not found or doesn't have update_all_plots method")
-                if plot_obj:
-                    print(f"Plot object methods: {[m for m in dir(plot_obj) if not m.startswith('_')]}")
-                
-        except Exception as e:
-            print(f"Error updating plots: {e}")
-            import traceback
-            traceback.print_exc()
-            pass  # Don't crash the GUI on plot update errors
+        """Public method for triggering plot updates"""
+        plot_obj = self._get_plot_object()
+        if plot_obj and hasattr(plot_obj, 'update_all_plots'):
+            plot_obj.update_all_plots()
