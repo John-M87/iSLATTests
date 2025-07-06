@@ -724,18 +724,27 @@ class iSLATPlot:
 
         # Plot the fit line using the compute_fit_line function
         if self.fit_result is not None:
-            gauss_fit, fit_results, x_fit = self.fit_result
+            gauss_fit, fitted_wave, fitted_flux = self.fit_result
             if gauss_fit is not None:
-                # Plot the total fit line
-                self.ax2.plot(x_fit, gauss_fit.eval(x=x_fit), color="red", linestyle='-', linewidth=1, label="Total Fit Line")
-                max_y = max(max_y, np.nanmax(gauss_fit.eval(x=x_fit)))
+                # Create x_fit array for plotting (use intersection of fitted_wave and current range)
+                x_fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
+                x_fit = fitted_wave[x_fit_mask]
+                
+                if len(x_fit) > 0:
+                    # Plot the total fit line
+                    total_flux = gauss_fit.eval(x=x_fit)
+                    self.ax2.plot(x_fit, total_flux, color="red", linestyle='-', linewidth=1, label="Total Fit Line")
+                    max_y = max(max_y, np.nanmax(total_flux))
 
-                # Plot individual component lines if it's a deblended fit
-                if len(fit_results) > 1:  # Check if multiple components exist
-                    for i, fit_result in enumerate(fit_results):
-                        prefix = f'g{i+1}_'
-                        component_flux = gauss_fit.eval_components(x=x_fit)[prefix]
-                        self.ax2.plot(x_fit, component_flux, linestyle='--', linewidth=1, label=f"Component {i+1}")
+                    # Plot individual component lines if it's a multi-component fit
+                    if self.fitting_engine.is_multi_component_fit():
+                        components = self.fitting_engine.evaluate_fit_components(x_fit)
+                        component_prefixes = self.fitting_engine.get_component_prefixes()
+                        
+                        for i, prefix in enumerate(component_prefixes):
+                            if prefix in components:
+                                component_flux = components[prefix]
+                                self.ax2.plot(x_fit, component_flux, linestyle='--', linewidth=1, label=f"Component {i+1}")
 
             self.fit_result = None
 

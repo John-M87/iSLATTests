@@ -96,53 +96,58 @@ class BottomOptions:
             self.data_field.insert_text("FITTING RESULTS:\n", clear_first=False)
             
             # Compute the fit using the main plot's fitting function
-            if deblend:
-                fit_result = self.main_plot.compute_fit_line(deblend=True)
-                if fit_result and len(fit_result) >= 2:
-                    gauss_fit, fit_results_list, x_fit = fit_result
-                    self.data_field.insert_text("De-blended line fit results:\n", clear_first=False)
+            fit_result = self.main_plot.compute_fit_line(deblend=deblend)
+            
+            if fit_result and len(fit_result) >= 3:
+                lmfit_result, fitted_wave, fitted_flux = fit_result
+                
+                if lmfit_result is not None and hasattr(lmfit_result, 'params'):
+                    # Extract parameters using the FittingEngine methods
+                    line_params = self.main_plot.fitting_engine.extract_line_parameters()
+                    fit_stats = self.main_plot.fitting_engine.get_fit_statistics()
                     
-                    for i, result in enumerate(fit_results_list):
-                        self.data_field.insert_text(f"\nComponent {i+1}:\n", console_print=True, clear_first=False)
-                        self.data_field.insert_text(f"Centroid (μm) = {result['center']} +/- {result.get('center_err', 0)}", console_print=True, clear_first=False)
-                        self.data_field.insert_text(f"FWHM (km/s) = {result['fwhm']} +/- {result.get('fwhm_err', 0)}", console_print=True, clear_first=False)
-                        self.data_field.insert_text(f"Area (erg/s/cm2) = {result['gauss_area']} +/- {result.get('gauss_area_err', 0)}", console_print=True, clear_first=False)
-
-                    self.data_field.insert_text("\nDe-blended line fit completed!\n", console_print=True, clear_first=False)
-                else:
-                    self.data_field.insert_text("De-blended fit failed or insufficient data.\n", clear_first=False)
-            else:
-                fit_result = self.main_plot.compute_fit_line(deblend=False)
-                if fit_result and len(fit_result) >= 2:
-                    gauss_fit, fit_results_list, x_fit = fit_result
-                    
-                    # Handle case where fit_results_list might be numpy array or list
-                    if fit_results_list is not None and len(fit_results_list) > 0:
-                        # Convert to list if it's a numpy array
-                        if hasattr(fit_results_list, 'tolist'):
-                            fit_results_list = fit_results_list.tolist()
-                        elif not isinstance(fit_results_list, list):
-                            fit_results_list = [fit_results_list]
+                    if deblend:
+                        self.data_field.insert_text("De-blended line fit results:\n", clear_first=False)
                         
-                        result = fit_results_list[0]  # Single Gaussian result
+                        # Handle multi-component fits
+                        component_idx = 0
+                        while f'component_{component_idx}' in line_params:
+                            comp_params = line_params[f'component_{component_idx}']
+                            self.data_field.insert_text(f"\nComponent {component_idx+1}:\n", clear_first=False)
+                            self.data_field.insert_text(f"Centroid (μm) = {comp_params['center']:.5f} +/- {comp_params.get('center_stderr', 0):.5f}", clear_first=False)
+                            self.data_field.insert_text(f"FWHM (μm) = {comp_params['fwhm']:.5f}", clear_first=False)
+                            self.data_field.insert_text(f"Area = {comp_params['area']:.3e}", clear_first=False)
+                            component_idx += 1
                         
-                        self.islat.GUI.data_field.insert_text("Gaussian fit results:\n", clear_first=False)
-                        self.islat.GUI.data_field.insert_text(f"Centroid (μm) = {result['center']:.5f} +/- {result.get('center_err', 0):.5f}", clear_first=False)
-                        self.islat.GUI.data_field.insert_text(f"FWHM (km/s) = {result['fwhm']:.1f} +/- {result.get('fwhm_err', 0):.1f}", clear_first=False)
-                        self.islat.GUI.data_field.insert_text(f"Area (erg/s/cm2) = {result['gauss_area']:.3e} +/- {result.get('gauss_area_err', 0):.3e}", clear_first=False)
-
-                        # Add fit quality metrics if available
-                        if hasattr(gauss_fit, 'chisqr'):
-                            self.data_field.insert_text(f"Chi-squared = {gauss_fit.chisqr:.3f}", clear_first=False)
-                        if hasattr(gauss_fit, 'redchi'):
-                            self.data_field.insert_text(f"Reduced Chi-squared = {gauss_fit.redchi:.3f}", clear_first=False)
+                        if component_idx == 0:
+                            self.data_field.insert_text("No components found in fit result.\n", clear_first=False)
+                        else:
+                            self.data_field.insert_text(f"\nDe-blended line fit completed with {component_idx} components!\n", clear_first=False)
                     else:
-                        self.data_field.insert_text("Fit completed but no parameters returned.\n", clear_first=False)
+                        # Single Gaussian fit
+                        self.data_field.insert_text("Gaussian fit results:\n", clear_first=False)
+                        
+                        if 'center' in line_params:
+                            self.data_field.insert_text(f"Centroid (μm) = {line_params['center']:.5f} +/- {line_params.get('center_stderr', 0):.5f}", clear_first=False)
+                            self.data_field.insert_text(f"FWHM (μm) = {line_params['fwhm']:.5f}", clear_first=False)  
+                            self.data_field.insert_text(f"Area = {line_params['area']:.3e}", clear_first=False)
+                        else:
+                            self.data_field.insert_text("Could not extract fit parameters.\n", clear_first=False)
+
+                    # Add fit quality metrics
+                    if fit_stats:
+                        self.data_field.insert_text(f"Chi-squared = {fit_stats.get('chi_squared', 'N/A'):.3f}", clear_first=False)
+                        self.data_field.insert_text(f"Reduced Chi-squared = {fit_stats.get('reduced_chi_squared', 'N/A'):.3f}", clear_first=False)
+                        if fit_stats.get('success', False):
+                            self.data_field.insert_text("Fit converged successfully!", clear_first=False)
+                        else:
+                            self.data_field.insert_text("Warning: Fit may not have converged properly.", clear_first=False)
                 else:
-                    self.data_field.insert_text("Fit failed or insufficient data.\n", clear_first=False)
+                    self.data_field.insert_text("Fit completed but no valid result object returned.\n", clear_first=False)
+            else:
+                self.data_field.insert_text("Fit failed or insufficient data.\n", clear_first=False)
             
             # Update plots
-            #self.main_plot.update_all_plots()
             self.main_plot.plot_line_inspection(highlight_strongest=False)
             
         except Exception as e:

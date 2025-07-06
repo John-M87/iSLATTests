@@ -496,3 +496,75 @@ class FittingEngine:
                     f.write(f"{key}: {value}\n")
         
         print(f"Fit results saved to {filename}")
+    
+    def is_multi_component_fit(self):
+        """
+        Check if the last fit result contains multiple components.
+        
+        Returns
+        -------
+        bool
+            True if multi-component fit, False if single component
+        """
+        if self.last_fit_result is None or self.last_fit_params is None:
+            return False
+        
+        # Check for component prefixes (g0_, g1_, etc.)
+        component_prefixes = set()
+        for param_name in self.last_fit_params:
+            if '_' in param_name:
+                prefix = param_name.split('_')[0] + '_'
+                if prefix.startswith('g') and prefix[1:-1].isdigit():
+                    component_prefixes.add(prefix)
+        
+        return len(component_prefixes) > 1
+    
+    def get_component_prefixes(self):
+        """
+        Get the component prefixes from the last fit result.
+        
+        Returns
+        -------
+        list
+            List of component prefixes (e.g., ['g0_', 'g1_'])
+        """
+        if self.last_fit_result is None or self.last_fit_params is None:
+            return []
+        
+        component_prefixes = set()
+        for param_name in self.last_fit_params:
+            if '_' in param_name:
+                prefix = param_name.split('_')[0] + '_'
+                if prefix.startswith('g') and prefix[1:-1].isdigit():
+                    component_prefixes.add(prefix)
+        
+        return sorted(list(component_prefixes))
+    
+    def evaluate_fit_components(self, x_data):
+        """
+        Evaluate individual components of a multi-component fit.
+        
+        Parameters
+        ----------
+        x_data : array_like
+            X values to evaluate at
+            
+        Returns
+        -------
+        dict
+            Dictionary mapping component names to flux arrays
+        """
+        if self.last_fit_result is None:
+            return {}
+        
+        if not self.is_multi_component_fit():
+            # Single component - return the full fit
+            return {'total': self.last_fit_result.eval(x=x_data)}
+        
+        # Multi-component fit
+        try:
+            components = self.last_fit_result.eval_components(x=x_data)
+            return components
+        except Exception as e:
+            print(f"Error evaluating fit components: {e}")
+            return {'total': self.last_fit_result.eval(x=x_data)}
