@@ -3,7 +3,7 @@
     "reload_default_files": false,
     "fit_line_uncertainty": 1,
     "line_threshold": 0.03,
-    "line_detection_strategy": "molecular_table",
+    "line_detection_strategy": "user_selection",
     "centrtolerance": 0.0001,
     "fwhmtolerance": 5,
     "specsep": 0.01,

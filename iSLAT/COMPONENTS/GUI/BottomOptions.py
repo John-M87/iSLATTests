@@ -91,10 +91,6 @@ class BottomOptions:
             return
 
         try:
-            # Add separator line to distinguish fit results from previous content
-            self.data_field.insert_text("\n" + "="*50 + "\n", clear_first=False)
-            self.data_field.insert_text("FITTING RESULTS:\n", clear_first=False)
-            
             # Compute the fit using the main plot's fitting function
             fit_result = self.main_plot.compute_fit_line(deblend=deblend)
             
@@ -107,10 +103,12 @@ class BottomOptions:
                     fit_stats = self.main_plot.fitting_engine.get_fit_statistics()
                     
                     if deblend:
-                        self.data_field.insert_text("De-blended line fit results:\n", clear_first=False)
+                        # For deblending, show detailed results AND save lines automatically
+                        self.data_field.insert_text("\nDe-blended line fit results:\n", clear_first=False)
                         
-                        # Handle multi-component fits
+                        # Handle multi-component fits - show detailed information
                         component_idx = 0
+                        saved_components = 0
                         while f'component_{component_idx}' in line_params:
                             comp_params = line_params[f'component_{component_idx}']
                             self.data_field.insert_text(f"\nComponent {component_idx+1}:\n", clear_first=False)
@@ -119,61 +117,79 @@ class BottomOptions:
                             center_err = comp_params.get('center_stderr', 0)
                             center_err_str = f"{center_err:.5f}" if center_err is not None else "N/A"
                             
-                            amplitude_err = comp_params.get('amplitude_stderr', 0)  
-                            amplitude_err_str = f"{amplitude_err:.3e}" if amplitude_err is not None else "N/A"
+                            # Convert FWHM to km/s like old iSLAT
+                            fwhm_kms = comp_params['fwhm'] / comp_params['center'] * 299792.458  # c in km/s
+                            fwhm_err_kms = "N/A"  # Would need proper error propagation
                             
-                            sigma_err = comp_params.get('sigma_stderr', 0)
-                            sigma_err_str = f"{sigma_err:.5f}" if sigma_err is not None else "N/A"
+                            area_err = comp_params.get('area_stderr', 0)
+                            area_err_str = f"{area_err:.3e}" if area_err is not None else "N/A"
                             
                             self.data_field.insert_text(f"Centroid (μm) = {comp_params['center']:.5f} +/- {center_err_str}", clear_first=False)
-                            self.data_field.insert_text(f"FWHM (μm) = {comp_params['fwhm']:.5f}", clear_first=False)
-                            self.data_field.insert_text(f"Area = {comp_params['area']:.3e}", clear_first=False)
-                            self.data_field.insert_text(f"Amplitude = {comp_params['amplitude']:.3e} +/- {amplitude_err_str}", clear_first=False)
-                            self.data_field.insert_text(f"Sigma = {comp_params['sigma']:.5f} +/- {sigma_err_str}", clear_first=False)
+                            self.data_field.insert_text(f"FWHM (km/s) = {fwhm_kms:.1f} +/- {fwhm_err_kms}", clear_first=False)
+                            self.data_field.insert_text(f"Area (erg/s/cm2) = {comp_params['area']:.3e} +/- {area_err_str}", clear_first=False)
+                            
+                            # Automatically save this component
+                            try:
+                                selection = self.main_plot.current_selection
+                                if selection and len(selection) >= 2:
+                                    xmin, xmax = selection[0], selection[-1]
+                                    
+                                    # Create line info dictionary for each component
+                                    line_info = {
+                                        'species': self.islat.active_molecule,
+                                        'lev_up': f'deblend_comp_{component_idx+1}',
+                                        'lev_low': '',
+                                        'lam': comp_params['center'],
+                                        'tau': comp_params['amplitude'],
+                                        'intens': comp_params['area'],
+                                        'a_stein': '',
+                                        'e_up': '',
+                                        'g_up': '',
+                                        'xmin': xmin,
+                                        'xmax': xmax,
+                                        'flux_fit': comp_params['area'],
+                                        'fwhm_fit': comp_params['fwhm'],
+                                        'centr_fit': comp_params['center']
+                                    }
+                                    
+                                    # Save this component
+                                    ifh.save_line(line_info)
+                                    saved_components += 1
+                                    
+                            except Exception as save_error:
+                                self.data_field.insert_text(f"Error saving component {component_idx+1}: {save_error}", clear_first=False)
+                            
                             component_idx += 1
                         
                         if component_idx == 0:
                             self.data_field.insert_text("No components found in fit result.\n", clear_first=False)
                         else:
-                            self.data_field.insert_text(f"\nDe-blended line fit completed with {component_idx} components!\n", clear_first=False)
+                            # Show both detailed results AND the classic save message
+                            self.data_field.insert_text(f"\nDe-blended line fit completed with {component_idx} components!", clear_first=False)
+                            if saved_components > 0:
+                                self.data_field.insert_text(f"\nDe-blended line saved in /LINESAVES!", clear_first=False)
+                            
                     else:
-                        # Single Gaussian fit
-                        self.data_field.insert_text("Gaussian fit results:\n", clear_first=False)
+                        # Single Gaussian fit - show detailed results like old iSLAT
+                        self.data_field.insert_text("\nGaussian fit results:\n", clear_first=False)
                         
                         if 'center' in line_params:
                             # Handle None values in stderr parameters
                             center_err = line_params.get('center_stderr', 0)
                             center_err_str = f"{center_err:.5f}" if center_err is not None else "N/A"
                             
-                            amplitude_err = line_params.get('amplitude_stderr', 0)
-                            amplitude_err_str = f"{amplitude_err:.3e}" if amplitude_err is not None else "N/A"
+                            # Convert FWHM to km/s like old iSLAT (approximately)
+                            fwhm_kms = line_params['fwhm'] / line_params['center'] * 299792.458  # c in km/s
+                            fwhm_err_kms = "N/A"  # Would need proper error propagation
                             
-                            sigma_err = line_params.get('sigma_stderr', 0)
-                            sigma_err_str = f"{sigma_err:.5f}" if sigma_err is not None else "N/A"
+                            area_err = line_params.get('area_stderr', 0)
+                            area_err_str = f"{area_err:.3e}" if area_err is not None else "N/A"
                             
                             self.data_field.insert_text(f"Centroid (μm) = {line_params['center']:.5f} +/- {center_err_str}", clear_first=False)
-                            self.data_field.insert_text(f"FWHM (μm) = {line_params['fwhm']:.5f}", clear_first=False)  
-                            self.data_field.insert_text(f"Area = {line_params['area']:.3e}", clear_first=False)
-                            self.data_field.insert_text(f"Amplitude = {line_params['amplitude']:.3e} +/- {amplitude_err_str}", clear_first=False)
-                            self.data_field.insert_text(f"Sigma = {line_params['sigma']:.5f} +/- {sigma_err_str}", clear_first=False)
+                            self.data_field.insert_text(f"FWHM (km/s) = {fwhm_kms:.1f} +/- {fwhm_err_kms}", clear_first=False)
+                            self.data_field.insert_text(f"Area (erg/s/cm2) = {line_params['area']:.3e} +/- {area_err_str}", clear_first=False)
                         else:
                             self.data_field.insert_text("Could not extract fit parameters.\n", clear_first=False)
-
-                    # Add fit quality metrics
-                    if fit_stats:
-                        chi_squared = fit_stats.get('chi_squared', 'N/A')
-                        reduced_chi_squared = fit_stats.get('reduced_chi_squared', 'N/A')
-                        
-                        chi_sq_str = f"{chi_squared:.3f}" if isinstance(chi_squared, (int, float)) else str(chi_squared)
-                        red_chi_sq_str = f"{reduced_chi_squared:.3f}" if isinstance(reduced_chi_squared, (int, float)) else str(reduced_chi_squared)
-                        
-                        self.data_field.insert_text(f"Chi-squared = {chi_sq_str}", clear_first=False)
-                        self.data_field.insert_text(f"Reduced Chi-squared = {red_chi_sq_str}", clear_first=False)
-                        
-                        if fit_stats.get('success', False):
-                            self.data_field.insert_text("Fit converged successfully!", clear_first=False)
-                        else:
-                            self.data_field.insert_text("Warning: Fit may not have converged properly.", clear_first=False)
                 else:
                     self.data_field.insert_text("Fit completed but no valid result object returned.\n", clear_first=False)
             else:
