@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime
 from scipy.signal import find_peaks, peak_widths
-from scipy.integrate import trapezoid, simpson  # trapz is deprecated, use trapezoid
+from scipy.integrate import trapezoid, simpson
 from scipy.ndimage import median_filter
 from scipy.interpolate import interp1d
 import json

@@ -84,7 +84,7 @@ class BottomOptions:
             self.data_field.insert_text(f"Error loading saved lines: {e}\n")
 
     def fit_selected_line(self, deblend=False):
-        """Fit the currently selected line using LMFIT (like the original fit_onselect function)."""
+        """Fit the currently selected line using LMFIT"""
 
         if not hasattr(self.main_plot, 'current_selection') or self.main_plot.current_selection is None:
             self.data_field.insert_text("No region selected for fitting.\n", clear_first=False)
@@ -173,7 +173,7 @@ class BottomOptions:
                         xmin = center_wave - 0.01
                         xmax = center_wave + 0.01
                     
-                    # Plot spectrum around this line (similar to original implementation)
+                    # Plot spectrum around this line
                     self.main_plot.plot_spectrum_around_line(xmin, xmax)
                     
                     # Perform the fit

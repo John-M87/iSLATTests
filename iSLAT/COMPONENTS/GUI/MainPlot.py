@@ -9,6 +9,8 @@ from lmfit.models import GaussianModel
 from iSLAT.ir_model import Spectrum
 from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh, specsep
 
+from iSLAT.COMPONENTS.Molecule import Molecule
+
 # Import the new modular classes
 from .PlotRenderer import PlotRenderer
 from .DataProcessor import DataProcessor
@@ -80,8 +82,6 @@ class iSLATPlot:
 
     def _register_update_callbacks(self):
         """Register callbacks to handle parameter and molecule changes"""
-        # Register for molecule parameter changes
-        from iSLAT.COMPONENTS.Molecule import Molecule
         Molecule.add_molecule_parameter_change_callback(self.on_molecule_parameter_changed)
         
         # Register for global parameter changes if molecules_dict exists
@@ -180,16 +180,7 @@ class iSLATPlot:
         """
         self.update_model_plot()
         self.update_population_diagram()
-        #self.update_line_inspection_plot()
         self.plot_spectrum_around_line()
-        '''if hasattr(self, 'update_model_plot'):
-            self.update_model_plot()
-        if hasattr(self, 'update_population_diagram'):
-            self.update_population_diagram()
-        if hasattr(self, 'update_line_inspection_plot'):
-            self.update_line_inspection_plot()'''
-        #self.islat.update_model_spectrum()
-        #self.canvas.draw_idle()
 
     def update_model_plot(self):
         """

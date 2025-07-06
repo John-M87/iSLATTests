@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.widgets import SpanSelector
-
+#from matplotlib.widgets import SpanSelector
+from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh
 
 class PlotRenderer:
     """Pure plotting logic - handles all plot rendering and visual updates"""
@@ -72,10 +72,10 @@ class PlotRenderer:
                 self.ax1.set_ylim(current_ylim)
         
     def _plot_observed_spectrum(self, wave_data, flux_data, error_data=None):
-        """Plot the observed spectrum data - matching original style"""
+        """Plot the observed spectrum data"""
         if flux_data is not None and len(flux_data) > 0:
             if error_data is not None and len(error_data) == len(flux_data):
-                # Plot with error bars - match original style
+                # Plot with error bars
                 self.ax1.errorbar(
                     wave_data, 
                     flux_data,
@@ -89,7 +89,7 @@ class PlotRenderer:
                     capsize=0
                 )
             else:
-                # Plot without error bars - match original style
+                # Plot without error bars
                 self.ax1.plot(
                     wave_data, 
                     flux_data,
@@ -100,11 +100,11 @@ class PlotRenderer:
                 )
     
     def _plot_model_spectra(self, wave_data, visible_molecules):
-        """Plot individual molecule model spectra - matching original style"""
+        """Plot individual molecule model spectra"""
         # Double-check visibility using the molecule's own is_visible attribute
         truly_visible = []
         for mol in visible_molecules:
-            # Check for is_visible attribute and ensure it's True (matching original logic)
+            # Check for is_visible attribute and ensure it's True
             if getattr(mol, 'is_visible', False):
                 truly_visible.append(mol)
         
@@ -132,7 +132,7 @@ class PlotRenderer:
                         peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
                         mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
                 else:
-                    # Direct interpolation approach like original
+                    # Direct interpolation approach check if this works right
                     mol_flux_interp = np.interp(
                         wave_data,
                         mol.spectrum.lamgrid,
@@ -154,20 +154,20 @@ class PlotRenderer:
                     # Use the molecule's color if available, otherwise get from theme
                     color = getattr(mol, 'color', None)
                     if color is None:
-                        # Get color from theme like original, or use default
+                        # Get color from theme like, or use default
                         color = self.theme.get('molecule_colors', {}).get(getattr(mol, 'name', 'unknown'), 'blue')
                     
                     # Get proper label
                     label = getattr(mol, 'displaylabel', getattr(mol, 'name', 'Unknown'))
                     
-                    # Plot with style matching original (solid line, not dashed)
+                    # Plot with style 
                     line, = self.ax1.plot(
                         plot_lam,
                         plot_flux,
-                        linestyle='-',  # Solid line like original
+                        linestyle='-',
                         color=color,
-                        alpha=0.7,      # Match original alpha
-                        linewidth=1,    # Match original linewidth
+                        alpha=0.7,
+                        linewidth=1,
                         label=label,
                         zorder=3
                     )
@@ -177,9 +177,8 @@ class PlotRenderer:
                     continue
     
     def _plot_summed_spectrum(self, wave_data, summed_flux):
-        """Plot the summed model spectrum - matching original style with gray fill"""
+        """Plot the summed model spectrum"""
         if len(summed_flux) > 0 and np.any(summed_flux > 0):
-            # Use original gray fill styling like the old MainPlot
             self.ax1.fill_between(
                 wave_data,
                 0,
@@ -191,7 +190,7 @@ class PlotRenderer:
             )
     
     def _configure_main_plot_appearance(self):
-        """Configure the appearance of the main plot - matching original style"""
+        """Configure the appearance of the main plot"""
         self.ax1.set_xlabel('Wavelength (μm)')
         self.ax1.set_ylabel('Flux density (Jy)')
         self.ax1.set_title("Full Spectrum with Line Inspection")
@@ -201,14 +200,12 @@ class PlotRenderer:
         if handles:
             self.ax1.legend()
         
-        # Don't add grid by default to match original
-        
     def render_line_inspection_plot(self, line_wave, line_flux, line_label=None):
-        """Render the line inspection subplot - matching original style"""
+        """Render the line inspection subplot"""
         self.ax2.clear()
         
         if line_wave is not None and line_flux is not None:
-            # Plot data in selected range - match original style
+            # Plot data in selected range
             self.ax2.plot(line_wave, line_flux, 
                          color=self.theme.get("foreground", "black"), 
                          linewidth=1, 
@@ -224,7 +221,7 @@ class PlotRenderer:
                 self.ax2.legend()
     
     def render_population_diagram(self, molecule, wave_range=None):
-        """Render the population diagram for the active molecule - matching original style"""
+        """Render the population diagram for the active molecule"""
         self.ax3.clear()
         
         if molecule is None:
@@ -232,21 +229,18 @@ class PlotRenderer:
             return
             
         try:
-            # Use the original calculation method from the old MainPlot
-            from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh
-            
-            # Get the intensity table - same as original
+            # Get the intensity table
             int_pars = molecule.intensity.get_table
             int_pars.index = range(len(int_pars.index))
 
-            # Parsing the components of the lines in int_pars - exact same as original
+            # Parsing the components of the lines in int_pars
             wl = int_pars['lam']
             intens_mod = int_pars['intens']
             Astein_mod = int_pars['a_stein']
             gu = int_pars['g_up']
             eu = int_pars['e_up']
 
-            # Calculating the y-axis for the population diagram - exact same as original
+            # Calculating the y-axis for the population diagram
             area = np.pi * (molecule.radius * au * 1e2) ** 2  # In cm^2
             Dist = dist * pc
             beam_s = area / Dist ** 2
@@ -255,14 +249,16 @@ class PlotRenderer:
             rd_yax = np.log(4 * np.pi * F / (Astein_mod * hh * freq * gu))
             threshold = np.nanmax(F) / 100
 
-            # Set limits exactly as original
+            # Set limits
             self.ax3.set_ylim(np.nanmin(rd_yax[F > threshold]), np.nanmax(rd_yax) + 0.5)
             self.ax3.set_xlim(np.nanmin(eu) - 50, np.nanmax(eu[F > threshold]))
 
-            # Populating the population diagram graph with the lines - exact same as original but with picker
-            self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
+            # Populating the population diagram graph with the lines
+            #self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
             
-            # Set labels exactly as original
+            self.ax3.scatter(eu, rd_yax, s=0.5, color='#838B8B')
+
+            # Set labels
             self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
             self.ax3.set_xlabel(r'$E_{u}$ (K)')
             self.ax3.set_title(f'{molecule.displaylabel} Population diagram', fontsize='medium')
@@ -316,7 +312,7 @@ class PlotRenderer:
         self.canvas.draw()
     
     def plot_vertical_lines(self, wavelengths, heights=None, colors=None, labels=None):
-        """Plot vertical lines at specified wavelengths - matching original style"""
+        """Plot vertical lines at specified wavelengths"""
         if heights is None:
             # Get current y-limits for line height
             ylim = self.ax2.get_ylim()
