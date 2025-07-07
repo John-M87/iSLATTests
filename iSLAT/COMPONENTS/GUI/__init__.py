@@ -1,6 +1,6 @@
 from .Tooltips import *
 #from .MainPlot import *
-from .GUI import GUI
+from .GUI import iSLATGUI
 #from .PlotRenderer import PlotRenderer
 #from .DataProcessor import DataProcessor
 from .InteractionHandler import InteractionHandler
