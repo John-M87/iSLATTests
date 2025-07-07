@@ -1,5 +1,6 @@
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 import iSLAT.Constants as default_parms
+import numpy as np
 
 class MoleculeDict(dict):
     """A dictionary to store Molecule objects with their names as keys, and to perform operations on the collection of molecules."""
@@ -13,13 +14,13 @@ class MoleculeDict(dict):
         self._cache_wave_data_hash = None
         
         # Global parameters that affect all molecules
-        self._global_dist = default_parms.dist
-        self._global_star_rv = default_parms.star_rv
-        self._global_fwhm = default_parms.fwhm
-        self._global_intrinsic_line_width = default_parms.intrinsic_line_width
-        self._global_wavelength_range = default_parms.wavelength_range
-        self._global_model_line_width = default_parms.model_line_width
-        self._global_model_pixel_res = default_parms.model_pixel_res
+        self._global_dist = default_parms.DEFAULT_DISTANCE
+        self._global_star_rv = default_parms.DEFAULT_STELLAR_RV
+        self._global_fwhm = default_parms.DEFAULT_FWHM
+        self._global_intrinsic_line_width = default_parms.INTRINSIC_LINE_WIDTH
+        self._global_wavelength_range = default_parms.WAVELENGTH_RANGE
+        self._global_model_line_width = default_parms.MODEL_LINE_WIDTH
+        self._global_model_pixel_res = default_parms.MODEL_PIXEL_RESOLUTION
         
         # Callbacks to notify when global parameters change
         self._global_parameter_change_callbacks = []
@@ -125,7 +126,6 @@ class MoleculeDict(dict):
     
     def get_summed_flux(self, wave_data, visible_only=True):
         """Get summed flux for all visible molecules with caching"""
-        import numpy as np
         
         # Create cache key
         wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
@@ -262,9 +262,8 @@ class MoleculeDict(dict):
     
     def _update_model_parameters(self):
         """Update model parameters when wavelength range or fwhm changes"""
-        import numpy as np
-        self._global_model_line_width = default_parms.cc / self._global_fwhm
-        self._global_model_pixel_res = (np.mean(self._global_wavelength_range) / default_parms.cc * self._global_fwhm) / default_parms.pix_per_fwhm
+        self._global_model_line_width = default_parms.SPEED_OF_LIGHT_KMS / self._global_fwhm
+        self._global_model_pixel_res = (np.mean(self._global_wavelength_range) / default_parms.SPEED_OF_LIGHT_KMS * self._global_fwhm) / default_parms.PIXELS_PER_FWHM
         
         # Update all molecule instances to use new model parameters
         for molecule in self.values():

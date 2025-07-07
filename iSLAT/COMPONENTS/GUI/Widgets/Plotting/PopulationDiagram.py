@@ -2,8 +2,13 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 import tkinter as tk
-from iSLAT.Constants import dist, au, pc, ccum, hh
-
+from iSLAT.Constants import (
+    ASTRONOMICAL_UNIT_M, 
+    PARSEC_CM_ALT, 
+    SPEED_OF_LIGHT_MICRONS, 
+    PLANCK_CONSTANT, 
+    DEFAULT_DISTANCE
+)
 
 class PopulationDiagram:
     """Handles the population diagram plot for molecular excitation analysis"""
@@ -43,12 +48,12 @@ class PopulationDiagram:
             eu = int_pars['e_up']
 
             # Calculating the y-axis for the population diagram
-            area = np.pi * (molecule.radius * au * 1e2) ** 2  # In cm^2
-            Dist = dist * pc
+            area = np.pi * (molecule.radius * ASTRONOMICAL_UNIT_M * 1e2) ** 2  # In cm^2
+            Dist = DEFAULT_DISTANCE * PARSEC_CM_ALT
             beam_s = area / Dist ** 2
             F = intens_mod * beam_s
-            freq = ccum / wl
-            rd_yax = np.log(4 * np.pi * F / (Astein_mod * hh * freq * gu))
+            freq = SPEED_OF_LIGHT_MICRONS / wl
+            rd_yax = np.log(4 * np.pi * F / (Astein_mod * PLANCK_CONSTANT * freq * gu))
             threshold = np.nanmax(F) / 100
 
             # Set limits

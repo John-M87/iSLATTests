@@ -5,7 +5,7 @@ from iSLAT.ir_model.constants import constants as c'''
 from .moldata import MolData
 from .spectrum import Spectrum
 from .intensity import Intensity
-from iSLAT.IRconstants import constants as c
+from iSLAT.Constants import CONSTANTS as c
 import iSLAT.Constants as default_parms
 import numpy as np
 

@@ -20,7 +20,7 @@ except ImportError:
     pass
 
 from .moldata import MolData
-from ...IRconstants import constants as c
+from ...Constants import CONSTANTS as c
 
 
 __all__ = ["Intensity"]
