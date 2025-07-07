@@ -23,11 +23,27 @@ class iSLAT:
     def __init__(self, GUI : iSLATGUI = None, data_manager : DataManager = None):
         if data_manager is None:
             data_manager = DataManager()
+        
+        # Initialize basic data structures
+        molecule_data = []  # Will be populated by data_manager
+        wave_data = []      # Will be populated when spectrum is loaded
+        flux_data = []      # Will be populated when spectrum is loaded
+        config = data_manager.file_handler.read_user_settings()
+        
+        self.molecules_dict = data_manager.get_molecules()
+
         if GUI is None:
-            GUI = iSLATGUI(theme=data_manager.file_handler.read_user_settings())
+            GUI = iSLATGUI(
+                theme=config["theme"],
+                molecule_data=molecule_data,
+                wave_data=wave_data,
+                flux_data=flux_data,
+                config=config,
+                islat_class_ref=self
+            )
         self.GUI = GUI
         self.data_manager = data_manager
-        main_directory = self.data_manager.file_handler.get_main_directory()
+        self.main_directory = self.data_manager.file_handler.get_main_directory()
 
     def start_data_processing(self, spectrum_data_file_path: str = None):
         """Start the data processing pipeline."""

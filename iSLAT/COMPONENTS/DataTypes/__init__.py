@@ -7,4 +7,6 @@ from ..ir_model.chi2spectrum import Chi2Spectrum, FluxMeasurement'''
 from .intensity import Intensity
 from .moldata import MolData
 from .spectrum import Spectrum
+from .Molecule import Molecule
+from .MoleculeDict import MoleculeDict
 from ..DataProcessing.chi2spectrum import Chi2Spectrum, FluxMeasurement

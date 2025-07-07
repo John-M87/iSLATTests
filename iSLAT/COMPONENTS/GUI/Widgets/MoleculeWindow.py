@@ -288,7 +288,7 @@ class MoleculeWindow:
         if hasattr(self.islat, 'request_update'):
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
-        else:
+        #else:
             # Fallback to direct update
-            self.islat.update_model_spectrum()
-            self.plot.update_all_plots()
+            #self.islat.update_model_spectrum()
+            #self.plot.update_all_plots()

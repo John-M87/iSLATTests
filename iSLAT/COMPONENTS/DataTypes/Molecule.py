@@ -1,7 +1,11 @@
-from iSLAT.ir_model.spectrum import Spectrum
+'''from iSLAT.ir_model.spectrum import Spectrum
 from iSLAT.ir_model.moldata import MolData
 from iSLAT.ir_model.intensity import Intensity
-from iSLAT.ir_model.constants import constants as c
+from iSLAT.ir_model.constants import constants as c'''
+from .moldata import MolData
+from .spectrum import Spectrum
+from .intensity import Intensity
+from iSLAT.IRconstants import constants as c
 import iSLAT.Constants as default_parms
 import numpy as np
 

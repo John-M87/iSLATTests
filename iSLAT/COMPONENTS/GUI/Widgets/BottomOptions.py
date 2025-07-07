@@ -5,7 +5,7 @@ import traceback
 #import os
 #from tkinter import ttk
 import iSLAT.COMPONENTS.FileHandling as ifh
-#from .GUIFunctions import create_button
+from ..GUIFunctions import create_button
 
 class BottomOptions:
     def __init__(self, master, islat, theme, main_plot, data_field, config):
