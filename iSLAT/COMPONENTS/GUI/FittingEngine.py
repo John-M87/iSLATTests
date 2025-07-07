@@ -216,8 +216,8 @@ class FittingEngine:
         
         # Calculate initial amplitude estimate like old iSLAT
         # Total integrated flux divided by number of lines
+        total_flux = np.trapz(flux_data, wave_data)
         #total_flux = np.trapz(flux_data, wave_data)
-        total_flux = np.trapezoid(flux_data, wave_data)
         garea_fg = total_flux / len(line_centers) * 1e11  # Scaling factor like old iSLAT
         
         # Set up parameter bounds based on tolerances like old iSLAT
