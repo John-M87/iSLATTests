@@ -39,14 +39,13 @@ import csv
 import time
 import threading
 from astroquery import hitran
+import numpy
 from astropy import units as un
 from scipy import constants as con
 import datetime
 import certifi
 import ssl
 import urllib
-import json
-import webbrowser
 
 context = ssl.create_default_context (cafile=certifi.where ())
 
@@ -54,54 +53,11 @@ from COMPONENTS.chart_window import MoleculeSelector
 from COMPONENTS.Hitran_data import get_Hitran_data
 from COMPONENTS.partition_function_writer import write_partition_function
 from COMPONENTS.line_data_writer import write_line_data
-#from COMPONENTS.slabfit_config import *
-#from COMPONENTS.slabfit_loader import *
-#from COMPONENTS.slabfit_runner import *
-
-from iSLATDefaultInputParms import *
-#from GUI import *
-
-os.chdir("iSLAT") ####################
+from COMPONENTS.slabfit import *
 
 # create HITRAN folder, only needed for first start
 HITRAN_folder = "HITRANdata"
-os.makedirs(HITRAN_folder, exist_ok=True)
-
-# import the user settings from the UserSettings.json file as a dictionary
-def load_user_settings():
-    user_settings_file = "CONFIG/UserSettings.json"
-    if os.path.exists(user_settings_file):
-        with open(user_settings_file, 'r') as f:
-            user_settings = json.load(f)
-    else:
-        # If the file does not exist, return default settings and save them as a new json file
-        default_settings = {
-            "first_startup": True,
-            "reload_default_files": True,
-            "theme": "LightTheme"
-        }
-        with open(user_settings_file, 'w') as f:
-            json.dump(default_settings, f, indent=4)
-        user_settings = default_settings
-    
-    # append theme information to the user settings dictonary
-    theme_file = f"CONFIG/GUIThemes/{user_settings['theme']}.json"
-    if os.path.exists(theme_file):
-        with open(theme_file, 'r') as f:
-            theme_settings = json.load(f)
-        user_settings["theme"] = theme_settings
-    return user_settings
-
-def update_default_molecule_parameters():
-    """
-    update_default_molecule_parameters() updates the default molecule parameters from the DefaultMoleculeParameters.json file.
-    """
-    global default_molecule_parameters
-    with open("CONFIG/DefaultMoleculeParameters.json", 'r') as f:
-        default_molecule_parameters = json.load(f)
-
-user_settings = load_user_settings()
-update_default_molecule_parameters()
+os.makedirs (HITRAN_folder, exist_ok=True)
 
 if __name__ == "__main__":
 
@@ -117,40 +73,50 @@ if __name__ == "__main__":
     min_vu = 1 / (min_wave / 1E6) / 100.
     max_vu = 1 / (max_wave / 1E6) / 100.
 
-    print('\nChecking for HITRAN files: ...')
-    
-    # If this is the first startup or reload_default_files is True, download the default HITRAN files
-    if user_settings["first_startup"] or user_settings["reload_default_files"]:
-        print('First startup or reload_default_files is True. Downloading default HITRAN files ...')
-        #print('Downloading default HITRAN files ...')
-        for mol, bm, iso in zip(mols, basem, isot):
-            save_folder = 'HITRANdata'
-            file_path = os.path.join(save_folder, "data_Hitran_2020_{:}.par".format(mol))
+    print (' ')
+    print ('Checking for HITRAN files: ...')
 
-            if os.path.exists(file_path):
-                print("File already exists for mol: {:}. Skipping.".format(mol))
-                continue
+    for mol, bm, iso in zip (mols, basem, isot):
+        save_folder = 'HITRANdata'
+        file_path = os.path.join (save_folder, "data_Hitran_2020_{:}.par".format (mol))
 
-            print("Downloading data for mol: {:}".format(mol))
-            Htbl, qdata, M, G = get_Hitran_data(bm, iso, min_vu, max_vu)
+        if os.path.exists (file_path):
+            print ("File already exists for mol: {:}. Skipping.".format (mol))
+            continue
 
-            with open(file_path, 'w') as fh:
-                fh.write("# HITRAN 2020 {:}; id:{:}; iso:{:};gid:{:}\n".format(mol, M, iso, G))
-                fh.write("# Downloaded from the Hitran website\n")
-                fh.write("# {:s}\n".format(str(datetime.date.today())))
-                fh = write_partition_function(fh, qdata)
-                fh = write_line_data(fh, Htbl)
+        print ("Downloading data for mol: {:}".format (mol))
+        Htbl, qdata, M, G = get_Hitran_data (bm, iso, min_vu, max_vu)
 
-            print("Data for Mol: {:} downloaded and saved.".format(mol))
+        with open (file_path, 'w') as fh:
+            fh.write ("# HITRAN 2020 {:}; id:{:}; iso:{:};gid:{:}\n".format (mol, M, iso, G))
+            fh.write ("# Downloaded from the Hitran website\n")
+            fh.write ("# {:s}\n".format (str (datetime.date.today ())))
+            fh = write_partition_function (fh, qdata)
+            fh = write_line_data (fh, Htbl)
 
-        user_settings["first_startup"] = False
-        user_settings["reload_default_files"] = False
-        with open("UserSettings.json", 'w') as f:
-            json.dump(user_settings, f, indent=4)
-    else:
-        print('Not the first startup and reload_default_files is False. Skipping HITRAN files download.')
+        print ("Data for Mol: {:} downloaded and saved.".format (mol))
 
-molecules_data_default = molecules_data.copy()
+# Define the default molecules and their file path; the folder must be in the same path as iSLAT
+molecules_data = [
+    ("H2O", "HITRANdata/data_Hitran_2020_H2O.par", "H$_2$O"),
+    ("OH", "HITRANdata/data_Hitran_2020_OH.par", "OH"),
+    ("HCN", "HITRANdata/data_Hitran_2020_HCN.par", "HCN"),
+    ("C2H2", "HITRANdata/data_Hitran_2020_C2H2.par", "C$_2$H$_2$"),
+    ("CO2", "HITRANdata/data_Hitran_2020_CO2.par", "CO$_2$"),
+    ("CO", "HITRANdata/data_Hitran_2020_CO.par", "CO")
+    # Add more molecules here if needed
+]
+
+default_data = [
+    ("H2O", "HITRANdata/data_Hitran_2020_H2O.par", "H$_2$O"),
+    ("OH", "HITRANdata/data_Hitran_2020_OH.par", "OH"),
+    ("HCN", "HITRANdata/data_Hitran_2020_HCN.par", "HCN"),
+    ("C2H2", "HITRANdata/data_Hitran_2020_C2H2.par", "C$_2$H$_2$"),
+    ("CO2", "HITRANdata/data_Hitran_2020_CO2.par", "CO$_2$"),
+    ("CO", "HITRANdata/data_Hitran_2020_CO.par", "CO")
+]
+
+molecules_data_default = molecules_data.copy ()
 
 deleted_molecules = []
 
@@ -161,6 +127,7 @@ output_dir = "MODELS"
 os.makedirs (output_dir, exist_ok=True)
 linesave_folder = "LINESAVES"
 os.makedirs (linesave_folder, exist_ok=True)
+
 
 # read more molecules if saved by the user in a previous iSLAT session
 def read_from_csv():
@@ -177,6 +144,7 @@ def read_from_csv():
             pass
     return molecules_data
 
+
 def read_default_csv():
     global file_name
     filename = os.path.join (save_folder, f"default.csv")
@@ -190,6 +158,7 @@ def read_default_csv():
         except FileNotFoundError:
             pass
     return molecules_data
+
 
 # read more molecules if saved by the user in a previous iSLAT session
 def read_from_user_csv():
@@ -206,55 +175,138 @@ def read_from_user_csv():
             pass
     return molecules_data
 
-##### Creating all the functions used for the tool #####
+
+# Set default initial parameters for a new molecule
+default_initial_params = {
+    "scale_exponent": 17,
+    "scale_number": 1,
+    "t_kin": 600,
+    "radius_init": 0.5
+}
+
+# Define the initial parameters for default molecules
+initial_parameters = {
+    "H2O": {
+        "scale_exponent": 18,
+        "scale_number": 1,
+        "t_kin": 850,
+        "radius_init": 0.5
+    },
+    "OH": {
+        "scale_exponent": 16,
+        "scale_number": 1,
+        "t_kin": 2000,
+        "radius_init": 0.3
+    },
+    "HCN": {
+        "scale_exponent": 16,
+        "scale_number": 1,
+        "t_kin": 850,
+        "radius_init": 0.5
+    },
+    "C2H2": {
+        "scale_exponent": 17,
+        "scale_number": 1,
+        "t_kin": 600,
+        "radius_init": 0.1
+    },
+    "CO2": {
+        "scale_exponent": 17,
+        "scale_number": 1,
+        "t_kin": 300,
+        "radius_init": 0.5
+    },
+    "CO": {
+        "scale_exponent": 18,
+        "scale_number": 1,
+        "t_kin": 1200,
+        "radius_init": 0.4
+    }
+}
+
+# Set-up default input parameters for model generation
+min_lamb = 4.5
+max_lamb = 28.
+dist = 160.0
+star_rv = 0.0
+fwhm = 130.  # FWHM of the observed lines or instrument
+pix_per_fwhm = 10  # number of pixels per fwhm element
+
+intrinsic_line_width = 1.0
+cc = 2.99792458e5  # speed of light in km/s
+model_line_width = cc / fwhm
+model_pixel_res = (np.mean ([min_lamb, max_lamb]) / cc * fwhm) / pix_per_fwhm
+
+# Constants used in generating the rotation diagram
+au = 1.496e11  # 1AU in m
+pc = 3.08567758128e18  # From parsec to cm
+ccum = 2.99792458e14  # speed of light in um/s
+hh = 6.62606896e-27  # erg s
+
+# Dictionary to store the initial values for each chemical
+initial_values = {}
+
+# define other defaults needed below
+spanmol = "h2o"
+specsep = .01  # default value for the separation to determine if line is single
+fwhmtolerance = 5  # default value for the tolerance in FWHM for the de-blender (in km/s)
+centrtolerance = 0.0001 # default value for the tolerance in centroid for the de-blender (in um)
+line_threshold = 0.03  # percent value (where 0.01 = 1%) of the strongest line in the plot;
+# lines below this this limit are ignored in the plot and in the single line selection
+
+
+"""Creating all the functions used for the tool"""
+
+"""
+run_slabfit() fits a single Slab model for spanmol using the line flux measurement file in input
+"""
+
 
 def run_slabfit():
-    """
-    run_slabfit() fits a single Slab model for spanmol using the line flux measurement file in input
-    """
     global spanmol
 
     try:
         linelistpath
     except NameError:
-        data_field.delete('1.0', "end")
-        data_field.insert('1.0', 'Input line measurement file is not defined!')
+        data_field.delete ('1.0', "end")
+        data_field.insert ('1.0', 'Input line measurement file is not defined!')
     else:
+
         # Update the main GUI data_field
-        data_field.delete('1.0', "end")
-        data_field.insert('1.0', 'Fitting slab for molecule: ' + spanmol)
+        data_field.delete ('1.0', "end")
+        data_field.insert ('1.0', 'Fitting slab for molecule: ' + spanmol)
 
         save_folder = 'MODELS'
         mol = spanmol
         mol_path = next (mol_data[1] for mol_data in molecules_data if mol_data[0] == spanmol.upper ())
 
-        min_lamb = float(min_lamb_entry.get ())
-        max_lamb = float(max_lamb_entry.get ())
-        dist = float(dist_entry.get ())
-        fwhm = float(fwhm_entry.get ())
-        config = Config(linelistpath, save_folder, mol, mol_path, dist, fwhm, min_lamb, max_lamb, pix_per_fwhm,
-                         intrinsic_line_width, cc)
+        min_lamb = float (min_lamb_entry.get ())
+        max_lamb = float (max_lamb_entry.get ())
+        dist = float (dist_entry.get ())
+        fwhm = float (fwhm_entry.get ())
+        
+        # Initialize SlabFit with all parameters
+        slab_fitter = SlabFit (linelistpath, save_folder, mol, mol_path, dist, fwhm, min_lamb, max_lamb, 
+                              pix_per_fwhm, intrinsic_line_width, cc, data_field)
+        
+        # Load data
+        slab_fitter.initialize()
 
-        data_loader = DataLoader(config)
-        data_loader.load_data()
+        start_t = globals ().get (f"t_{spanmol.lower ()}")
+        start_n_mol = globals ().get (f"n_mol_{spanmol.lower ()}")
+        start_r = globals ().get (f"{spanmol.lower ()}_radius")
 
-        start_t = globals().get (f"t_{spanmol.lower ()}")
-        start_n_mol = globals().get (f"n_mol_{spanmol.lower ()}")
-        start_r = globals().get (f"{spanmol.lower ()}_radius")
+        # Perform the fit
+        fitted_params = slab_fitter.fit(start_t, start_n_mol, start_r)
 
-        model_fitting = ModelFitting (data_loader, config, data_field)
-        model_fitting.message ()
-        result = model_fitting.fit_model (start_t, start_n_mol, start_r)
-
-        # result_handler = ResultHandler(data_loader, config)
-
-        T_best = np.round (result[0], decimals=1)
-        R_best = np.round (result[2], decimals=2)
-        N_best = format (10.0 ** result[1], '.3g')
+        # Extract results
+        T_best = np.round (fitted_params['temperature'], decimals=1)
+        R_best = np.round (fitted_params['radius'], decimals=2)
+        N_best = format (fitted_params['n_mol'], '.3g')
 
         output_path = "MODELS/"
-        chi2_h2o = data_loader.chi2_h2o
-        chi2 = chi2_h2o.chi2_total
+        chi2_h2o = slab_fitter.data_loader.chi2_h2o
+        chi2 = fitted_params['chi2_final']
         red_chi2 = chi2 / (len (chi2_h2o.measurements) - 3)
 
         result_tab = pd.DataFrame ({
@@ -308,14 +360,17 @@ def run_slabfit():
         data_field.delete ('1.0', "end")
         data_field.insert ('1.0', 'Slab fit completed!')
 
+
+"""
+Save() is connected to the "Save Line" button of the tool.
+This function appends information of the the strongest line (as determined by intensity) in the spanned area graph to a csv file. 
+The name of the csv file is set with the "svd_line_file" variable in the second code block above. 
+For the parameters of the line that is saved, refer to the "line2save" variable in onselect().
+When starting the tool up, the "headers" variable is set to False. After apending a line to the csv for the first time, the "headers" variable is changed to False.
+"""
+
+
 def Save():
-    """
-    Save() is connected to the "Save Line" button of the tool.
-    \nThis function appends information of the the strongest line (as determined by intensity) in the spanned area graph to a csv file. 
-    \nThe name of the csv file is set with the "svd_line_file" variable in the second code block above. 
-    \nFor the parameters of the line that is saved, refer to the "line2save" variable in onselect().
-    \nWhen starting the tool up, the "headers" variable is set to False. After apending a line to the csv for the first time, the "headers" variable is changed to False.
-    """
     global line2save
     global headers
     global selectedline
@@ -343,8 +398,13 @@ def Save():
 
     canvas.draw ()
 
+
+"""
+fit_onselect() is connected to the "Fit Line" button of the tool.
+This function fits the line selected in the top graph using LMFIT"""
+
+
 def fit_onselect():
-    """fit_onselect() is connected to the "Fit Line" button of the tool. \nThis function fits the line selected in the top graph using LMFIT"""
     global selectedline
 
     print (' ')
@@ -355,10 +415,10 @@ def fit_onselect():
         # using one less pixel on each side here, because of how data_region_x is defined: to include 1 more pixel on each side
         gauss_fit, gauss_fwhm, gauss_area, x_fit = fit_line (data_region_x[1], data_region_x[-2])
 
-        dely = gauss_fit.eval_uncertainty(sigma=3)
-        ax2.fill_between(x_fit, gauss_fit.best_fit - dely, gauss_fit.best_fit + dely, color=user_settings["theme"]["uncertainty_band_color"],
+        dely = gauss_fit.eval_uncertainty (sigma=3)
+        ax2.fill_between (x_fit, gauss_fit.best_fit - dely, gauss_fit.best_fit + dely, color="#ABABAB",
                           label=r'3-$\sigma$ uncertainty band')
-        ax2.plot(x_fit, gauss_fit.best_fit, label='Gauss. fit', color=user_settings["theme"]["selection_color"], ls='--')
+        ax2.plot (x_fit, gauss_fit.best_fit, label='Gauss. fit', color='lime', ls='--')
 
         data_field.insert (tk.END, ('\n ' + '\nGaussian fit results: ' + '\nCentroid (μm) = ' + str (
             np.round (gauss_fit.params['center'].value, decimals=5)) + ' +/- ' + str (
@@ -367,16 +427,22 @@ def fit_onselect():
             np.round (gauss_fwhm[1], decimals=1)) + '\nArea (erg/s/cm2) = ' + f'{gauss_area[0]:.{3}e}' +
                                     ' +/- ' + f'{gauss_area[1]:.{3}e}'))
 
-        fig.canvas.draw_idle()
+        fig.canvas.draw_idle ()
     else:
-        data_field.delete('1.0', "end")
-        data_field.insert('1.0', 'No Line Selected!')
-        fig.canvas.draw_idle()
+        data_field.delete ('1.0', "end")
+        data_field.insert ('1.0', 'No Line Selected!')
+        fig.canvas.draw_idle ()
         return
-    canvas.draw()
+    canvas.draw ()
+
+"""
+fit_onselect() is connected to the "Fit Line" button of the tool.
+This function fits the line selected in the top graph using LMFIT"""
+
 
 def fitmulti_onselect():
     global selectedline, onselect_lines, deblend_filename
+
 
     if selectedline == True:  # "selectedline" variable is determined by whether or not an area was selected in the top graph or not
         print(' ')
@@ -440,7 +506,7 @@ def fitmulti_onselect():
         # save output file with measurements as csv file, update to use linesavepath
         output_lines.to_csv(deblend_filename + '.csv', header=True, index=False)
 
-        fig.canvas.draw_idle()
+        fig.canvas.draw_idle ()
 
         data_field.insert(tk.END, ('\n ' + "\nDe-blended line saved in /LINESAVES!"))
 
@@ -449,10 +515,13 @@ def fitmulti_onselect():
         data_field.insert('1.0', 'No Line Selected!')
         fig.canvas.draw_idle()
         return
-    canvas.draw()
+    canvas.draw ()
 
+
+"""
+multifit_line() uses LMFIT to fit a line and provide best-fit parameters.
+"""
 def fitmulti_line(xmin, xmax, onsel_lines):
-    """multifit_line() uses LMFIT to fit a line and provide best-fit parameters."""
     global deblend_filename
 
     fit_range = np.where(np.logical_and(wave_data >= xmin, wave_data <= xmax))  # define spectral range for the fit
@@ -532,8 +601,11 @@ def fitmulti_line(xmin, xmax, onsel_lines):
 
     return gauss_fit
 
+
+"""
+fit_line() uses LMFIT to fit a line and provide best-fit parameters.
+"""
 def fit_line(xmin, xmax):
-    """fit_line() uses LMFIT to fit a line and provide best-fit parameters."""
     fit_range = np.where (np.logical_and (wave_data >= xmin, wave_data <= xmax))  # define spectral range for the fit
     x_fit = wave_data[fit_range[::-1]]  # reverse the wavelength array to use it in the fit
     model = GaussianModel ()  # use gaussian model from LMFIT
@@ -570,11 +642,14 @@ def fit_line(xmin, xmax):
 
     return gauss_fit, [gauss_fwhm, gauss_fwhm_err], [gauss_area, gauss_area_err], x_fit
 
+
+"""
+update() is main function of this tool. It is called any time and of the sliders or text imput are changed. 
+This function is where the models are rebuilt with new parameters and the graphs are recreated.
+"""
+
+
 def update(*val):
-    """
-    update() is main function of this tool. It is called any time and of the sliders or text imput are changed. 
-    \nThis function is where the models are rebuilt with new parameters and the graphs are recreated.
-    """
     global skip  # See reference in reset()
     # If skip is False, then update() does not run. This cuts down needless processing
     if skip == True:
@@ -625,23 +700,29 @@ def update(*val):
 
     # sum_line, = ax1.plot([], [], color='gray', linewidth=1)
     # sum_line.set_label('Sum')
-    ax1.legend()
+    ax1.legend ()
 
     # h2o, oh, hcn, and c2h2 are variables that are set to True or false depending if the molecule is currently selected in the tool
     # If True, then that molecule's model is rebuilt with any new conditions (as set by the sliders or text input) that may have called the update() function
     # See h2o_select()
     for mol_name, mol_filepath, mol_label in molecules_data:
-        molecule_name_lower = mol_name.lower()
+        molecule_name_lower = mol_name.lower ()
 
         # Intensity calculation
         exec (
             f"{molecule_name_lower}_intensity.calc_intensity(t_{molecule_name_lower}, n_mol_{molecule_name_lower}, dv=intrinsic_line_width)",
             globals ())
+        if molecule_name_lower == 'h2o':
+            print("Hey man whats up, were in the update function now, and the h2o_intensity is being calculated")
+            print("Here's the values for t_h2o, n_mol_h2o, and intrinsic_line_width:")
+            print(f"t_h2o: {globals()['t_h2o']}, n_mol_h2o: {globals()['n_mol_h2o']}, intrinsic_line_width: {intrinsic_line_width}")
 
         # Spectrum creation
         exec (
             f"{molecule_name_lower}_spectrum = Spectrum(lam_min=min_lamb, lam_max=max_lamb, dlambda=model_pixel_res, R=model_line_width, distance=dist)",
             globals ())
+        print("Here is the newly made spectrum for", molecule_name_lower)
+        print(f"{molecule_name_lower}_spectrum: {globals()[f'{molecule_name_lower}_spectrum']}")
 
         # Adding intensity to the spectrum
         exec (
@@ -653,37 +734,64 @@ def update(*val):
             f"fluxes_{molecule_name_lower} = {molecule_name_lower}_spectrum.flux_jy; lambdas_{molecule_name_lower} = {molecule_name_lower}_spectrum.lamgrid",
             globals ())
 
+        if f"{molecule_name_lower}" == "h2o":
+            print("Here is the fluxes_h2o and lambdas_h2o variables:")
+            print(f"fluxes_h2o: {globals()['fluxes_h2o']}")
+            print(f"lambdas_h2o: {globals()['lambdas_h2o']}")
+            print(f't_kin{molecule_name_lower}: {globals()[f"t_kin_{molecule_name_lower}"]}')
+            print(f'mol_filepath: {mol_filepath}')
+            print(f'scale_exponent_{molecule_name_lower}: {globals()[f"scale_exponent_{molecule_name_lower}"]}')
+            print(f'scale_number_{molecule_name_lower}: {globals()[f"scale_number_{molecule_name_lower}"]}')
+            print(f'n_mol_init: {globals()[f"n_mol_{molecule_name_lower}_init"]}')
+            print(f'radius_init: {globals()[f"{molecule_name_lower}_radius_init"]}')
+            
+            # print the i list and the lam list of the spectrum
+            print(f"i list: {globals()[f'{molecule_name_lower}_spectrum']._I_list}")
+            print(f"lam list: {globals()[f'{molecule_name_lower}_spectrum']._lam_list}")
+
+            # Print selected global variables if they exist, otherwise print an error message
+            var_names = [
+                "fwhm", "min_lamb", "max_lamb", "dist", "pix_per_fwhm",
+                "intrinsic_line_width", "cc", "broad", "stellar_rv",
+                "model_pixel_res", "model_line_width", "dlambda"
+            ]
+            for var in var_names:
+                if var in globals():
+                    print(f"{var}: {globals()[var]}")
+                else:
+                    print(f"Error: {var} does not exist in globals()")
+
         linevar = eval (f"{molecule_name_lower}_line")
         linecolor = linevar.get_color ()
         exec (f"global {molecule_name_lower}_line_color; {mol_name.lower ()}_line_color = '{linecolor}'")
 
     # Redefining plot parameters that were deleted by the clear functions at the begining of this function
-    ax1.set_ylabel('Flux density (Jy)')
-    ax1.set_xlabel('Wavelength (μm)')
-    ax2.set_ylabel('Flux density (Jy)')
-    ax2.set_xlabel('Wavelength (μm)')
+    ax1.set_ylabel ('Flux density (Jy)')
+    ax1.set_xlabel ('Wavelength (μm)')
+    ax2.set_ylabel ('Flux density (Jy)')
+    ax2.set_xlabel ('Wavelength (μm)')
     plt.rcParams['font.size'] = 10
 
     # xp1 and xp2 define the range of spectrum shown in the top graph
     # See Prev(), Next(), and on_xlims_change()
     # Originally defined in code block below
-    ax1.set_xlim(xmin=xp1, xmax=xp2)
+    ax1.set_xlim (xmin=xp1, xmax=xp2)
 
     # Scaling the y-axis based on tallest peak of data in the range of xp1 and xp2
     range_flux_cnts = input_spectrum_data[(input_spectrum_data['wave'] > xp1) & (input_spectrum_data['wave'] < xp2)]
     if range_flux_cnts.empty:
-        fig_height = np.nanmax(total_fluxes)
+        fig_height = np.nanmax (total_fluxes)
         fig_bottom_height = 0
     else:
-        range_flux_cnts.index = range(len(range_flux_cnts.index))
-        fig_height = np.nanmax(range_flux_cnts.flux)
-        fig_bottom_height = np.nanmin(range_flux_cnts.flux)
-    ax1.set_ylim(ymin=fig_bottom_height, ymax=fig_height + (fig_height / 8))
+        range_flux_cnts.index = range (len (range_flux_cnts.index))
+        fig_height = np.nanmax (range_flux_cnts.flux)
+        fig_bottom_height = np.nanmin (range_flux_cnts.flux)
+    ax1.set_ylim (ymin=fig_bottom_height, ymax=fig_height + (fig_height / 8))
 
     # Initialize total fluxes list
     total_fluxes = []
     # Calculate total fluxes based on visibility conditions
-    for i in range(len(lambdas_h2o)):
+    for i in range (len (lambdas_h2o)):
         flux_sum = 0
         for mol_name, mol_filepath, mol_label in molecules_data:
 
@@ -691,21 +799,25 @@ def update(*val):
             visibility_flag = f"{mol_name_lower}_vis"
             fluxes_molecule = f"fluxes_{mol_name_lower}"
 
-            if visibility_flag in globals() and globals()[visibility_flag]:
-                flux_sum += globals()[fluxes_molecule][i]
+            if visibility_flag in globals () and globals ()[visibility_flag]:
+                flux_sum += globals ()[fluxes_molecule][i]
 
-        total_fluxes.append(flux_sum)
+        total_fluxes.append (flux_sum)
 
-    ax1.fill_between(lambdas_h2o, total_fluxes, color=user_settings["theme"]["graph_fill_color"], alpha=1)
+    if mode == True:
+        ax1.fill_between (lambdas_h2o, total_fluxes, color='gray', alpha=1)
+
+    if mode == False:
+        ax1.fill_between (lambdas_h2o, total_fluxes, color='lightgray', alpha=1)
 
     # populating the empty lines created earlier in the function
     for mol_name, mol_filepath, mol_label in molecules_data:
         molecule_name_lower = mol_name.lower ()
 
         # Dynamically set the data for each molecule's line using exec and globals()
-        exec(f"{molecule_name_lower}_line.set_data(lambdas_{molecule_name_lower}, fluxes_{molecule_name_lower})",
-              globals())
-    data_line.set_data(wave_data, flux_data)
+        exec (f"{molecule_name_lower}_line.set_data(lambdas_{molecule_name_lower}, fluxes_{molecule_name_lower})",
+              globals ())
+    data_line.set_data (wave_data, flux_data)
 
     # This is the opacity value that will be used for all shades (if you want to change the opacity just change this value)
     alpha_set = .2
@@ -726,7 +838,7 @@ def update(*val):
                 ax1.legend ().get_legend_handler_map ().pop (label, None)
                 line_var.set_label ("_nolegend_")
 
-    ax1.legend()
+    ax1.legend ()
 
     # Creating an array that contains the data of every line in the water model and reseting the index of this array
     # Reference: "ir_model" > "intensity.py"
@@ -753,12 +865,59 @@ def update(*val):
     pop_diagram ()
     plt.draw (), canvas.draw ()
 
+
+class ToolTip (object):
+
+    def __init__(self, widget):
+        self.widget = widget
+        self.tipwindow = None
+        self.id = None
+        self.x = self.y = 0
+
+    def showtip(self, text):
+        "Display text in tooltip window"
+        self.text = text
+        if self.tipwindow or not self.text:
+            return
+        x, y, cx, cy = self.widget.bbox ("insert")
+        x = x + self.widget.winfo_rootx () + 57
+        y = y + cy + self.widget.winfo_rooty () + 27
+        self.tipwindow = tw = Toplevel (self.widget)
+        tw.wm_overrideredirect (1)
+        tw.wm_geometry ("+%d+%d" % (x, y))
+        label = Label (tw, text=self.text, justify=LEFT,
+                       background="peachpuff", relief=SOLID, borderwidth=1,
+                       font=("tahoma", "12", "normal"))
+        label.pack (ipadx=1)
+
+    def hidetip(self):
+        tw = self.tipwindow
+        self.tipwindow = None
+        if tw:
+            tw.destroy ()
+
+
+def CreateToolTip(widget, text):
+    toolTip = ToolTip (widget)
+
+    def enter(event):
+        toolTip.showtip (text)
+
+    def leave(event):
+        toolTip.hidetip ()
+
+    widget.bind ('<Enter>', enter)
+    widget.bind ('<Leave>', leave)
+
+
+"""
+single_finder() is connected to the "Find Singles" button.
+This function is a filter that finds molecular lines in the model that are isolated then prints vertical lines in the top graph where these lines are located
+e.g. they are either a set distance away from other strong lines, or the intensity of the lines near the line are negligible.
+"""
+
+
 def single_finder():
-    """
-    single_finder() is connected to the "Find Singles" button.
-    \nThis function is a filter that finds molecular lines in the model that are isolated then prints vertical lines in the top graph where these lines are located
-    \ne.g. they are either a set distance away from other strong lines, or the intensity of the lines near the line are negligible.
-    """
     update ()
     global fig_height
     global fig_bottom_height
@@ -766,11 +925,11 @@ def single_finder():
     specsep = float(specsep_entry.get())
 
     # Resetting the text feed box
-    data_field.delete('1.0', "end")
+    data_field.delete ('1.0', "end")
 
     # Getting all the water lines in the range of xp1 and xp2
     int_pars_line = int_pars[(int_pars['lam'] > xp1) & (int_pars['lam'] < xp2)]
-    int_pars_line.index = range(len (int_pars_line.index))
+    int_pars_line.index = range (len (int_pars_line.index))
 
     # Parsing the wavelengths and intensities of the lines in int_pars_line
     lamb_cnts = int_pars_line['lam']
@@ -780,7 +939,7 @@ def single_finder():
     # This threshold is based on the max line intensity found in the range of xp1 and xp2
     # This threshold will be used to filter out weak lines regardless of them being single
     max_intens = 0
-    for i in range(len (intensities)):
+    for i in range (len (intensities)):
         if intensities[i] > max_intens:
             max_intens = intensities[i]
     max_threshold = max_intens * line_threshold  # This will be used to filter out lines with intensities below a percentage of the max intensity
@@ -798,7 +957,7 @@ def single_finder():
         loc_threshold = j_intens * 0.1  # Creating a threshold for determining locally if line of interest is single
         if j_intens >= max_threshold:  # Filter out weak lines
             chk_range = int_pars[(int_pars['lam'] > sub_xmin) & (int_pars['lam'] < sub_xmax)]
-            chk_range.index = range(len (chk_range.index))
+            chk_range.index = range (len (chk_range.index))
             range_intens = chk_range[
                 'intens']  # Intensities of lines +/- "specsep" wavelength away from line of interest
             for k in chk_range.index:
@@ -807,26 +966,29 @@ def single_finder():
                     if k_intens != j_intens:  # Making sure we are not excluding line of interest by accidently considering its own intensity for the filter
                         include = False  # If both filters above are true, then the line of interest is not single
             if include == True:  # If both filters above are false for all lines in range of "specsep", then line of interest is single
-                ax1.vlines(lamb_cnts[int_pars_line.index[j]], fig_bottom_height, fig_height, linestyles='dashed',
+                ax1.vlines (lamb_cnts[int_pars_line.index[j]], fig_bottom_height, fig_height, linestyles='dashed',
                             color='blue')
                 counter = counter + 1
 
     # Storing the callback for on_xlims_change()
-    ax1.callbacks.connect('xlim_changed', on_xlims_change)
+    ax1.callbacks.connect ('xlim_changed', on_xlims_change)
 
     # Print the number of isolated lines that the function found in the region of xp1 and xp2
     if counter == 0:
-        data_field.insert('1.0', 'No single lines found in the current wavelength range.')
+        data_field.insert ('1.0', 'No single lines found in the current wavelength range.')
     if counter > 0:
-        data_field.insert('1.0',
+        data_field.insert ('1.0',
                            'There are ' + str (counter) + ' single lines found in the current wavelength range.')
-    canvas.draw()
+    canvas.draw ()
+
+
+"""
+print_saved_lines() prints, as vertical dashed lines, on the top graph the locations of all lines saved to the current csv connected to the Save() function.
+This csv can be changed in the user adjustable variables code block, but the change won't take into effect until the user regenerates the tool.
+"""
+
 
 def print_saved_lines():
-    """
-    print_saved_lines() prints, as vertical dashed lines, on the top graph the locations of all lines saved to the current csv connected to the Save() function.
-    \nThis csv can be changed in the user adjustable variables code block, but the change won't take into effect until the user regenerates the tool.
-    """
     global linelistpath, green_lines, green_scatter, default_line
 
     try:
@@ -836,7 +998,7 @@ def print_saved_lines():
         data_field.insert ('1.0', 'Input line list is not defined!')
         return
 
-    update()
+    update ()
     ax1.callbacks.connect ('xlim_changed', on_xlims_change)
 
     # Initialize default_line to None at the start
@@ -846,42 +1008,33 @@ def print_saved_lines():
     green_scatter = []
 
     # Load saved lines
-    svd_lns = pd.read_csv(linelistpath, sep=',')
-    svd_lamb = np.array(svd_lns['lam'])
+    svd_lns = pd.read_csv (linelistpath, sep=',')
+    svd_lamb = np.array (svd_lns['lam'])
     if 'xmin' in svd_lns:
-        x_min = np.array(svd_lns['xmin'])
-        x_max = np.array(svd_lns['xmax'])
+        x_min = np.array (svd_lns['xmin'])
+        x_max = np.array (svd_lns['xmax'])
 
     # Plot vertical lines in ax1 for saved lines
-    for i in range(len (svd_lamb)):
-        ax1.vlines(svd_lamb[i], -2, 10, linestyles='dashed', color='red')
+    for i in range (len (svd_lamb)):
+        ax1.vlines (svd_lamb[i], -2, 10, linestyles='dashed', color='red')
         if 'xmin' in svd_lns:
             ax1.vlines (x_min[i], -2, 10, color='coral', alpha=0.5)
             ax1.vlines (x_max[i], -2, 10, color='coral', alpha=0.5)
 
-    data_field.delete('1.0', "end")
-    data_field.insert('1.0', 'Saved lines retrieved from file.')
-    canvas.draw()
+    data_field.delete ('1.0', "end")
+    data_field.insert ('1.0', 'Saved lines retrieved from file.')
+    canvas.draw ()
+
 
 def plot_spectrum_around_line(lamb, xmin, xmax):
-    """
-    Unused by default as far as I can tell
-    Plots the spectrum around a specific wavelength, highlighting the selected line and other lines in the range.
-
-    Parameters:
-        lamb (float): The wavelength of the selected line.
-        xmin (float): The minimum wavelength of the range.
-        xmax (float): The maximum wavelength of the range.
-    """
-    print("hey wasss good g")
     global wave_data, flux_data, lamb_cnts, intensities, einstein, e_up, up_lev, low_lev, g_up, tau, max_intensity, max_y, spanmol
 
-    int_pars = eval(f"{spanmol}_intensity.get_table")
-    int_pars.index = range(len(int_pars.index))
+    int_pars = eval (f"{spanmol}_intensity.get_table")
+    int_pars.index = range (len (int_pars.index))
 
     # Getting all the water lines for the selected range
     int_pars_line = int_pars[(int_pars['lam'] > xmin) & (int_pars['lam'] < xmax)]
-    int_pars_line.index = range(len(int_pars_line.index))
+    int_pars_line.index = range (len (int_pars_line.index))
 
     # Parsing out the columns of the lines in int_pars_line to be used later
     lamb_cnts = int_pars_line['lam']
@@ -995,12 +1148,6 @@ def plot_spectrum_around_line(lamb, xmin, xmax):
     canvas.draw ()
 
     def onpick3(event):
-        """
-        Handles the selection of a line or scatter point in the plot.
-
-        Parameters:
-            event: The pick event triggered by clicking on a plot element.
-        """
         global default_line, line2save, intensities, lamb_cnts
 
         # Check if the clicked artist is a line in ax2 or a scatter point in ax3
@@ -1065,8 +1212,12 @@ def plot_spectrum_around_line(lamb, xmin, xmax):
 
     fig.canvas.mpl_connect ('pick_event', onpick3)
 
+
+"""
+fit_saved_lines() will fit all saved lines in one click, and save them to output"""
+
+
 def fit_saved_lines():
-    """fit_saved_lines() will fit all saved lines in one click, and save them to output"""
     try:
         linelistpath
     except NameError:
@@ -1175,13 +1326,17 @@ def print_atomic_lines():
 
     canvas.draw ()
 
+
+"""
+onselect() is the function for the span selector functionality in the top graph of the tool.
+Here, the user selects a range in the top graph and the range of the data and water model spectrum are rebuilt in the zoom graph (bottom left graph) 
+along with the water lines in that range.
+The strongest line is determined and its info is printed in the text feed on the left. 
+The lines are also highlighted in the population diagram graph in this function.
+"""
+
+
 def onselect(xmin, xmax):
-    """
-    onselect() is the function for the span selector functionality in the top graph of the tool.
-    \nHere, the user selects a range in the top graph and the range of the data and water model spectrum are rebuilt in the zoom graph (bottom left graph) along with the water lines in that range.
-    \nThe strongest line is determined and its info is printed in the text feed on the left. 
-    \nThe lines are also highlighted in the population diagram graph in this function.
-    """
     global onselect_lines, wave_data, flux_data, line2save, selectedline, spanmol, model_indmin, model_indmax, data_region_x, model_line_select, green_lines, green_scatter, default_line, current_selected_line, intensities, lamb_cnts, e_up, einstein, err_data
 
     xdif = xmax - xmin
@@ -1311,24 +1466,24 @@ def onselect(xmin, xmax):
             green_scatter = []
 
             # Plot the lines in the zoom range
-            if len(model_region_x) >= 1:
+            if len (model_region_x) >= 1:
                 k = 0
                 model_line_select.set_data (model_region_x, model_region_y)
                 data_line_select.set_data (data_region_x, data_region_y)
-                ax2.set_xlim(model_region_x[0], model_region_x[-1])
+                ax2.set_xlim (model_region_x[0], model_region_x[-1])
 
                 for j in range (len (lamb_cnts)):
                     lineheight = (intensities[j] / max_intensity) * max_y
                     # if intensities[j] > max_intensity / 50:
-                    line = ax2.vlines(lamb_cnts[j], 0, lineheight, linestyles='dashed', color='green',
+                    line = ax2.vlines (lamb_cnts[j], 0, lineheight, linestyles='dashed', color='green',
                                        picker=True) if j != max_index else ax2.vlines (lamb_cnts[j], 0, lineheight,
                                                                                        linestyles='dashed', color='orange',
                                                                                        picker=True)
-                    green_lines.append(line)
-                    text = ax2.text(lamb_cnts[j], lineheight,
+                    green_lines.append (line)
+                    text = ax2.text (lamb_cnts[j], lineheight,
                                      (str (f'{e_up[j]:.{0}f}') + ', ' + str (f'{einstein[j]:.{3}f}')), color='green',
                                      fontsize='small')
-                    area = eval(f"np.pi*({spanmol}_radius*au*1e2)**2")  # In cm^2
+                    area = eval (f"np.pi*({spanmol}_radius*au*1e2)**2")  # In cm^2
                     Dist = dist * pc
                     beam_s = area / Dist ** 2
                     F = intensities[j] * beam_s
@@ -1343,12 +1498,12 @@ def onselect(xmin, xmax):
                     threshold_intensity = max_intensity / 50
                     if intensities[j] < threshold_intensity:
                         green_lines[j].remove ()
-                        text.remove()
+                        text.remove ()
                         green_scatter[j].remove ()
                     if j == max_index:
                         default_line = (j, lamb_cnts[j], lineheight, e_up[j], einstein[j], scatter)
 
-                fig.canvas.flush_events()
+                fig.canvas.flush_events ()
 
                 def onpick(event):
                     global default_line, line2save, intensities, lamb_cnts
@@ -1378,8 +1533,8 @@ def onselect(xmin, xmax):
 
                         # Find the corresponding scatter point for this line
                         scatter = green_scatter[idx]
-                        scatter.set_color('orange')  # Change the color of the scatter point to orange
-                        scatter.set_edgecolors('black')  # Optional: change the edge color
+                        scatter.set_color ('orange')  # Change the color of the scatter point to orange
+                        scatter.set_edgecolors ('black')  # Optional: change the edge color
 
                         # Update default_line
                         default_line = (idx, lamb_cnts[idx], lineheight, e_up[idx], einstein[idx], scatter)
@@ -1427,17 +1582,27 @@ def onselect(xmin, xmax):
         pop_diagram ()
         ax2.clear ()
 
+
+"""
+on_xlims_change() saves the current xp1 and xp2 for use in other functions.
+This Function is necessary to allow the user to use matplotlib's interactive graph scrolling feature without 
+breaking the functionality of other features of this tool (e.g. Next() or Prev())
+"""
+
+
 def on_xlims_change(event_ax):
-    """
-    on_xlims_change() saves the current xp1 and xp2 for use in other functions.
-    \nThis Function is necessary to allow the user to use matplotlib's interactive graph scrolling feature without breaking the functionality of other features of this tool (e.g. Next() or Prev())
-    """
     global xp1
     global xp2
     xp1, xp2 = event_ax.get_xlim ()
 
+
+"""
+pop_diagram() is the function for populating the population diagram with the lines of the water model 
+in the entire range of the model
+"""
+
+
 def pop_diagram():
-    """pop_diagram() is the function for populating the population diagram with the lines of the water model in the entire range of the model"""
     ax3.clear ()
     global spanmol
     ax3.set_ylabel (r'ln(4πF/(hν$A_{u}$$g_{u}$))')
@@ -1471,10 +1636,14 @@ def pop_diagram():
     line6 = ax3.scatter (eu, rd_yax, s=0.5, color='#838B8B')
     # plt.show()
 
+
+"""
+submit_col() is connected to the text input box for adjusting the 
+column density of the currently selected molecule
+"""
+
+
 def submit_col(event, text):
-    """
-    submit_col() is connected to the text input box for adjusting the column density of the currently selected molecule
-    """
     # global text_box
     # global text_box_data
 
@@ -1536,6 +1705,7 @@ def submit_col(event, text):
     update ()
     pop_diagram ()
     canvas.draw ()
+
 
 def submit_temp(event, text):
     # print(event)
@@ -1619,6 +1789,7 @@ def submit_temp(event, text):
     plt.draw (), canvas.draw ()
     fig.canvas.flush_events ()
 
+
 def submit_rad(event, text):
     # global text_box
     # global text_box_data
@@ -1680,24 +1851,31 @@ def submit_rad(event, text):
     pop_diagram ()
     canvas.draw ()
 
+
+"""
+flux_integral() calculates the flux of the data line in the selected region of the top graph.
+This function is used in onselect().
+"""
+
+
 def flux_integral(lam, flux, err, lam_min, lam_max):
-    """
-    flux_integral() calculates the flux of the data line in the selected region of the top graph.
-    \nThis function is used in onselect().
-    """
     # calculate flux integral
     integral_range = np.where (np.logical_and (lam > lam_min, lam < lam_max))
-    line_flux_meas = np.trapezoid (flux[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+    line_flux_meas = np.trapz (flux[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
     line_flux_meas = -line_flux_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
-    line_err_meas = np.trapezoid (err[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+    line_err_meas = np.trapz (err[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
     line_err_meas = -line_err_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
     return line_flux_meas, line_err_meas
 
+
+"""
+model_visible() is connected to the "Visible" button in the tool.
+This function turn on/off the visibility of the line for the currently selected model
+"""
+
+
+# Function to update visibility when a button is clicked
 def model_visible(event):
-    """
-    model_visible() is connected to the "Visible" button in the tool.
-    \nThis function turn on/off the visibility of the line for the currently selected model when the button is clicked.
-    """
     # Update visibility based on the button that was clicked
     if globals ()[f"{event}_vis"] == True:
         globals ()[f"{event}_vis"] = False
@@ -1714,6 +1892,7 @@ def model_visible(event):
     update ()  # Call the update function to refresh the plot
     canvas.draw ()
 
+
 # def LATInit():
 skip = False
 
@@ -1723,12 +1902,14 @@ root = tk.Tk ()
 root.withdraw ()
 root.call ('wm', 'attributes', '.', '-topmost', True)
 
+
 def selectfileinit():
     global file_path
     global file_name
     global wave_data, flux_data, err_data, wave_original
     global input_spectrum_data
     global filename_box_data
+    global mode
     global xp1, rng, xp2
 
     spectra_directory = os.path.abspath ("EXAMPLE-data")
@@ -1742,7 +1923,7 @@ def selectfileinit():
             # Process each selected file
             print (' ')
             print ("Selected file:", file_path)
-            file_name = os.path.basename(file_path)
+            file_name = os.path.basename (file_path)
             # code to process each file
             input_spectrum_data = pd.read_csv(filepath_or_buffer=file_path, sep=',')
             wave_data = np.array(input_spectrum_data['wave'])
@@ -1764,43 +1945,58 @@ def selectfileinit():
             # dateandtime = now.strftime("%d-%m-%Y-%H-%M-%S")
             # print(dateandtime)
             # svd_line_file = f'savedlines-{dateandtime}.csv'
+
+        # Ask the user to select the mode (light or dark)
+        mode_dialog = tk.messagebox.askquestion ("Select Mode", "Would you like to start iSLAT in Dark Mode?")
+
+        if mode_dialog == 'yes':
+            mode = True  # Dark mode
+        else:
+            mode = False  # Light mode
     else:
-        print("No files selected.")
+        print ("No files selected.")
 
-selectfileinit()
 
-print(' ')
-print('Loading molecule files: ...')
+selectfileinit ()
 
-molecules_data = read_from_user_csv()
-# Precompute default parameters for efficiency
-default_params = {mol_name.lower(): initial_parameters.get(mol_name, default_initial_params) for mol_name, _, _ in molecules_data}
+print (' ')
+print ('Loading molecule files: ...')
 
+molecules_data = read_from_user_csv ()
 # Loop through each molecule and set up the necessary objects and variables
 for mol_name, mol_filepath, mol_label in molecules_data:
-    mol_name_lower = mol_name.lower()
-
     # Import line lists from the ir_model folder
-    mol_data = MolData(mol_name, mol_filepath)
+    mol_data = MolData (mol_name, mol_filepath)
 
-    # Get the precomputed parameters
-    params = default_params[mol_name_lower]
+    # Get the initial parameters for the current molecule, use default if not defined
+    params = initial_parameters.get (mol_name, default_initial_params)
     scale_exponent = params["scale_exponent"]
     scale_number = params["scale_number"]
     t_kin = params["t_kin"]
     radius_init = params["radius_init"]
-    n_mol_init = float(scale_number * (10 ** scale_exponent))
 
-    # Create variables dynamically using globals dictionary
-    globals()[f"mol_{mol_name_lower}"] = mol_data
-    globals()[f"scale_exponent_{mol_name_lower}"] = scale_exponent
-    globals()[f"scale_number_{mol_name_lower}"] = scale_number
-    globals()[f"n_mol_{mol_name_lower}_init"] = n_mol_init
-    globals()[f"t_kin_{mol_name_lower}"] = t_kin
-    globals()[f"{mol_name_lower}_radius_init"] = radius_init
+    # Calculate and set n_mol_init for the current molecule
+    n_mol_init = float (scale_number * (10 ** scale_exponent))
+
+    # Use exec() to create the variables with specific variable names for each molecule
+    exec (f"mol_{mol_name.lower ()} = MolData('{mol_name}', '{mol_filepath}')", globals ())
+    exec (f"scale_exponent_{mol_name.lower ()} = {scale_exponent}", globals ())
+    exec (f"scale_number_{mol_name.lower ()} = {scale_number}", globals ())
+    exec (f"n_mol_{mol_name.lower ()}_init = {n_mol_init}", globals ())
+    exec (f"t_kin_{mol_name.lower ()} = {t_kin}", globals ())
+    exec (f"{mol_name.lower ()}_radius_init = {radius_init}", globals ())
+
+    # Print the results (you can modify this part as needed)
+    print (f"Molecule Initialized: {mol_name}")
+    # print(f"scale_exponent_{mol_name.lower()} = {scale_exponent}")
+    # print(f"scale_number_{mol_name.lower()} = {scale_number}")
+    # print(f"n_mol_{mol_name.lower()}_init = {n_mol_init}")
+    # print(f"t_kin_{mol_name.lower()} = {t_kin}")
+    # print(f"{mol_name.lower()}_radius_init = {radius_init}")
+    # print()  # Empty line for spacing
 
     # Store the initial values in the dictionary
-    initial_values[mol_name_lower] = {
+    initial_values[mol_name.lower ()] = {
         "scale_exponent": scale_exponent,
         "scale_number": scale_number,
         "t_kin": t_kin,
@@ -1808,47 +2004,47 @@ for mol_name, mol_filepath, mol_label in molecules_data:
         "n_mol_init": n_mol_init
     }
 
-    print(f"Molecule Initialized: {mol_name}")
-
 # Initialize visibility booleans for each molecule
-molecule_names = [mol_name.lower() for mol_name, _, _ in molecules_data]
+molecule_names = [mol_name.lower () for mol_name, _, _ in molecules_data]
 for mol_name in molecule_names:
     if mol_name == 'h2o':
-        globals()[f"{mol_name}_vis"] = True
+        globals ()[f"{mol_name}_vis"] = True
     else:
-        globals()[f"{mol_name}_vis"] = False
+        globals ()[f"{mol_name}_vis"] = False
 
 for mol_name, mol_filepath, mol_label in molecules_data:
     molecule_name_lower = mol_name.lower ()
 
     # Column density
-    exec(f"global n_mol_{molecule_name_lower}; n_mol_{molecule_name_lower} = n_mol_{molecule_name_lower}_init")
+    exec (f"global n_mol_{molecule_name_lower}; n_mol_{molecule_name_lower} = n_mol_{molecule_name_lower}_init")
 
     # Temperature
-    exec(f"global t_{molecule_name_lower}; t_{molecule_name_lower} = t_kin_{molecule_name_lower}")
+    exec (f"global t_{molecule_name_lower}; t_{molecule_name_lower} = t_kin_{molecule_name_lower}")
 
     # Radius
-    exec(f"global {molecule_name_lower}_radius; {molecule_name_lower}_radius = {molecule_name_lower}_radius_init")
+    exec (f"global {molecule_name_lower}_radius; {molecule_name_lower}_radius = {molecule_name_lower}_radius_init")
 
-# set up theme for the matplotlib figures from the selected theme json file
-def set_theme():
-    """set_theme() sets the theme for the matplotlib figures based on the user settings."""
-    global background, foreground
+if mode:
+    global background
+    global foreground
 
-    # Set the background and foreground colors
-    background = user_settings["theme"].get('background', 'white')
-    foreground = user_settings["theme"].get('foreground', 'black')
+    # plt.style.use('dark_background')
+    # Set Matplotlib rcParams for dark background
+    matplotlib.rcParams['figure.facecolor'] = 'black'
+    matplotlib.rcParams['axes.facecolor'] = 'black'
+    matplotlib.rcParams['axes.edgecolor'] = 'white'
+    matplotlib.rcParams['xtick.color'] = 'white'
+    matplotlib.rcParams['ytick.color'] = 'white'
+    matplotlib.rcParams['text.color'] = 'white'
+    matplotlib.rcParams['axes.labelcolor'] = 'white'
+    background = 'black'
+    foreground = 'white'
+    # self.toolbar.setStyleSheet("background-color:Gray;")
+else:
 
-    # Update matplotlib rcParams with the theme colors
-    matplotlib.rcParams['figure.facecolor'] = background
-    matplotlib.rcParams['axes.facecolor'] = background
-    matplotlib.rcParams['axes.edgecolor'] = foreground
-    matplotlib.rcParams['xtick.color'] = foreground
-    matplotlib.rcParams['ytick.color'] = foreground
-    matplotlib.rcParams['text.color'] = foreground
-    matplotlib.rcParams['axes.labelcolor'] = foreground
+    background = 'white'
+    foreground = 'black'
 
-set_theme()
 
 def update_xp1_rng():
     global xp1, rng, xp2
@@ -1873,6 +2069,7 @@ def update_xp1_rng():
     update ()
     canvas.draw ()
 
+
 def update_initvals():
     global min_lamb, max_lamb, dist, fwhm, star_rv, model_line_width, model_pixel_res, intrinsic_line_width, wave_data, pix_per_fwhm
     # Get the values from the Tkinter Entry widgets and convert them to floats
@@ -1896,6 +2093,7 @@ def update_initvals():
     data_field.delete ('1.0', "end")
     data_field.insert ('1.0', 'Parameter updated!')
     # time.sleep(2)
+
 
 # # Functing to limit the user input from the previous prompts to the range of the data you're inspecting
 # # The tool with stop and the associated dialogs will be printed in the serial line
@@ -1950,6 +2148,9 @@ ax2.set_ylabel ('Flux density (Jy)')
 ax1.set_xlim (xmin=xp1, xmax=xp2)
 plt.rcParams['font.size'] = 10
 data_line, = ax1.plot (wave_data, flux_data, color=foreground, linewidth=1)
+print("This is your host here from the iSLAT team, and here is the data line you wanted:", data_line)
+print("And here is the wave data:", wave_data)
+print("And here is the flux data:", flux_data)
 
 for mol_name, mol_filepath, mol_label in molecules_data:
     molecule_name_lower = mol_name.lower ()
@@ -1958,6 +2159,11 @@ for mol_name, mol_filepath, mol_label in molecules_data:
         exec (
             f"{molecule_name_lower}_line, = ax1.plot({molecule_name_lower}_spectrum.lamgrid, fluxes_{molecule_name_lower}, alpha=0.8, linewidth=1)",
             globals ())
+        print("Hey man, here's that lamgrid you wanted:", 
+              eval (f"{molecule_name_lower}_spectrum.lamgrid"))
+        print("And here's the fluxes:", eval (f"fluxes_{molecule_name_lower}"))
+        print("Here is the spectrum object:",
+              eval (f"{molecule_name_lower}_spectrum"))
     else:
         exec (f"{molecule_name_lower}_line, = ax1.plot([], [], alpha=0.8, linewidth=1)", globals ())
     exec (f"{molecule_name_lower}_line.set_label('{mol_label}')", globals ())
@@ -2049,9 +2255,11 @@ outer_frame.grid_columnconfigure (0, weight=1)
 molecule_frame = tk.Frame (canvasscroll, borderwidth=2)  # , relief="groove")
 canvasscroll.create_window ((0, 0), window=molecule_frame, anchor="nw")
 
+
 # Configure the canvasscroll scroll region
 def on_frame_configure(event):
     canvasscroll.configure (scrollregion=canvasscroll.bbox ("all"))
+
 
 molecule_frame.bind ("<Configure>", on_frame_configure)
 
@@ -2063,6 +2271,7 @@ molecule_frame.bind ("<Configure>", on_frame_configure)
 for col, label in enumerate (column_labels):
     label_widget = tk.Label (molecule_frame, text=label)
     label_widget.grid (row=0, column=col)
+
 
 def choose_color(widget):
     # Get the row number from the widget's grid info
@@ -2084,6 +2293,7 @@ def choose_color(widget):
         color_button.configure (bg=color[1])
         write_user_csv (molecules_data)
         update ()
+
 
 def delete_row(widget):
     global molecules_data, nextrow
@@ -2125,10 +2335,11 @@ def delete_row(widget):
     spandropd['values'] = spanoptionsvar
     if spanoptionsvar:
         spandropd.set (spanoptionsvar[0])
-    update()
-    canvas.draw()
+    update ()
+    canvas.draw ()
     data_field.delete ('1.0', "end")
     data_field.insert ('1.0', f'{mol_name.upper ()} deleted!')
+
 
 def update_csv():
     filename = os.path.join (save_folder, f"{file_name}-molsave.csv")
@@ -2141,7 +2352,7 @@ def update_csv():
 
         # Identify the row to delete
         for i, row in enumerate (rows):
-            if row[0].lower() == mol_name:
+            if row[0].lower () == mol_name:
                 del rows[i]
                 break
 
@@ -2150,9 +2361,10 @@ def update_csv():
             writer = csv.writer (file)
             writer.writerows (rows)
 
-        print(f"{csv_file} updated.")
+        print (f"{csv_file} updated.")
     except Exception as e:
-        print(f"Error updating {csv_file}: {e}")
+        print (f"Error updating {csv_file}: {e}")
+
 
 # Loop to create rows of input fields and buttons for each chemical
 nextrow = 1  # Start with row 1
@@ -2169,35 +2381,35 @@ for row, (mol_name, mol_filepath, mol_label) in enumerate (molecules_data):
     n_mol_init = params["n_mol_init"]
 
     # Row label
-    exec(f"{mol_name.lower ()}_rowl_field = tk.Entry(molecule_frame, width=6)")
-    eval(f"{mol_name.lower ()}_rowl_field").grid (row=row, column=0)
-    eval(f"{mol_name.lower ()}_rowl_field").insert (0, f"{mol_name}")
+    exec (f"{mol_name.lower ()}_rowl_field = tk.Entry(molecule_frame, width=6)")
+    eval (f"{mol_name.lower ()}_rowl_field").grid (row=row, column=0)
+    eval (f"{mol_name.lower ()}_rowl_field").insert (0, f"{mol_name}")
 
     # Temperature input field
-    exec(f"{mol_name.lower ()}_temp_field = tk.Entry(molecule_frame, width=4)")
-    eval(f"{mol_name.lower ()}_temp_field").grid (row=row, column=1)
-    eval(f"{mol_name.lower ()}_temp_field").insert (0, f"{t_kin}")
-    eval(f"{mol_name.lower ()}_temp_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
+    exec (f"{mol_name.lower ()}_temp_field = tk.Entry(molecule_frame, width=4)")
+    eval (f"{mol_name.lower ()}_temp_field").grid (row=row, column=1)
+    eval (f"{mol_name.lower ()}_temp_field").insert (0, f"{t_kin}")
+    eval (f"{mol_name.lower ()}_temp_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
         f"{mol_name.lower ()}_temp_field"]: submit_temp (ce.get (), mn))
 
     CreateToolTip (eval (f"{mol_name.lower ()}_temp_field"), text='Excitation temperature\n'
                                                                   'units: K')
 
     # Radius input field
-    exec(f"{mol_name.lower ()}_rad_field = tk.Entry(molecule_frame, width=4)")
-    eval(f"{mol_name.lower ()}_rad_field").grid (row=row, column=2)
-    eval(f"{mol_name.lower ()}_rad_field").insert (0, f"{radius_init}")
-    eval(f"{mol_name.lower ()}_rad_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
+    exec (f"{mol_name.lower ()}_rad_field = tk.Entry(molecule_frame, width=4)")
+    eval (f"{mol_name.lower ()}_rad_field").grid (row=row, column=2)
+    eval (f"{mol_name.lower ()}_rad_field").insert (0, f"{radius_init}")
+    eval (f"{mol_name.lower ()}_rad_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
         f"{mol_name.lower ()}_rad_field"]: submit_rad (ce.get (), mn))
 
     CreateToolTip (eval (f"{mol_name.lower ()}_rad_field"), text='Equivalent radius\n'
                                                                  'units: au')
 
     # Column Density input field
-    exec(f"{mol_name.lower ()}_dens_field = tk.Entry(molecule_frame, width=6)")
-    eval(f"{mol_name.lower ()}_dens_field").grid (row=row, column=3)
-    eval(f"{mol_name.lower ()}_dens_field").insert (0, f"{n_mol_init:.{1}e}")
-    eval(f"{mol_name.lower ()}_dens_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
+    exec (f"{mol_name.lower ()}_dens_field = tk.Entry(molecule_frame, width=6)")
+    eval (f"{mol_name.lower ()}_dens_field").grid (row=row, column=3)
+    eval (f"{mol_name.lower ()}_dens_field").insert (0, f"{n_mol_init:.{1}e}")
+    eval (f"{mol_name.lower ()}_dens_field").bind ("<Return>", lambda event, mn=mol_name.lower (), ce=globals ()[
         f"{mol_name.lower ()}_dens_field"]: submit_col (ce.get (), mn))
 
     CreateToolTip (eval (f"{mol_name.lower ()}_dens_field"), text='Column density\n'
@@ -2205,20 +2417,20 @@ for row, (mol_name, mol_filepath, mol_label) in enumerate (molecules_data):
 
     # Visibility Checkbutton
     if mol_name.lower () == 'h2o':
-        exec(f"{mol_name.lower ()}_vis_status = tk.BooleanVar()")
-        exec(f"{mol_name.lower ()}_vis_status.set(True)")  # Set the initial state
-        exec(
+        exec (f"{mol_name.lower ()}_vis_status = tk.BooleanVar()")
+        exec (f"{mol_name.lower ()}_vis_status.set(True)")  # Set the initial state
+        exec (
             f"{mol_name.lower ()}_vis_checkbutton = tk.Checkbutton(molecule_frame, text='', variable={mol_name.lower ()}_vis_status, onvalue=True, offvalue=False, command=lambda mn=mol_name.lower(): model_visible(mn))")
-        exec(f"{mol_name.lower ()}_vis_checkbutton.select()")
+        exec (f"{mol_name.lower ()}_vis_checkbutton.select()")
     else:
-        globals()[f"{mol_name.lower ()}_vis_status"] = tk.BooleanVar ()
-        globals()[f"{mol_name.lower ()}_vis_checkbutton"] = tk.Checkbutton (molecule_frame, text='', variable=eval (
+        globals ()[f"{mol_name.lower ()}_vis_status"] = tk.BooleanVar ()
+        globals ()[f"{mol_name.lower ()}_vis_checkbutton"] = tk.Checkbutton (molecule_frame, text='', variable=eval (
             f"{mol_name.lower ()}_vis_status"), command=lambda mn=mol_name.lower (): model_visible (mn))
-        globals()[f"{mol_name.lower ()}_vis_status"].set (False)  # Set the initial state
+        globals ()[f"{mol_name.lower ()}_vis_status"].set (False)  # Set the initial state
 
-    eval(f"{mol_name.lower ()}_vis_checkbutton").grid (row=row, column=4)
+    eval (f"{mol_name.lower ()}_vis_checkbutton").grid (row=row, column=4)
 
-    CreateToolTip(eval (f"{mol_name.lower ()}_vis_checkbutton"), text='Turn on/off this\n'
+    CreateToolTip (eval (f"{mol_name.lower ()}_vis_checkbutton"), text='Turn on/off this\n'
                                                                        'model in the plot')
 
     # Delete button
@@ -2226,25 +2438,28 @@ for row, (mol_name, mol_filepath, mol_label) in enumerate (molecules_data):
                             command=lambda widget=eval (f"{mol_name.lower ()}_rowl_field"): delete_row (widget))
     del_button.grid (row=row, column=5)
 
-    CreateToolTip(del_button, text='Remove this model\n'
+    CreateToolTip (del_button, text='Remove this model\n'
                                     'from the GUI')
 
-    color_button = tk.Button(molecule_frame, text=" ", command=lambda widget=eval (f"{mol_name.lower ()}_rowl_field"): choose_color (widget))
-    color_button.grid(row=row, column=6)
+    color_button = tk.Button (molecule_frame, text=" ",
+                              command=lambda widget=eval (f"{mol_name.lower ()}_rowl_field"): choose_color (widget))
+    color_button.grid (row=row, column=6)
 
-    CreateToolTip(color_button, text='Change color\nfor this model')
+    CreateToolTip (color_button, text='Change color\n'
+                                      'for this model')
 
     nextrow = row + 1
 
-def load_molecules_list():
-    filename = os.path.join(save_folder, f"molecules_list.csv")
 
-    if os.path.exists(filename):
+def load_molecules_list():
+    filename = os.path.join (save_folder, f"molecules_list.csv")
+
+    if os.path.exists (filename):
         try:
-            with open(filename, 'r') as csvfile:
-                reader = csv.reader(csvfile)
-                header = next(reader)  # Read the header row
-                rows = list(reader)  # Read all rows into a list
+            with open (filename, 'r') as csvfile:
+                reader = csv.reader (csvfile)
+                header = next (reader)  # Read the header row
+                rows = list (reader)  # Read all rows into a list
 
                 for i, row in enumerate (rows):
                     mol_name, mol_filepath, mol_label, temp, rad, n_mol, color, vis, dist, stellarrv, fwhm, ilw = row
@@ -2334,8 +2549,10 @@ def load_molecules_list():
 
     update ()
 
+
 variable_names = ['t_h2o', 'h2o_radius', 'n_mol_h2o', 't_oh', 'oh_radius', 'n_mol_oh', 't_hcn', 'hcn_radius',
                   'n_mol_hcn', 't_c2h2', 'c2h2_radius', 'n_mol_c2h2']
+
 
 def loadsavedmessage():
     global data_field
@@ -2343,8 +2560,10 @@ def loadsavedmessage():
     data_field.insert ('1.0', 'Parameter updated')
     fig.canvas.draw_idle ()
 
+
 def saveparams_button_clicked():
     write_to_csv (molecules_data, True)
+
 
 def load_variables_from_file(file_name):
     # global text_box_data
@@ -2469,39 +2688,39 @@ def load_variables_from_file(file_name):
         exec (f"n_mol_{mol_name.lower ()} = {n_mol_init}", globals ())
 
         # Visibility Checkbutton
-        if mol_name.lower() == 'h2o':
-            exec (f"{mol_name.lower()}_vis_status = tk.BooleanVar()")
-            exec (f"{mol_name.lower()}_vis_status.set(True)")  # Set the initial state
+        if mol_name.lower () == 'h2o':
+            exec (f"{mol_name.lower ()}_vis_status = tk.BooleanVar()")
+            exec (f"{mol_name.lower ()}_vis_status.set(True)")  # Set the initial state
             exec (
-                f"{mol_name.lower()}_vis_checkbutton = tk.Checkbutton(molecule_frame, text='', variable={mol_name.lower ()}_vis_status, onvalue=True, offvalue=False, command=lambda mn=mol_name.lower(): model_visible(mn))")
-            exec (f"{mol_name.lower()}_vis_checkbutton.select()")
+                f"{mol_name.lower ()}_vis_checkbutton = tk.Checkbutton(molecule_frame, text='', variable={mol_name.lower ()}_vis_status, onvalue=True, offvalue=False, command=lambda mn=mol_name.lower(): model_visible(mn))")
+            exec (f"{mol_name.lower ()}_vis_checkbutton.select()")
         else:
-            globals()[f"{mol_name.lower()}_vis_status"] = tk.BooleanVar ()
-            globals()[f"{mol_name.lower()}_vis_checkbutton"] = tk.Checkbutton (molecule_frame, text='',
+            globals ()[f"{mol_name.lower ()}_vis_status"] = tk.BooleanVar ()
+            globals ()[f"{mol_name.lower ()}_vis_checkbutton"] = tk.Checkbutton (molecule_frame, text='',
                                                                                  variable=eval (
                                                                                      f"{mol_name.lower ()}_vis_status"),
                                                                                  command=lambda
                                                                                      mn=mol_name.lower (): model_visible (
                                                                                      mn))
-            globals()[f"{mol_name.lower()}_vis_status"].set (False)  # Set the initial state
+            globals ()[f"{mol_name.lower ()}_vis_status"].set (False)  # Set the initial state
 
-        globals()[f"{mol_name}_vis"] = False
-        eval(f"{mol_name.lower ()}_vis_checkbutton").grid (row=row, column=4)
+        globals ()[f"{mol_name}_vis"] = False
+        eval (f"{mol_name.lower ()}_vis_checkbutton").grid (row=row, column=4)
 
         # Delete button
-        del_button = tk.Button(molecule_frame, text="X",
+        del_button = tk.Button (molecule_frame, text="X",
                                 command=lambda widget=eval (f"{mol_name.lower ()}_rowl_field"): delete_row (widget))
-        del_button.grid(row=row, column=5)
+        del_button.grid (row=row, column=5)
 
-        color_button = tk.Button(molecule_frame, text=" ",
+        color_button = tk.Button (molecule_frame, text=" ",
                                   command=lambda widget=eval (f"{mol_name.lower ()}_rowl_field"): choose_color (widget))
-        color_button.grid(row=row, column=6)
+        color_button.grid (row=row, column=6)
 
-        exec(f"{mol_name.lower ()}_line, = ax1.plot([], [], alpha=0.8, linewidth=1)", globals ())
-        exec(f"{mol_name.lower ()}_line.set_label('{mol_name}')", globals ())
+        exec (f"{mol_name.lower ()}_line, = ax1.plot([], [], alpha=0.8, linewidth=1)", globals ())
+        exec (f"{mol_name.lower ()}_line.set_label('{mol_name}')", globals ())
 
         # Intensity calculation
-        exec(f"{mol_name.lower ()}_intensity = Intensity(mol_{mol_name.lower ()})", globals ())
+        exec (f"{mol_name.lower ()}_intensity = Intensity(mol_{mol_name.lower ()})", globals ())
         exec (
             f"{mol_name.lower ()}_intensity.calc_intensity(t_{mol_name.lower ()}, n_mol_{mol_name.lower ()}, dv=intrinsic_line_width)",
             globals ())
@@ -2834,10 +3053,10 @@ def load_defaults_from_file():
 
 
 def write_default_csv(data):
-    csv_filename = os.path.join(save_folder, f"default.csv")
+    csv_filename = os.path.join (save_folder, f"default.csv")
 
     try:
-        with open(csv_filename, 'w', newline='') as csvfile:
+        with open (csv_filename, 'w', newline='') as csvfile:
             writer = csv.writer (csvfile)
             header = ['Molecule Name', 'File Path', 'Molecule Label', 'Temp', 'Rad', 'N_Mol', 'Vis']
             writer.writerow (header)
@@ -2845,22 +3064,26 @@ def write_default_csv(data):
             for mol_name, mol_filepath, mol_label in data:
                 row = [mol_name, mol_filepath, mol_label]
                 # Append the variables for the current molecule to the row
-                row.append(globals().get (f"t_{mol_name.lower()}", ''))
-                row.append(globals().get (f"{mol_name.lower()}_radius", ''))
-                row.append(globals().get (f"n_mol_{mol_name.lower()}", ''))
-                row.append(globals().get (f"{mol_name.lower()}_vis", ''))
-                writer.writerow(row)
+                row.append (globals ().get (f"t_{mol_name.lower ()}", ''))
+                row.append (globals ().get (f"{mol_name.lower ()}_radius", ''))
+                row.append (globals ().get (f"n_mol_{mol_name.lower ()}", ''))
+                row.append (globals ().get (f"{mol_name.lower ()}_vis", ''))
+                writer.writerow (row)
     except Exception as e:
-        print("Error:", e)
+        print ("Error:", e)
+
 
 write_default_csv (default_data)
 
-files_frame = tk.Frame(window, borderwidth=2, relief="groove")
-files_frame.grid(row=outer_frame.grid_info ()['row'] + outer_frame.grid_info ()['rowspan'], column=0, rowspan=7,
+
+
+files_frame = tk.Frame (window, borderwidth=2, relief="groove")
+files_frame.grid (row=outer_frame.grid_info ()['row'] + outer_frame.grid_info ()['rowspan'], column=0, rowspan=7,
                   columnspan=5, sticky="nsew")
 
+
+# Function to open spectrum data file from the GUI using Open File for "Spectrum data file"
 def selectfile():
-    '''Function to open spectrum data file from the GUI using Open File for "Spectrum data file"'''
     global file_path
     global file_name
     global wave_data, flux_data, err_data, wave_original
@@ -2918,6 +3141,7 @@ def selectfile():
         data_field.delete ('1.0', "end")
         data_field.insert ('1.0', 'No file selected.')
 
+
 def selectlinefile():
     global linelistfile
     global linelistpath
@@ -2958,6 +3182,7 @@ def selectlinefile():
             # File doesn't exist
             print ("File selected does not exist")
 
+
 def savelinefile():
     global linesavefile
     global linesavepath
@@ -2994,11 +3219,12 @@ def savelinefile():
                 with open (infile, 'a') as file:
                     file.write (headers + '\n')
             else:
-                print("File selected is not a line save file")
+                print ("File selected is not a line save file")
         else:
             # File doesn't exist, create a new one and write headers
             with open (infile, 'w') as file:
                 file.write (headers + '\n')
+
 
 # Configure columns to expand and fill the width
 for i in range (5):
@@ -3131,6 +3357,7 @@ intrinsic_line_width_entry.insert (0, str (intrinsic_line_width))
 intrinsic_line_width_entry.grid (row=3, column=3)
 intrinsic_line_width_entry.bind ("<Return>", lambda event: update_initvals ())
 
+
 def on_span_select(selected_item):
     global spanmol
     global model_line_select
@@ -3167,6 +3394,7 @@ def on_span_select(selected_item):
             # print("model_indmin or model_indmax is not defined.")
             pass
 
+
 # Create and place the xp1 text box in row 12, column 0
 specsep_label = tk.Label(plotparams_frame, text="Line Separ.:")
 #specsep_label.grid (row=4, column=2, pady=(0, 45))
@@ -3175,6 +3403,8 @@ specsep_entry = tk.Entry (plotparams_frame, bg='lightgray', width=8)
 specsep_entry.insert (0, str(specsep))
 #specsep_entry.grid (row=4, column=3, pady=(0, 45))
 specsep_entry.grid (row=4, column=3)
+
+
 
 # Add some space below plotparams_frame
 # tk.Label(plotparams_frame, text="").grid(row=4, column=0)
@@ -3228,12 +3458,13 @@ def generate_all_csv():
     data_field.delete ('1.0', "end")
     data_field.insert ('1.0', f'All models exported into iSLAT/MODELS!')
 
+
 def generate_csv(mol_name):
     if mol_name == "SUM":
 
         # Get the fluxes and lambdas for the selected molecule
-        fluxes = globals ().get('total_fluxes', [])
-        lambdas = globals ().get('lambdas_h2o', np.array ([]))
+        fluxes = globals ().get ('total_fluxes', [])
+        lambdas = globals ().get ('lambdas_h2o', np.array ([]))
 
         if len (fluxes) == 0 or lambdas.size == 0 or len (fluxes) != len (lambdas):
             return
@@ -3296,6 +3527,7 @@ def generate_csv(mol_name):
         data_field.delete ('1.0', "end")
         data_field.insert ('1.0', f'{mol_name} model exported into iSLAT/MODELS!')
 
+
 def export_spectrum():
     # Create a new window for exporting the spectrum
     export_window = tk.Toplevel (root)
@@ -3316,6 +3548,7 @@ def export_spectrum():
     button = tk.Button (export_window, text="Generate CSV", command=lambda: generate_csv (dropdown_var.get ()))
     button.grid (row=1, column=1)
 
+
 # Create a dropdown menu in the new window
 spanselectlab = tk.Label (plotparams_frame, text="Molecule:")
 #spanselectlab.grid (row=4, column=0, pady=(0, 45))
@@ -3333,7 +3566,9 @@ spandropd.bind ("<<ComboboxSelected>>", lambda event: on_span_select ((spanoptio
 # spanbutton = tk.Button(plotparams_frame, text="Change Mol", command=lambda: on_span_select((spanoptionsvar[spandropd.current()]).lower()))
 # spanbutton.grid(row=4, column=2)
 
+
 spanmol = (spanoptionsvar[spandropd.current ()]).lower ()
+
 
 # Create the buttons for line de-blender
 fwhmtolerance_label = tk.Label(plotparams_frame, text="FWHM tol.:")
@@ -3347,9 +3582,12 @@ centrtolerance_entry = tk.Entry(plotparams_frame, bg='lightgray', width=8)
 centrtolerance_entry.insert(0, str(centrtolerance))
 centrtolerance_entry.grid(row=5, column=3, pady=(0, 2))
 
+
+
 def toggle_fullscreen():
     state = window.attributes ('-fullscreen')
     window.attributes ('-fullscreen', not state)
+
 
 # # Create a button to toggle fullscreen
 # fullscreen_button = tk.Button(title_frame, text="Toggle Fullscreen", bg='blue', activebackground='darkblue', command=toggle_fullscreen, width=14, height=1)
@@ -3359,6 +3597,7 @@ def import_molecule():
     MoleculeSelector (root, data_field)
     # data_field.delete ('1.0', "end")
     # data_field.insert ('1.0', 'New molecule downloaded from HITRAN.')
+
 
 # Create a Tkinter button to import additional hitran molecules
 import_button = tk.Button (title_frame, text="HITRAN query", bg='lightgray', activebackground='gray',
@@ -3388,6 +3627,7 @@ export_button = tk.Button (title_frame, text='Export Models', bg='lightgray', co
                            height=1)
 export_button.grid (row=0, column=5)
 
+
 def toggle_legend():
     if ax1.legend_ is None:
         ax1.legend ()
@@ -3395,51 +3635,52 @@ def toggle_legend():
         ax1.legend_.remove ()
     canvas.draw ()
 
+
 # Create a Tkinter button to toggle the legend
-toggle_button = tk.Button(
-    title_frame,
-    text="Toggle Legend",
-    bg=user_settings["theme"]["buttons"].get("ToggleLegend", user_settings["theme"]["buttons"]["DefaultBotton"])["background"],
-    activebackground=user_settings["theme"]["buttons"].get("ToggleLegend", user_settings["theme"]["buttons"]["DefaultBotton"])["active_background"],
-    fg=user_settings["theme"]["foreground"],
-    command=toggle_legend,
-    width=12
-)
-toggle_button.grid(row=0, column=6)
+toggle_button = tk.Button (title_frame, text="Toggle Legend", bg='lightgray', activebackground='gray',
+                           command=toggle_legend, width=12)
+toggle_button.grid (row=0, column=6)
 
 # Create and place the buttons for other functions
-functions_frame = tk.Frame(window, borderwidth=2, relief="groove")
-functions_frame.grid(
-    row=plotparams_frame.grid_info()["row"] + plotparams_frame.grid_info()["rowspan"],
-    column=0,
-    rowspan=6,
-    columnspan=5,
-    sticky="nsew"
-)
+functions_frame = tk.Frame (window, borderwidth=2, relief="groove")
+functions_frame.grid (row=plotparams_frame.grid_info ()['row'] + plotparams_frame.grid_info ()['rowspan'], column=0,
+                      rowspan=6, columnspan=5, sticky='nsew')
 
-def create_button(frame, text, command, row, column, width=13, height=1):
-    button_theme = user_settings["theme"]["buttons"].get(text.replace(" ", ""), user_settings["theme"]["buttons"]["DefaultBotton"])
-    button = tk.Button(
-        frame,
-        text=text,
-        bg=button_theme["background"],
-        activebackground=button_theme["active_background"],
-        fg=user_settings["theme"]["foreground"],
-        command=command,
-        width=width,
-        height=height
-    )
-    button.grid(row=row, column=column)
-    return button
+save_button = tk.Button (functions_frame, text="Save Line", bg='lightgray', activebackground='gray', command=Save,
+                         width=13, height=1)
+save_button.grid (row=0, column=0)
 
-save_button = create_button(functions_frame, "Save Line", Save, 0, 0)
-fit_button = create_button(functions_frame, "Fit Line", fit_onselect, 0, 1)
-savedline_button = create_button(functions_frame, "Show Saved Lines", print_saved_lines, 1, 0)
-fitsavedline_button = create_button(functions_frame, "Fit Saved Lines", fit_saved_lines, 1, 1)
-autofind_button = create_button(functions_frame, "Find Single Lines", single_finder, 2, 0)
-atomlines_button = create_button(functions_frame, "Show Atomic Lines", print_atomic_lines, 2, 1)
-slabfit_button = create_button(functions_frame, "Single Slab Fit", run_slabfit, 3, 0)
-deblender_button = create_button(functions_frame, "Line De-blender", fitmulti_onselect, 3, 1)
+fit_button = tk.Button (functions_frame, text="Fit Line", bg='lightgray', activebackground='gray', command=fit_onselect,
+                        width=13, height=1)
+fit_button.grid (row=0, column=1)
+
+savedline_button = tk.Button (functions_frame, text="Show Saved Lines", bg='lightgray', activebackground='gray',
+                              command=print_saved_lines, width=13, height=1)
+savedline_button.grid (row=1, column=0)
+
+fitsavedline_button = tk.Button (functions_frame, text="Fit Saved Lines", bg='lightgray', activebackground='gray',
+                                 command=fit_saved_lines, width=13, height=1)
+fitsavedline_button.grid (row=1, column=1)
+
+autofind_button = tk.Button (functions_frame, text="Find Single Lines", bg='lightgray', activebackground='gray',
+                             command=single_finder, width=13, height=1)
+autofind_button.grid (row=2, column=0)
+
+# Create the 'Atomic lines' button
+atomlines_button = tk.Button (functions_frame, text='Show Atomic Lines', bg='lightgray', activebackground='gray',
+                              command=lambda: print_atomic_lines (), width=13, height=1)
+atomlines_button.grid (row=2, column=1)
+
+# Create the 'Slabfit' button
+slabfit_button = tk.Button (functions_frame, text='Single Slab Fit', bg='lightgray', activebackground='gray',
+                            command=lambda: run_slabfit(), width=13, height=1)
+slabfit_button.grid (row=3, column=0)
+
+# Create the 'De-blender' button
+deblender_button = tk.Button(functions_frame, text='Line De-blender', bg='lightgray', activebackground='gray',
+                            command=lambda: fitmulti_onselect(), width=13, height=1)
+deblender_button.grid (row=3, column=1)
+
 
 """
 # Create a label (thin horizontal line) to fill the rest of row 0 with gray
@@ -3450,6 +3691,7 @@ for col in range(2, 10):  # Adjust the column range as needed
 
 # Dictionary to store the references to text boxes for each molecule
 molecule_text_boxes = {}
+
 
 def set_file_permissions(filename, mode):
     print (' ')
@@ -3467,6 +3709,7 @@ def set_file_permissions(filename, mode):
 # After you write the data to the CSV file, call the function to set the permissions
 csv_perm_path = os.path.join (save_folder, f"{file_name}-molsave.csv")
 set_file_permissions (csv_perm_path, 0o666)  # Here, 0o666 sets read and write permissions for all users.
+
 
 def write_to_csv(data, confirmation=False):
     if confirmation:
@@ -3542,6 +3785,7 @@ def write_user_csv(data):
     except Exception as e:
         print ("Error:", e)
 
+
 def add_molecule_data():
     global mol_file_path
     global mol_file_name
@@ -3570,6 +3814,7 @@ def add_molecule_data():
     # Ask the user to select a data file
     inmolfiles = filedialog.askopenfilename (multiple=True, title='Choose HITRAN Molecule Data File',
                                              filetypes=molfiletypes, initialdir=hitran_directory)
+
     if inmolfiles:
         for mol_file_path in inmolfiles:
             # Process each selected file
@@ -3858,13 +4103,25 @@ def del_molecule_data():
     data_field.delete ('1.0', "end")
     data_field.insert ('1.0', f'{mol_name.upper ()} deleted!')
 
+
+# Function to download extra data from HITRAN, to be finished..
 def down_molecule_data(val):
-    """Function to download extra data from HITRAN, to be finished"""
     url = "https://hitran.org/lbl/"
-    try:
-        webbrowser.open(url)
-    except webbrowser.Error:
-        print("Error: Unable to open the URL in the default web browser.") 
+    browsers = ["chrome", "edge", "firefox", "safari"]
+
+    for browser_name in browsers:
+        try:
+            # Attempt to open the URL using webbrowser
+            webbrowser.get (browser_name).open (url)
+            break  # Stop trying if the browser opens the URL successfully
+        except webbrowser.Error:
+            try:
+                # Fallback to using 'os' to execute the browser's command directly
+                os.system (f"{browser_name} {url}")
+                break  # Stop trying if the command succeeds
+            except OSError:
+                continue  # Try the next browser if the current one fails       
+
 
 # Create a frame for the Text widget
 text_frame = tk.Frame (window)
@@ -3887,11 +4144,12 @@ span = SpanSelector (
 )
 
 # Storing the callback for on_xlims_change()
-ax1.callbacks.connect('xlim_changed', on_xlims_change)
+ax1.callbacks.connect ('xlim_changed', on_xlims_change)
 # Set the window manager to display the figure in a separate window
 # figManager = plt.get_current_fig_manager()
 # figManager.window.showMaximized()
 # ax1.figure.canvas.draw_idle()
+
 
 # Create a FigureCanvasTkAgg widget to embed the figure in the tkinter window
 canvas = FigureCanvasTkAgg (fig, master=window)
@@ -3911,17 +4169,11 @@ toolbar_frame.grid (row=0, column=9, columnspan=2, sticky="nsew")  # Place the f
 toolbar = NavigationToolbar2Tk (canvas, toolbar_frame)
 toolbar.update ()
 
-#Adjust tool bar color to match the theme
-toolbar_frame.configure(bg=user_settings["theme"]["background"])
-toolbar.configure(bg=user_settings["theme"]["background"], highlightbackground=user_settings["theme"]["toolbar_highlight_background"], highlightcolor=user_settings["theme"]["toolbar_highlight_color"])
-toolbar._message_label.configure(bg=user_settings["theme"]["background"], fg=user_settings["theme"]["foreground"])
-toolbar._active_color = user_settings["theme"]["toolbar_active_color"]
-
 title_frame.grid_columnconfigure (9, weight=1)
 
-plt.interactive(False)
+plt.interactive (False)
 
-update()
+update ()
 
 file_button = tk.Button (files_frame, text='Open File', command=selectfile)
 file_button.grid (row=1, column=5)
@@ -3932,87 +4184,87 @@ linefile_button.grid (row=3, column=5)
 linesave_button = tk.Button (files_frame, text='Define File', command=savelinefile)
 linesave_button.grid (row=5, column=5, pady=(0, 10))
 
-CreateToolTip(import_button, text='Query HITRAN.org\n'
+CreateToolTip (import_button, text='Query HITRAN.org\n'
                                    'database to download\n'
                                    'new molecules')
 
-CreateToolTip(addmol_button, text='Add molecule to\n'
+CreateToolTip (addmol_button, text='Add molecule to\n'
                                    'the GUI from files\n'
                                    'downloaded from HITRAN')
 
-CreateToolTip(saveparams_button, text='Save current molecules\n'
+CreateToolTip (saveparams_button, text='Save current molecules\n'
                                        'and their parameters\n'
                                        'for this input datafile')
 
-CreateToolTip(loadparams_button, text='Load previously saved\n'
+CreateToolTip (loadparams_button, text='Load previously saved\n'
                                        'molecules and parameters\n'
                                        'for this input datafile')
 
-CreateToolTip(defmol_button, text='Load default\n'
+CreateToolTip (defmol_button, text='Load default\n'
                                    'molecule list\n'
                                    'into the GUI')
 
-CreateToolTip(export_button, text='Export current\n'
+CreateToolTip (export_button, text='Export current\n'
                                    'models into csv files')
 
-CreateToolTip(toggle_button, text='Turn legend on/off')
+CreateToolTip (toggle_button, text='Turn legend on/off')
 
-CreateToolTip(file_button, text='Select input spectrum datafile')
+CreateToolTip (file_button, text='Select input spectrum datafile')
 
-CreateToolTip(linefile_button, text='Select input line list\n'
+CreateToolTip (linefile_button, text='Select input line list\n'
                                      'from those available in iSLAT\n'
                                      'or previously saved by the user')
 
-CreateToolTip(linesave_button, text='Select output file\n'
+CreateToolTip (linesave_button, text='Select output file\n'
                                      'to save line measurements\n'
                                      'with "Save Line" or "Fit Saved Lines"')
 
 # ---------------------------------------------------------
-CreateToolTip(xp1_entry, text='Start wavelength\n'
+CreateToolTip (xp1_entry, text='Start wavelength\n'
                                'for the upper plot\n'
                                'units: μm')
 
-CreateToolTip(rng_entry, text='Wavelength range\n'
+CreateToolTip (rng_entry, text='Wavelength range\n'
                                'for the upper plot\n'
                                'units: μm')
 
-CreateToolTip(min_lamb_entry, text='Minimum wavelength\n'
+CreateToolTip (min_lamb_entry, text='Minimum wavelength\n'
                                     'to calculate the models\n'
                                     'units: μm')
 
-CreateToolTip(max_lamb_entry, text='Maximum wavelength\n'
+CreateToolTip (max_lamb_entry, text='Maximum wavelength\n'
                                     'to calculate the models\n'
                                     'units: μm')
 
-CreateToolTip(dist_entry, text='Distance to the\n'
+CreateToolTip (dist_entry, text='Distance to the\n'
                                 'observed target\n'
                                 'units: pc')
 
-CreateToolTip(star_rv_entry, text='Radial velocity (helioc.)\n'
+CreateToolTip (star_rv_entry, text='Radial velocity (helioc.)\n'
                                    'of the observed target\n'
                                    'units: km/s')
 
-CreateToolTip(fwhm_entry, text='FWHM for convolution\n'
+CreateToolTip (fwhm_entry, text='FWHM for convolution\n'
                                 'of the model spectra\n'
                                 'units: km/s')
 
-CreateToolTip(intrinsic_line_width_entry, text='Line broadening (FWHM)\n'
+CreateToolTip (intrinsic_line_width_entry, text='Line broadening (FWHM)\n'
                                                 '(thermal/turbulence)\n'
                                                 'units: km/s')
 
-CreateToolTip(specsep_entry, text='Separation threshold\n'
+CreateToolTip (specsep_entry, text='Separation threshold\n'
                                    'for "Find Single Lines"\n'
                                    'units: μm')
 
-CreateToolTip(spandropd, text='Select molecule for line inspection,\n'
+CreateToolTip (spandropd, text='Select molecule for line inspection,\n'
                                'the population diagram, and all the\n'
                                'molecule-specific functions')
 
-CreateToolTip(fwhmtolerance_entry, text='Line broadening tolerance\n'
+CreateToolTip (fwhmtolerance_entry, text='Line broadening tolerance\n'
                                          'in de-blender\n'
                                          'units: km/s')
 
-CreateToolTip(centrtolerance_entry, text='Line centroid tolerance\n'
+CreateToolTip (centrtolerance_entry, text='Line centroid tolerance\n'
                                    'in de-blender\n'
                                    'units: μm')
 
@@ -4047,14 +4299,14 @@ CreateToolTip(atomlines_button, text='Show atomic lines\n'
 
 for row, (mol_name, _, _) in enumerate (molecules_data, start=1):
     # Get the molecule name in lower case
-    mol_name_lower = mol_name.lower()
+    mol_name_lower = mol_name.lower ()
 
     # Get the line object
-    line_var = globals().get (f"{mol_name_lower}_line")
+    line_var = globals ().get (f"{mol_name_lower}_line")
     # Chdeseck if the line object exists and has a color attribute
     if line_var and hasattr (line_var, 'get_color'):
         # Get the color of the line
-        line_color = line_var.get_color()
+        line_color = line_var.get_color ()
 
         # Get the color button from the grid_slaves listatomi
         color_button = molecule_frame.grid_slaves (row=row, column=6)[0]
@@ -4065,5 +4317,5 @@ for row, (mol_name, _, _) in enumerate (molecules_data, start=1):
         print ('Line object or color attribute not found for:', mol_name)
 
 # save_default_to_file(file_name)
-load_molecules_list()
-window.mainloop()
+load_molecules_list ()
+window.mainloop ()

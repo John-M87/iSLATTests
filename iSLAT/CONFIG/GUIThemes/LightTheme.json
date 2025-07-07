@@ -11,6 +11,7 @@
     "toolbar_highlight_color": "#000000",
     "toolbar_active_color": "#FFFFFF",
     "highlight": "#FFFF00",
+    "fit_line_color": "#FF0000",
     "buttons": {
         "DefaultBotton": {
             "background": "#D3D3D3",
@@ -21,5 +22,20 @@
             "background": "#D3D3D3",
             "active_background": "#808080"
         }
-    }
+    },
+    "default_molecule_colors": [
+        "#FF0000", 
+        "#00FF00", 
+        "#0000FF", 
+        "#FFFF00", 
+        "#FF00FF", 
+        "#00FFFF",
+        "#FFA500",
+        "#800080",
+        "#008080",
+        "#FFC0CB",
+        "#808080",
+        "#A52A2A",
+        "#000080"
+    ]
 }
