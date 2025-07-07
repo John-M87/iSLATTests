@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
+from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 
 class ControlPanel:
     def __init__(self, master, islat):
@@ -29,7 +30,6 @@ class ControlPanel:
                 self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
             
             # Register for individual molecule parameter changes
-            from iSLAT.COMPONENTS.Molecule import Molecule
             Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
             
         except Exception as e:

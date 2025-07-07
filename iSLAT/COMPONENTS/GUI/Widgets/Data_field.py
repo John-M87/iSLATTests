@@ -3,7 +3,7 @@ from tkinter import ttk
 
 class DataField:
     """
-    A class to represent a text area in a GUI application.
+    A class to display a text area in a GUI application.
     No layout here — the caller does grid/pack for .frame.
     """
     def __init__(self, name: str, value: any, master: tk.Widget):

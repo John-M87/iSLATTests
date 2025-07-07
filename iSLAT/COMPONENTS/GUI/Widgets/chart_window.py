@@ -1,6 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
-#from .hitran_downloader import download_hitran_data
+#from iSLAT.hitran_downloader import download_hitran_data
+from iSLAT.COMPONENTS.FileHandling.hitran_downloader import download_hitran_data
 
 class MoleculeSelector:
     def __init__(self, master, data_field):
