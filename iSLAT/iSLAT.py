@@ -2,15 +2,6 @@ iSLAT_version = 'v5.00.00'
 print(' ')
 print('Loading iSLAT ' + iSLAT_version + ': Please Wait ...')
 
-#import iSLAT.COMPONENTS.FileHandling as ifh
-#from iSLAT.COMPONENTS.GUI import iSLATGUI
-#from iSLAT.COMPONENTS.DataTypes import *
-
-#from iSLAT import *
-#import iSLAT.COMPONENTS.FileHandling as ifh
-#import tkinter as tk
-#from iSLAT.COMPONENTS.DataProcessing import DataProcessor as dp
-#from iSLAT.COMPONENTS.DataManager import DataManager
 from iSLAT.COMPONENTS.DataManager import DataManager
 from iSLAT.COMPONENTS.GUI.GUI import iSLATGUI
 

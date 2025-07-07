@@ -8,7 +8,7 @@ import numpy as np
 from lmfit.models import GaussianModel
 #from iSLAT.ir_model import Spectrum
 from iSLAT.Constants import dist, au, pc, ccum, hh, specsep
-
+#Hey
 class iSLATPlot:
     def __init__(self, parent_frame, wave_data, flux_data, theme, islat_class_ref):
         #self.wave_data = wave_data
