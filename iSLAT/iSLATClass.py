@@ -357,7 +357,7 @@ class iSLAT:
             self.molecules_dict.clear()
             print("Resetting molecules_dict to empty.")
 
-        self.init_molecules(self.default_molecule_csv_data())
+        self.init_molecules(self.default_molecule_csv_data)
 
     def create_folders(self): # see if we need this one and/or add config for directories
         """
