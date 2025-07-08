@@ -1,6 +1,10 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
 from .GUIFunctions import create_button
+from iSLAT.iSLATFileHandling import save_folder_path, molsave_file_name
+from iSLAT.iSLATFileHandling import write_molecules_to_csv, write_molecules_list_csv
+import os
+import csv
 
 class TopOptions:
     def __init__(self, master, islat, theme, data_field=None):
@@ -66,9 +70,6 @@ class TopOptions:
         #    spectrum_name = "unknown"
         
         try:
-            # Import the save function
-            from iSLAT.iSLATFileHandling import write_molecules_to_csv, write_molecules_list_csv
-            
             # Save the current molecule parameters
             saved_file = write_molecules_to_csv(
                 self.islat.molecules_dict, 
@@ -76,7 +77,7 @@ class TopOptions:
             )
             
             # Also save to the general molecules list for session persistence
-            write_molecules_list_csv(self.islat.molecules_dict)
+            #write_molecules_list_csv(self.islat.molecules_dict, loaded_spectrum_name=spectrum_name)
             
             if saved_file:
                 # Update the data field to show success message
@@ -115,10 +116,6 @@ class TopOptions:
         #if spectrum_name == 'default':
         #    spectrum_name = "unknown"
         
-        # Check if save file exists
-        from iSLAT.iSLATFileHandling import save_folder_path, molsave_file_name
-        import os
-        
         spectrum_base_name = os.path.splitext(spectrum_name)[0] if spectrum_name != "unknown" else "default"
         save_file = os.path.join(save_folder_path, f"{spectrum_base_name}-{molsave_file_name}")
         
@@ -143,7 +140,6 @@ class TopOptions:
             self.islat.molecules_dict.clear()
             
             # Read the saved molecule data
-            import csv
             loaded_molecules = []
             
             with open(save_file, 'r') as csvfile:

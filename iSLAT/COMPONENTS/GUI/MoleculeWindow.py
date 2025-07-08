@@ -120,6 +120,9 @@ class MoleculeWindow:
                     # Only update lines for numeric parameters to avoid infinite loops
                     if attr in ["temp", "radius", "n_mol"]:
                         self.update_lines()
+                        # Also trigger any update_model_spectrum method if it exists
+                        if hasattr(self.islat, 'update_model_spectrum'):
+                            self.islat.update_model_spectrum()
                 except ValueError:
                     pass  # Ignore invalid input
             
@@ -265,7 +268,7 @@ class MoleculeWindow:
 
     def update_lines(self):
         """Update molecule visibility and recalculate model spectrum."""
-        self.plot.clear_model_lines()
+        #self.plot.clear_model_lines()
         for mol_name, props in self.molecules.items():
             # Check if molecule still exists in the dictionary (not deleted)
             if mol_name not in self.islat.molecules_dict:
@@ -281,6 +284,11 @@ class MoleculeWindow:
             if "color" in props:
                 mol_obj.color = props["color"]
         
-        # Update the model spectrum and plots
-        self.islat.update_model_spectrum()
-        self.plot.update_all_plots()
+        # Update the model spectrum and plots using coordinator
+        if hasattr(self.islat, 'request_update'):
+            self.islat.request_update('model_spectrum')
+            self.islat.request_update('plots')
+        else:
+            # Fallback to direct update
+            self.islat.update_model_spectrum()
+            self.plot.update_all_plots()

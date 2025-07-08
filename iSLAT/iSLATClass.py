@@ -6,32 +6,73 @@ print('Loading iSLAT ' + iSLAT_version + ': Please Wait ...')
 import numpy as np
 import pandas as pd
 import os
-import json
 
 #from lmfit.models import GaussianModel
 import tkinter as tk
 from tkinter import filedialog
 import ssl
 import certifi
-import datetime
 
 context = ssl.create_default_context(cafile=certifi.where ())
 
 from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
 from .ir_model import *
-from .COMPONENTS.chart_window import MoleculeSelector
+'''from .COMPONENTS.chart_window import MoleculeSelector
 from .COMPONENTS.Hitran_data import get_Hitran_data
 from .COMPONENTS.partition_function_writer import write_partition_function
-from .COMPONENTS.line_data_writer import write_line_data
-from .COMPONENTS.slabfit_config import *
-from .COMPONENTS.slabfit_loader import *
-from .COMPONENTS.slabfit_runner import *
+from .COMPONENTS.line_data_writer import write_line_data'''
+from .COMPONENTS.slabfit import *
 from .iSLATDefaultInputParms import *
 #from .iSLATFileHandling import *
 from .COMPONENTS.GUI import *
 from .COMPONENTS.Molecule import Molecule
 from .COMPONENTS.MoleculeDict import MoleculeDict
+
+class UpdateCoordinator:
+    """Centralized update coordinator to manage and debounce plot updates"""
+    
+    def __init__(self, islat_instance : 'iSLAT'):
+        self.islat = islat_instance
+        self._update_after_id = None
+        self._pending_updates = set()
+        
+    def request_update(self, update_type):
+        """Request an update of a specific type, with debouncing"""
+        self._pending_updates.add(update_type)
+        
+        # Cancel previous pending update
+        if self._update_after_id is not None:
+            self.islat.root.after_cancel(self._update_after_id)
+        
+        # Schedule new update
+        self._update_after_id = self.islat.root.after(50, self._execute_updates)
+    
+    def _execute_updates(self):
+        """Execute all pending updates in the correct order"""
+        if not self._pending_updates:
+            return
+            
+        updates = self._pending_updates.copy()
+        self._pending_updates.clear()
+        self._update_after_id = None
+        
+        # Execute updates in dependency order
+        if 'model_spectrum' in updates:
+            self._update_model_spectrum()
+        
+        if 'plots' in updates:
+            self._update_plots()
+    
+    def _update_model_spectrum(self):
+        """Update model spectrum calculations"""
+        if hasattr(self.islat, 'molecules_dict') and hasattr(self.islat, 'wave_data'):
+            self.islat.molecules_dict.update_molecule_fluxes(self.islat.wave_data)
+    
+    def _update_plots(self):
+        """Update plot displays"""
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot'):
+            self.islat.GUI.plot.update_all_plots()
 
 class iSLAT:
     """
@@ -43,16 +84,17 @@ class iSLAT:
         """
         Initialize the iSLAT application.
         """
-        #self.directorypath = os.path.dirname(os.path.abspath(__file__))
-        #print(f"iSLAT directory path: {self.directorypath}")
         self._hitran_data = {}
-        self.create_folders()
+        self.create_folders() # move this to file handeling
+
+        # Initialize callback system for active molecule changes
+        self._active_molecule_change_callbacks = []
+
+        # Initialize update coordinator (will be set up properly after GUI init)
+        self._update_coordinator = None
 
         # Load settings
-        #self.user_settings = self.load_user_settings()
         self.user_settings = load_user_settings()
-        #self.update_default_molecule_parameters()
-        #self.update_initial_molecule_parameters()
         self.initial_molecule_parameters = read_initial_molecule_parameters()
         self.molecules_parameters_default = read_default_molecule_parameters()
         
@@ -64,6 +106,12 @@ class iSLAT:
 
         self.wavelength_range = wavelength_range
         self._display_range = (23.52, 25.41)
+
+        # Store parameters for later MoleculeDict initialization
+        self._dist = dist
+        self._star_rv = star_rv
+        self._fwhm = fwhm
+        self._intrinsic_line_width = intrinsic_line_width
 
         self.min_vu = 1 / (self.wavelength_range[0] / 1E6) / 100.
         self.max_vu = 1 / (self.wavelength_range[1] / 1E6) / 100.
@@ -77,6 +125,9 @@ class iSLAT:
 
         self.xp1 = self.xp2 = None
 
+        # Initialize the update coordinator
+        self.update_coordinator = UpdateCoordinator(self)
+
     def init_gui(self):
         """
         Initialize the GUI components of iSLAT.
@@ -86,6 +137,10 @@ class iSLAT:
             self.root = tk.Tk()
             self.root.title("iSLAT - Infrared Spectral Line Analysis Tool")
             self.root.resizable(True, True)
+
+        # Initialize update coordinator after root is created
+        if self._update_coordinator is None:
+            self._update_coordinator = UpdateCoordinator(self)
 
         #self.root.mainloop()
 
@@ -104,6 +159,12 @@ class iSLAT:
     def init_molecules(self, mole_save_data=None):
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
+            # Initialize global parameters
+            self.molecules_dict.global_dist = self._dist
+            self.molecules_dict.global_star_rv = self._star_rv
+            self.molecules_dict.global_fwhm = self._fwhm
+            self.molecules_dict.global_intrinsic_line_width = self._intrinsic_line_width
+            self.molecules_dict.global_wavelength_range = self.wavelength_range
         if not hasattr(self, "user_saved_molecules"):
                 self.user_saved_molecules = read_from_user_csv()
         
@@ -284,6 +345,12 @@ class iSLAT:
         print("Loading default molecules...")
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
+            # Initialize global parameters
+            self.molecules_dict.global_dist = self._dist
+            self.molecules_dict.global_star_rv = self._star_rv
+            self.molecules_dict.global_fwhm = self._fwhm
+            self.molecules_dict.global_intrinsic_line_width = self._intrinsic_line_width
+            self.molecules_dict.global_wavelength_range = self.wavelength_range
 
         if reset:
             # Clear existing molecules if reset is True
@@ -373,12 +440,17 @@ class iSLAT:
             print("No file selected.")
 
     def update_model_spectrum(self):
-        summed_flux = np.zeros_like(self.wave_data)
-        for mol in self.molecules_dict.values():
-            if mol.is_visible:
-                mol_flux = mol.get_flux(self.wave_data)
-                summed_flux += mol_flux
-        self.sum_spectrum_flux = summed_flux
+        """Update model spectrum using cached calculations"""
+        if hasattr(self, 'molecules_dict') and hasattr(self, 'wave_data'):
+            # Use cached summed flux from MoleculeDict
+            self.sum_spectrum_flux = self.molecules_dict.get_summed_flux(self.wave_data, visible_only=True)
+        else:
+            self.sum_spectrum_flux = np.zeros_like(self.wave_data) if hasattr(self, 'wave_data') else np.array([])
+    
+    def request_update(self, update_type='plots'):
+        """Request an update through the coordinator"""
+        if self._update_coordinator:
+            self._update_coordinator.request_update(update_type)
 
     def get_line_data_in_range(self, xmin, xmax):
         selected_mol = self.active_molecule
@@ -402,21 +474,34 @@ class iSLAT:
     def active_molecule(self, molecule):
         """
         Sets the active molecule based on the provided name or object.
-        If the molecule is not found, it throws an error and does not update the active molecule.
+        Special handling for "SUM" and "ALL" without triggering errors.
         """
+        old_molecule = getattr(self, '_active_molecule', None)
+        
         try:
             if isinstance(molecule, Molecule):
                 self._active_molecule = molecule
             elif isinstance(molecule, str):
-                if molecule in self.molecules_dict:
+                if molecule in ["SUM", "ALL"]:
+                    # Store as string for special handling
+                    self._active_molecule = molecule
+                elif molecule in self.molecules_dict:
                     self._active_molecule = self.molecules_dict[molecule]
                 else:
                     raise ValueError(f"Molecule '{molecule}' not found in the dictionary.")
             else:
                 raise TypeError("Active molecule must be a Molecule object or a string representing the molecule name.")
             
-            if hasattr(self, "GUI") and hasattr(self.GUI, "plot"):
+            # Notify callbacks of the change
+            self._notify_active_molecule_change(old_molecule, self._active_molecule)
+            
+            # Only trigger plot updates for actual Molecule objects
+            if (hasattr(self, "GUI") and hasattr(self.GUI, "plot") 
+                and isinstance(self._active_molecule, Molecule)):
                 self.GUI.plot.update_all_plots()
+        except Exception as e:
+            print(f"Error setting active molecule: {e}")
+            # Don't change the active molecule if there's an error
                 #self.GUI.plot.update_line_inspection_plot()
 
         except (ValueError, TypeError) as e:
@@ -439,3 +524,20 @@ class iSLAT:
                 self.GUI.plot.match_display_range()
         else:
             raise ValueError("Display range must be a tuple of two floats (start, end).")
+    
+    def add_active_molecule_change_callback(self, callback):
+        """Add a callback function to be called when active molecule changes"""
+        self._active_molecule_change_callbacks.append(callback)
+    
+    def remove_active_molecule_change_callback(self, callback):
+        """Remove a callback function for active molecule changes"""
+        if callback in self._active_molecule_change_callbacks:
+            self._active_molecule_change_callbacks.remove(callback)
+    
+    def _notify_active_molecule_change(self, old_molecule, new_molecule):
+        """Notify all callbacks that the active molecule has changed"""
+        for callback in self._active_molecule_change_callbacks:
+            try:
+                callback(old_molecule, new_molecule)
+            except Exception as e:
+                print(f"Error in active molecule change callback: {e}")
