@@ -10,13 +10,7 @@ import os
 from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
 from .ir_model import *
-'''from .COMPONENTS.chart_window import MoleculeSelector
-from .COMPONENTS.Hitran_data import get_Hitran_data
-from .COMPONENTS.partition_function_writer import write_partition_function
-from .COMPONENTS.line_data_writer import write_line_data'''
 from .COMPONENTS.slabfit import *
-#from .Constants import *
-#from .iSLATFileHandling import *
 import iSLAT.Constants as c
 from .COMPONENTS.GUI import *
 from .COMPONENTS.Molecule import Molecule
@@ -78,7 +72,6 @@ class iSLAT:
         Initialize the iSLAT application.
         """
         self._hitran_data = {}
-        self.create_folders() # move this to file handeling
 
         # Initialize callback system for active molecule changes
         self._active_molecule_change_callbacks = []
@@ -126,20 +119,14 @@ class iSLAT:
         Initialize the GUI components of iSLAT.
         This function sets up the main window, menus, and other GUI elements.
         """
-        '''if not hasattr(self, "root"):
-            self.root = tk.Tk()
-            self.root.title("iSLAT - Infrared Spectral Line Analysis Tool")
-            self.root.resizable(True, True)'''
 
         # Initialize update coordinator after root is created
         if self._update_coordinator is None:
             self._update_coordinator = UpdateCoordinator(self)
 
-        #self.root.mainloop()
 
         if not hasattr(self, "GUI"):
             self.GUI = GUI(
-                #master=self.root,
                 master=None,
                 molecule_data=self.molecules_dict,
                 wave_data=self.wave_data,
@@ -212,7 +199,6 @@ class iSLAT:
         # Start the main event loop
         self.savedata = read_save_data()
         self.init_molecules()
-        #self.add_molecule_from_hitran()
         self.load_spectrum()
         self.init_gui()
     
@@ -235,15 +221,10 @@ class iSLAT:
             Single isotope or list of isotopes (currently unused)
         """
         if hitran_files is None:
-            #hitran_files = filedialog.askopenfilenames(
-            #    title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)', 
-            #    filetypes=[('PAR Files', '*.par')], 
-            #    initialdir=os.path.abspath("HITRANdata")
-            #)
             hitran_files = GUI.file_selector(title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)',
                                                   filetypes=[('PAR Files', '*.par')],
-                                                  initialdir=os.path.abspath("HITRANdata"))
-        
+                                                  initialdir=os.path.abspath("DATAFILES/HITRANdata"))
+            
         if not hitran_files:
             print("No HITRAN files selected.")
             return
@@ -353,29 +334,14 @@ class iSLAT:
             # Clear existing molecules if reset is True
             self.molecules_dict.clear()
             print("Resetting molecules_dict to empty.")
+            self.GUI.molecule_table.update_table()
 
         self.init_molecules(self.default_molecule_csv_data)
 
-    def create_folders(self): # see if we need this one and/or add config for directories
-        """
-        create_folders() creates the necessary folders for saving data and models.
-        This is typically done at the first launch of iSLAT.
-        """
-        # Create necessary folders, if they don't exist
-        os.makedirs("SAVES", exist_ok=True)
-        os.makedirs("MODELS", exist_ok=True)
-        os.makedirs("LINESAVES", exist_ok=True)
-        os.makedirs("HITRANdata", exist_ok=True)
-
     def load_spectrum(self, file_path=None):
         #filetypes = [('CSV Files', '*.csv'), ('TXT Files', '*.txt'), ('DAT Files', '*.dat')]
-        spectra_directory = os.path.abspath("EXAMPLE-data")
+        spectra_directory = os.path.abspath("DATAFILES/EXAMPLE-data")
         if file_path is None:
-            '''file_path = filedialog.askopenfilename(
-                title='Choose Spectrum Data File', 
-                #filetypes=filetypes, 
-                initialdir=spectra_directory
-            )'''
             file_path = GUI.file_selector(
                 title='Choose Spectrum Data File',
                 initialdir=spectra_directory
@@ -432,8 +398,6 @@ class iSLAT:
                     self.GUI.plot.update_all_plots()
                 if hasattr(self.GUI, "file_label"):
                     self.GUI.file_label.config(text=f"Loaded: {self.loaded_spectrum_name}")
-                #if hasattr(self.GUI, "control_panel"):
-                    #self.GUI.control_panel.update_controls()
             # If model spectrum or other calculations depend on spectrum, update them
             if hasattr(self, "update_model_spectrum"):
                 self.update_model_spectrum()
@@ -452,20 +416,6 @@ class iSLAT:
         """Request an update through the coordinator"""
         if self._update_coordinator:
             self._update_coordinator.request_update(update_type)
-
-    def get_line_data_in_range(self, xmin, xmax):
-        selected_mol = self.active_molecule
-        if not selected_mol:
-            return None
-        lines_df = selected_mol.intensity.get_table
-        subset = lines_df[(lines_df['lam'] >= xmin) & (lines_df['lam'] <= xmax)]
-        if subset.empty:
-            return None
-        return (subset['lam'].values,
-                subset['intens'].values,
-                subset['e_up'].values,
-                subset['a_stein'].values,
-                subset['g_up'].values)
     
     @property
     def active_molecule(self):

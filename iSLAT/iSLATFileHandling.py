@@ -5,9 +5,9 @@ import pandas as pd
 import numpy as np
 from .Constants import MOLECULES_DATA
 
-save_folder_path = "SAVES"
-user_configuration_file_path = config_file_path = "CONFIG"
-theme_file_path = "CONFIG/GUIThemes"
+save_folder_path = "DATAFILES/SAVES"
+user_configuration_file_path = config_file_path = "DATAFILES/CONFIG"
+theme_file_path = "DATAFILES/CONFIG/GUIThemes"
 user_configuration_file_name = "UserSettings.json"
 
 molsave_file_name = "molsave.csv"
@@ -18,8 +18,8 @@ default_molecule_parameters_file_name = "DefaultMoleculeParameters.json"
 default_initial_parameters_file_name = "DefaultMoleculeParameters.json"
 
 line_saves_file_name = "saved_lines.csv"
-atomic_lines_file_name = "LINELISTS/Atomic_lines.csv"
-models_folder_path = "MODELS"
+atomic_lines_file_name = "DATAFILES/LINELISTS/Atomic_lines.csv"
+models_folder_path = "DATAFILES/MODELS"
 
 def load_user_settings(file_path=user_configuration_file_path, file_name=user_configuration_file_name, theme_file_path=theme_file_path):
     """ load_user_settings() loads the user settings from the UserSettings.json file."""
