@@ -184,7 +184,7 @@ class PlotRenderer:
                 wave_data,
                 0,
                 summed_flux,
-                color='lightgray',
+                color=self.theme.get("summed_spectra_color", "lightgray"),
                 alpha=1.0,
                 label='Sum',
                 zorder=self.theme.get("zorder_summed", 1)
@@ -255,9 +255,7 @@ class PlotRenderer:
             self.ax3.set_xlim(np.nanmin(eu) - 50, np.nanmax(eu[F > threshold]))
 
             # Populating the population diagram graph with the lines
-            #self.ax3.scatter(eu, rd_yax, s=30, color='green', edgecolors='black', picker=True)
-            
-            self.ax3.scatter(eu, rd_yax, s=0.5, color='#838B8B')
+            self.ax3.scatter(eu, rd_yax, s=0.5, color=self.theme.get("scatter_main_color", '#838B8B'))
 
             # Set labels
             self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
@@ -278,7 +276,7 @@ class PlotRenderer:
             if 'wavelength' in line:
                 self.ax1.axvline(
                     line['wavelength'], 
-                    color='orange', 
+                    color=self.theme.get("saved_line_color", "orange"),
                     alpha=0.7, 
                     linestyle=':', 
                     label=f"Saved: {line.get('label', 'Line')}"
@@ -289,7 +287,7 @@ class PlotRenderer:
                     line['xmin'], 
                     line['xmax'], 
                     alpha=0.2, 
-                    color='coral',
+                    color=self.theme.get("saved_line_color_two", "coral"),
                     label=f"Saved Range: {line.get('label', 'Range')}"
                 )
     
@@ -301,7 +299,7 @@ class PlotRenderer:
                 patch.remove()
         
         # Add new highlight
-        highlight = self.ax1.axvspan(xmin, xmax, alpha=0.3, color='yellow')
+        highlight = self.ax1.axvspan(xmin, xmax, alpha=0.3, color=self.theme.get("highlighted_line_color", "yellow"))
         highlight._islat_highlight = True
     
     def update_plot_display(self):
