@@ -647,9 +647,9 @@ class iSLATPlot:
         for v in values:
             if v['lineheight'] is not None and v['lineheight'] > 0:
                 vline = self.ax2.vlines(v['lam'], 0, v['lineheight'],
-                                        color='green', linestyle='dashed', linewidth=1, picker=True)
+                                        color=self.theme.get("active_scatter_line_color", "green"), linestyle='dashed', linewidth=1, picker=True)
                 text = self.ax2.text(v['lam'], v['lineheight'],
-                              f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color='green', rotation=45)
+                              f"{v['e']:.0f},{v['a']:.3f}", fontsize='x-small', color=self.theme.get("active_scatter_line_color", "green"), rotation=45)
                 # Store text object with line data for color changes
                 v['text_obj'] = text
                 # Add placeholder for scatter, will be filled in plot_population_diagram
@@ -685,7 +685,7 @@ class iSLATPlot:
         # Add new scatter points with updated parameters
         for idx, v in enumerate(values):
             if idx < len(self.active_lines) and v['rd_yax'] is not None:
-                sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color='green', edgecolors='black', picker=True)
+                sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color=self.theme.get("scatter_main_color", 'green'), edgecolors='black', picker=True)
                 # Update the scatter object and value in active_lines
                 self.active_lines[idx][1] = sc
                 self.active_lines[idx][2] = v
@@ -734,7 +734,7 @@ class iSLATPlot:
                 if len(x_fit) > 0:
                     # Plot the total fit line
                     total_flux = gauss_fit.eval(x=x_fit)
-                    self.ax2.plot(x_fit, total_flux, color="red", linestyle='-', linewidth=1, label="Total Fit Line")
+                    self.ax2.plot(x_fit, total_flux, color=self.theme.get("total_fit_line_color", "red"), linestyle='-', linewidth=1, label="Total Fit Line")
                     max_y = max(max_y, np.nanmax(total_flux))
 
                     # Plot individual component lines if it's a multi-component fit
@@ -833,7 +833,7 @@ class iSLATPlot:
                 vline['ylim'][0],
                 vline['ylim'][1],
                 linestyles='dashed',
-                color='blue'
+                color=self.theme.get("single_line_color", "blue"),
             )
         self.canvas.draw_idle()
 

@@ -12,6 +12,15 @@
     "toolbar_active_color": "#F0F0F0",
     "highlight": "#FFD700",
     "fit_line_color": "#FF5555",
+    "scatter_main_color": "#9CA3AF",
+    "active_scatter_line_color": "#50FA7B",
+    "active_scatter_selected_line_color": "#FF8C00",
+    "total_fit_line_color": "#FF5555",
+    "single_line_plot_color": "#8BE9FD",
+    "summed_spectra_color": "#6B7280",
+    "saved_line_color": "#FF8C00",
+    "saved_line_color_two": "#FF6B6B",
+    "highlighted_line_color": "#FFD700",
     "buttons": {
         "DefaultBotton": {
             "background": "#23272A",

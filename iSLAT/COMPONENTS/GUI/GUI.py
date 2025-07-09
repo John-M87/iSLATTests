@@ -27,6 +27,205 @@ class GUI:
         self.islat_class = islat_class_ref
         self._popout_states = {}  # Track popout states for widgets
         self._popout_windows = {}  # Track active popout windows
+        
+        # Apply theme to root window
+        self._apply_theme_to_widget(self.master)
+
+    def _apply_theme_to_widget(self, widget):
+        """Apply theme colors to a tkinter widget and its children."""
+        try:
+            # Apply theme to the widget itself
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame', 'Toplevel', 'Tk']:
+                widget.configure(bg=self.theme["background"])
+            elif widget_class == 'Label':
+                widget.configure(bg=self.theme["background"], fg=self.theme["foreground"])
+            elif widget_class == 'Button':
+                # Only apply theme if the button doesn't have custom styling
+                if widget.cget('bg') in ['SystemButtonFace', '#d9d9d9', '#ececec']:  # Default button colors
+                    btn_theme = self.theme["buttons"].get("DefaultBotton", self.theme["buttons"]["DefaultBotton"])
+                    widget.configure(
+                        bg=btn_theme["background"],
+                        fg=self.theme["foreground"],
+                        activebackground=btn_theme["active_background"],
+                        activeforeground=self.theme["foreground"]
+                    )
+            elif widget_class == 'Entry':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    insertbackground=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Text':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    insertbackground=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Listbox':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Checkbutton':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["background"],
+                    activeforeground=self.theme["foreground"],
+                    selectcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Radiobutton':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["background"],
+                    activeforeground=self.theme["foreground"],
+                    selectcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Scale':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["selection_color"],
+                    troughcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Scrollbar':
+                widget.configure(
+                    bg=self.theme["toolbar"],
+                    troughcolor=self.theme["background"],
+                    activebackground=self.theme["selection_color"]
+                )
+            elif widget_class == 'LabelFrame':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"]
+                )
+            elif widget_class == 'Canvas':
+                widget.configure(bg=self.theme["background"])
+            elif widget_class == 'Menu':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["selection_color"],
+                    activeforeground=self.theme["background"]
+                )
+            
+            # Recursively apply theme to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widget(child)
+                
+        except tk.TclError:
+            # Some widgets might not support certain options
+            pass
+        
+        # Apply theme to root window
+        self._apply_theme_to_widget(self.master)
+        
+        # Apply theme to root window
+        self._apply_theme_to_widget(self.master)
+
+    def _apply_theme_to_widget(self, widget):
+        """Apply theme colors to a tkinter widget and its children."""
+        try:
+            # Apply theme to the widget itself
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame', 'Toplevel', 'Tk']:
+                widget.configure(bg=self.theme["background"])
+            elif widget_class == 'Label':
+                widget.configure(bg=self.theme["background"], fg=self.theme["foreground"])
+            elif widget_class == 'Button':
+                # Only apply theme if the button doesn't have custom styling
+                if widget.cget('bg') in ['SystemButtonFace', '#d9d9d9', '#ececec']:  # Default button colors
+                    btn_theme = self.theme["buttons"].get("DefaultBotton", self.theme["buttons"]["DefaultBotton"])
+                    widget.configure(
+                        bg=btn_theme["background"],
+                        fg=self.theme["foreground"],
+                        activebackground=btn_theme["active_background"],
+                        activeforeground=self.theme["foreground"]
+                    )
+            elif widget_class == 'Entry':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    insertbackground=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Text':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    insertbackground=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Listbox':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Checkbutton':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["background"],
+                    activeforeground=self.theme["foreground"],
+                    selectcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Radiobutton':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["background"],
+                    activeforeground=self.theme["foreground"],
+                    selectcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Scale':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["selection_color"],
+                    troughcolor=self.theme["toolbar"]
+                )
+            elif widget_class == 'Scrollbar':
+                widget.configure(
+                    bg=self.theme["toolbar"],
+                    troughcolor=self.theme["background"],
+                    activebackground=self.theme["selection_color"]
+                )
+            elif widget_class == 'LabelFrame':
+                widget.configure(
+                    bg=self.theme["background"], 
+                    fg=self.theme["foreground"]
+                )
+            elif widget_class == 'Canvas':
+                widget.configure(bg=self.theme["background"])
+            elif widget_class == 'Menu':
+                widget.configure(
+                    bg=self.theme["toolbar"], 
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["selection_color"],
+                    activeforeground=self.theme["background"]
+                )
+            
+            # Recursively apply theme to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widget(child)
+                
+        except tk.TclError:
+            # Some widgets might not support certain options
+            pass
 
     @staticmethod
     def file_selector(title : str = None, filetypes=None, initialdir=None, use_abspath=True):
@@ -57,16 +256,28 @@ class GUI:
         # Main data field - create this first so we can pass it to other components
         self.data_field = DataField("Main Data Field", "", parent)
         self.data_field.frame.grid(row=4, column=0, sticky="nsew", padx=5, pady=5)
+        
+        # Apply theme to data field
+        self._apply_theme_to_widget(self.data_field.frame)
+        
         self._add_popout_button_to_corner(self.data_field.frame, "Main Data Field", self.data_field.frame, parent, 4, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
 
         # Top control buttons - now we can pass data_field
         self.top_options = TopOptions(parent, self.islat_class, theme=self.theme, data_field=self.data_field)
         self.top_options.frame.grid(row=0, column=0, sticky="ew", padx=5, pady=2)
+        
+        # Apply theme to top options
+        self._apply_theme_to_widget(self.top_options.frame)
+        
         self._add_popout_button_to_corner(self.top_options.frame, "Top Options", self.top_options, parent, 0, 0, "grid", {"sticky": "ew", "padx": 5, "pady": 2})
 
         # Molecule table
         self.molecule_table = MoleculeWindow("Molecule Table", parent, self.molecule_data, self.plot, self.config, self.islat_class)
         self.molecule_table.frame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
+        
+        # Apply theme to molecule table
+        self._apply_theme_to_widget(self.molecule_table.frame)
+        
         self._add_popout_button_to_corner(self.molecule_table.frame, "Molecule Table", self.molecule_table, parent, 1, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
 
         # Spectrum file selector
@@ -80,13 +291,22 @@ class GUI:
         
         self.file_label = tk.Label(file_frame, text=default_text)
         self.file_label.pack()
-        tk.Button(file_frame, text="Load Spectrum", command=self.islat_class.load_spectrum).pack()
+        load_spectrum_btn = tk.Button(file_frame, text="Load Spectrum", command=self.islat_class.load_spectrum)
+        load_spectrum_btn.pack()
+        
+        # Apply theme to these widgets
+        self._apply_theme_to_widget(file_frame)
+        
         self._add_popout_button_to_corner(file_frame, "Spectrum File", file_frame, parent, 2, 0, "grid", {"sticky": "ew", "padx": 5, "pady": 5})
 
         # Control panel for input parameters
         control_panel_frame = tk.LabelFrame(parent, text="Control Panel")
         control_panel_frame.grid(row=3, column=0, sticky="nsew", padx=5, pady=5)
         self.control_panel = ControlPanel(control_panel_frame, self.islat_class)
+        
+        # Apply theme to control panel
+        self._apply_theme_to_widget(control_panel_frame)
+        
         self._add_popout_button_to_corner(control_panel_frame, "Control Panel", control_panel_frame, parent, 3, 0, "grid", {"sticky": "nsew", "padx": 5, "pady": 5})
 
     def _add_popout_button_to_corner(self, widget, title, content, parent, row, column, manager, manager_kwargs):
@@ -109,6 +329,13 @@ class GUI:
             try:
                 btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id), 
                                width=2, height=1, relief="flat", padx=0, pady=0)
+                # Apply theme to popout button
+                btn.configure(
+                    bg=self.theme["buttons"]["DefaultBotton"]["background"],
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["buttons"]["DefaultBotton"]["active_background"],
+                    activeforeground=self.theme["foreground"]
+                )
                 btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
             except tk.TclError:
                 # Widget might not be ready yet, try again later
@@ -149,6 +376,9 @@ class GUI:
         pop = tk.Toplevel(parent_window)
         pop.title(state["title"])
         pop.geometry("600x400")  # Set reasonable default size
+        
+        # Apply theme to popout window
+        self._apply_theme_to_widget(pop)
         
         # Configure popout window grid
         pop.grid_rowconfigure(0, weight=1)
@@ -224,6 +454,13 @@ class GUI:
             # Create new button with appropriate command
             btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id),
                            width=2, height=1, relief="flat", padx=0, pady=0)
+            # Apply theme to the button
+            btn.configure(
+                bg=self.theme["buttons"]["DefaultBotton"]["background"],
+                fg=self.theme["foreground"],
+                activebackground=self.theme["buttons"]["DefaultBotton"]["active_background"],
+                activeforeground=self.theme["foreground"]
+            )
             btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
         except tk.TclError as e:
             print(f"Error updating popout button: {e}")
@@ -241,9 +478,15 @@ class GUI:
         right_frame.grid(row=0, column=1, sticky="nsew")
         self.plot = iSLATPlot(right_frame, self.wave_data, self.flux_data, self.theme, self.islat_class)
         
+        # Apply theme to right frame
+        self._apply_theme_to_widget(right_frame)
+        
         # Handle plot popout - create a container frame for better control
         plot_container = tk.Frame(right_frame)
         plot_container.pack(fill="both", expand=True)
+        
+        # Apply theme to plot container
+        self._apply_theme_to_widget(plot_container)
         
         # Check if plot has a frame attribute, otherwise create one
         if hasattr(self.plot, 'frame'):
@@ -264,11 +507,19 @@ class GUI:
         # Left side: all controls
         left_frame = tk.Frame(self.window)
         left_frame.grid(row=0, column=0, rowspan=2, sticky="nsew")
+        
+        # Apply theme to left frame
+        self._apply_theme_to_widget(left_frame)
+        
         self.build_left_panel(left_frame)
 
         # Bottom function buttons
         self.bottom_options = BottomOptions(self.window, self.islat_class, self.theme, self.plot, self.data_field, self.config)
         self.bottom_options.frame.grid(row=1, column=0, columnspan=2, sticky="ew")
+        
+        # Apply theme to bottom options frame
+        self._apply_theme_to_widget(self.bottom_options.frame)
+        
         self._add_popout_button_to_corner(self.bottom_options.frame, "Bottom Options", self.bottom_options.frame, self.window, 1, 0, "grid", {"columnspan": 2, "sticky": "ew"})
 
     def cleanup_popouts(self):
