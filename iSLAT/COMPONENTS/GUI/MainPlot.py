@@ -7,7 +7,8 @@ from matplotlib.widgets import SpanSelector
 import numpy as np
 from lmfit.models import GaussianModel
 from iSLAT.ir_model import Spectrum
-from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh, specsep
+#from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh, specsep
+import iSLAT.Constants as c
 
 from iSLAT.COMPONENTS.Molecule import Molecule
 
@@ -402,12 +403,12 @@ class iSLATPlot:
             # Compute rd_yax for population diagram
             rd_yax = None
             if all(x is not None for x in [inten, a, g, lam_val]):
-                area = np.pi * (self.islat.active_molecule.radius * au * 1e2) ** 2
-                Dist = self.islat.active_molecule.distance * pc
-                beam_s = area / Dist ** 2
+                area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+                dist = self.islat.active_molecule.distance * c.PARSEC_CM
+                beam_s = area / dist ** 2
                 F = inten * beam_s
-                freq = ccum / lam_val
-                rd_yax = np.log(4 * np.pi * F / (a * hh * freq * g))
+                freq = c.SPEED_OF_LIGHT_MICRONS / lam_val
+                rd_yax = np.log(4 * np.pi * F / (a * c.PLANCK_CONSTANT * freq * g))
             
             # Get additional fields with safe indexing
             up_lev = lev_up.iloc[i] if lev_up is not None else 'N/A'
@@ -761,7 +762,7 @@ class iSLATPlot:
     def find_single_lines(self, xmin=None, xmax=None):
         """
         Finds isolated (single) molecular lines using LineAnalyzer.
-        Delegates line detection to the modular LineAnalyzer class.
+        Delegates line detection to the LineAnalyzer class.
         """
         # Use current selection if not provided
         if xmin is None or xmax is None:
@@ -815,6 +816,7 @@ class iSLATPlot:
             self.single_lines_list = []
 
         self.canvas.draw_idle()
+        return self.single_lines_list
 
     def plot_single_lines(self):
         """
@@ -871,11 +873,11 @@ class iSLATPlot:
         """
         # Calculate flux integral
         integral_range = np.where(np.logical_and(lam > lam_min, lam < lam_max))
-        line_flux_meas = np.trapz(flux[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+        line_flux_meas = np.trapz(flux[integral_range[::-1]], x=c.SPEED_OF_LIGHT_KMS / lam[integral_range[::-1]])
         line_flux_meas = -line_flux_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
         
         if err is not None:
-            line_err_meas = np.trapz(err[integral_range[::-1]], x=ccum / lam[integral_range[::-1]])
+            line_err_meas = np.trapz(err[integral_range[::-1]], x=c.SPEED_OF_LIGHT_MICRONS / lam[integral_range[::-1]])
             line_err_meas = -line_err_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
         else:
             line_err_meas = 0.0

@@ -3,7 +3,7 @@ import csv
 import json
 import pandas as pd
 import numpy as np
-from .iSLATDefaultInputParms import molecules_data
+from .Constants import MOLECULES_DATA
 
 save_folder_path = "SAVES"
 user_configuration_file_path = config_file_path = "CONFIG"
@@ -55,7 +55,7 @@ def read_from_csv(file_path=save_folder_path, file_name=molsave_file_name):
                 return [row for row in reader]
         except FileNotFoundError:
             pass
-    return molecules_data
+    return MOLECULES_DATA
 
 def read_default_csv(file_path=save_folder_path, file_name=defaults_file_name):
     file = os.path.join(file_path, file_name)
@@ -66,7 +66,7 @@ def read_default_csv(file_path=save_folder_path, file_name=defaults_file_name):
                 return {row['Molecule Name']: row for row in reader if 'Molecule Name' in row}
         except FileNotFoundError:
             pass
-    return molecules_data
+    return MOLECULES_DATA
 
 def read_from_user_csv(file_path=save_folder_path, file_name=molecule_list_file_name):
     file = os.path.join(file_path, file_name)
@@ -78,7 +78,7 @@ def read_from_user_csv(file_path=save_folder_path, file_name=molecule_list_file_
                 return {row['Molecule Name']: row for row in reader if 'Molecule Name' in row}
         except FileNotFoundError:
             pass
-    return molecules_data
+    return MOLECULES_DATA
 
 def read_default_molecule_parameters(file_path=config_file_path, file_name=default_molecule_parameters_file_name):
     """

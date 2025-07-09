@@ -15,8 +15,9 @@ from .COMPONENTS.Hitran_data import get_Hitran_data
 from .COMPONENTS.partition_function_writer import write_partition_function
 from .COMPONENTS.line_data_writer import write_line_data'''
 from .COMPONENTS.slabfit import *
-from .iSLATDefaultInputParms import *
+#from .Constants import *
 #from .iSLATFileHandling import *
+import iSLAT.Constants as c
 from .COMPONENTS.GUI import *
 from .COMPONENTS.Molecule import Molecule
 from .COMPONENTS.MoleculeDict import MoleculeDict
@@ -96,14 +97,14 @@ class iSLAT:
         self.default_molecule_csv_data = read_default_csv()
         self.user_saved_molecules = read_from_user_csv()
 
-        self.wavelength_range = wavelength_range
+        self.wavelength_range = c.WAVELENGTH_RANGE
         self._display_range = (23.52, 25.41)
 
         # Store parameters for later MoleculeDict initialization
-        self._dist = dist
-        self._star_rv = star_rv
-        self._fwhm = fwhm
-        self._intrinsic_line_width = intrinsic_line_width
+        self._dist = c.DEFAULT_DISTANCE
+        self._star_rv = c.DEFAULT_STELLAR_RV
+        self._fwhm = c.DEFAULT_FWHM
+        self._intrinsic_line_width = c.INTRINSIC_LINE_WIDTH
 
         self.min_vu = 1 / (self.wavelength_range[0] / 1E6) / 100.
         self.max_vu = 1 / (self.wavelength_range[1] / 1E6) / 100.
@@ -112,7 +113,7 @@ class iSLAT:
         self.check_HITRAN()
         #self.load_default_HITRAN_data()
 
-        self.molecules_data_default = molecules_data.copy()
+        self.molecules_data_default = c.MOLECULES_DATA.copy()
         self.deleted_molecules = []
 
         self.xp1 = self.xp2 = None

@@ -24,7 +24,8 @@ except ImportError:
     pd = None
     pass
 
-from .constants import constants as c
+import iSLAT.Constants as c
+#from .constants import constants as c
 from .intensity import Intensity
 
 class Spectrum:
@@ -223,7 +224,7 @@ class Spectrum:
         # 6. scale for distance and correct units for the area
         #    note that area scaling is already performed in add_intensity
         #Spectrum.debug_printed = debug_printed = True
-        return flux * (c.aucm / c.pccm) ** 2 * (1.0 / self._distance ** 2)
+        return flux * (c.ASTRONOMICAL_UNIT_CM / c.PARSEC_CM) ** 2 * (1.0 / self._distance ** 2)
 
     @property
     def flux(self):
@@ -237,7 +238,7 @@ class Spectrum:
         """np.ndarray: Fluxdensity in Jy/micron"""
         if self._flux is None:
             self._flux = self._convol_flux()
-        flux_jy = self._flux * (1e19 / c.c) * self._lamgrid ** 2
+        flux_jy = self._flux * (1e19 / c.SPEED_OF_LIGHT_CGS) * self._lamgrid ** 2
         return flux_jy
 
     @property
