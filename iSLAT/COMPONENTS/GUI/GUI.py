@@ -1,4 +1,6 @@
 import tkinter as tk
+from tkinter import filedialog
+import os
 from .MainPlot import iSLATPlot
 from .Data_field import DataField
 from .MoleculeWindow import MoleculeWindow
@@ -10,7 +12,13 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 class GUI:
     def __init__(self, master, molecule_data, wave_data, flux_data, config, islat_class_ref):
-        self.master = master
+        if master is None:
+            self.master = tk.Tk()
+            self.master.title("iSLAT - Infrared Spectral Line Analysis Tool")
+            self.master.resizable(True, True)
+        else:
+            self.master = master
+        
         self.molecule_data = molecule_data
         self.wave_data = wave_data
         self.flux_data = flux_data
@@ -19,6 +27,28 @@ class GUI:
         self.islat_class = islat_class_ref
         self._popout_states = {}  # Track popout states for widgets
         self._popout_windows = {}  # Track active popout windows
+
+    @staticmethod
+    def file_selector(title : str = None, filetypes=None, initialdir=None, use_abspath=True):
+        window_title = title if title else "Select File"
+        if use_abspath and initialdir:
+            initialdir = os.path.abspath(initialdir)
+        elif initialdir is None:
+            initialdir = os.getcwd()
+
+        if filetypes is None:
+            filetypes = [("All Files", "*.*")]
+        elif isinstance(filetypes, str):
+            filetypes = [(filetypes, "*.*")]
+        else:
+            filetypes = filetypes
+        
+        file_path = filedialog.askopenfilename(
+            title=window_title,
+            filetypes=filetypes,
+            initialdir=initialdir
+        )
+        return file_path
 
     def build_left_panel(self, parent: tk.Frame):
         parent.grid_rowconfigure(1, weight=1)

@@ -7,14 +7,6 @@ import numpy as np
 import pandas as pd
 import os
 
-#from lmfit.models import GaussianModel
-import tkinter as tk
-from tkinter import filedialog
-import ssl
-import certifi
-
-context = ssl.create_default_context(cafile=certifi.where ())
-
 from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
 from .ir_model import *
@@ -43,10 +35,10 @@ class UpdateCoordinator:
         
         # Cancel previous pending update
         if self._update_after_id is not None:
-            self.islat.root.after_cancel(self._update_after_id)
+            self.islat.GUI.master.after_cancel(self._update_after_id)
         
         # Schedule new update
-        self._update_after_id = self.islat.root.after(50, self._execute_updates)
+        self._update_after_id = self.islat.GUI.master.after(50, self._execute_updates)
     
     def _execute_updates(self):
         """Execute all pending updates in the correct order"""
@@ -133,10 +125,10 @@ class iSLAT:
         Initialize the GUI components of iSLAT.
         This function sets up the main window, menus, and other GUI elements.
         """
-        if not hasattr(self, "root"):
+        '''if not hasattr(self, "root"):
             self.root = tk.Tk()
             self.root.title("iSLAT - Infrared Spectral Line Analysis Tool")
-            self.root.resizable(True, True)
+            self.root.resizable(True, True)'''
 
         # Initialize update coordinator after root is created
         if self._update_coordinator is None:
@@ -146,7 +138,8 @@ class iSLAT:
 
         if not hasattr(self, "GUI"):
             self.GUI = GUI(
-                master=self.root,
+                #master=self.root,
+                master=None,
                 molecule_data=self.molecules_dict,
                 wave_data=self.wave_data,
                 flux_data=self.flux_data,
@@ -241,11 +234,14 @@ class iSLAT:
             Single isotope or list of isotopes (currently unused)
         """
         if hitran_files is None:
-            hitran_files = filedialog.askopenfilenames(
-                title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)', 
-                filetypes=[('PAR Files', '*.par')], 
-                initialdir=os.path.abspath("HITRANdata")
-            )
+            #hitran_files = filedialog.askopenfilenames(
+            #    title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)', 
+            #    filetypes=[('PAR Files', '*.par')], 
+            #    initialdir=os.path.abspath("HITRANdata")
+            #)
+            hitran_files = GUI.file_selector(title='Choose HITRAN Data Files (select multiple with Ctrl/Cmd)',
+                                                  filetypes=[('PAR Files', '*.par')],
+                                                  initialdir=os.path.abspath("HITRANdata"))
         
         if not hitran_files:
             print("No HITRAN files selected.")
@@ -374,9 +370,13 @@ class iSLAT:
         #filetypes = [('CSV Files', '*.csv'), ('TXT Files', '*.txt'), ('DAT Files', '*.dat')]
         spectra_directory = os.path.abspath("EXAMPLE-data")
         if file_path is None:
-            file_path = filedialog.askopenfilename(
+            '''file_path = filedialog.askopenfilename(
                 title='Choose Spectrum Data File', 
                 #filetypes=filetypes, 
+                initialdir=spectra_directory
+            )'''
+            file_path = GUI.file_selector(
+                title='Choose Spectrum Data File',
                 initialdir=spectra_directory
             )
 
