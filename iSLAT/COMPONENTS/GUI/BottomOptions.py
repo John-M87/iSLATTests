@@ -7,6 +7,8 @@ import traceback
 import iSLAT.iSLATFileHandling as ifh
 from .GUIFunctions import create_button
 #from iSLAT.COMPONENTS.GUI.MainPlot import iSLATPlot
+from iSLAT.COMPONENTS.slabfit import SlabFit as SlabModel
+
 
 class BottomOptions:
     def __init__(self, master, islat, theme, main_plot, data_field, config):
@@ -257,71 +259,45 @@ class BottomOptions:
 
     def find_single_lines(self):
         """Find isolated molecular lines (similar to single_finder function in original iSLAT)."""
-        self.data_field.clear()
-        
+        lines_to_show = 10
+
         try:
-            self.main_plot.find_single_lines()
-            '''# Get current display range
-            if hasattr(self.main_plot, 'ax1'):
-                xmin, xmax = self.main_plot.ax1.get_xlim()
-            else:
-                # Use default range
-                xmin, xmax = self.islat.display_range
+            self.data_field.clear()
+            single_lines = self.main_plot.find_single_lines()
+            self.main_plot.plot_single_lines()
+            for i, line in enumerate(single_lines[:lines_to_show]):  # Show first lines_to_show lines
+                self.data_field.insert_text(f"  Line {i+1}:", clear_first=False)
+                for key, value in line.items():
+                    self.data_field.insert_text(f"    {key}: {value}", clear_first=False)
+                self.data_field.insert_text("\n", clear_first=False)
             
-            # Find single lines using the main plot's method
-            single_lines = self.main_plot.find_single_lines(xmin, xmax)
-            
-            if single_lines and len(single_lines) > 0:
-                self.data_field.insert_text(f"Found {len(single_lines)} isolated lines in current wavelength range.\n")
-                
-                # Plot the single lines
-                self.main_plot.plot_single_lines()
-                
-                # Optionally display details of found lines
-                for i, line in enumerate(single_lines[:10]):  # Show first 10 lines
-                    wavelength = line.get('wavelength', line.get('lam', 'Unknown'))
-                    intensity = line.get('intensity', line.get('intens', 'Unknown'))
-                    self.data_field.insert_text(f"  Line {i+1}: {wavelength:.4f} μm, intensity: {intensity:.3e}\n")
-                
-                if len(single_lines) > 10:
-                    self.data_field.insert_text(f"  ... and {len(single_lines) - 10} more lines\n")
-                    
-            else:
-                self.data_field.insert_text("No isolated lines found in the current wavelength range.\n")
-                
-            # Update plots
-            #self.main_plot.update_all_plots()'''
+            if len(single_lines) > lines_to_show:
+                self.data_field.insert_text(f"  ... and {len(single_lines) - lines_to_show} more lines\n", clear_first=False)
             
         except Exception as e:
             self.data_field.insert_text(f"Error finding single lines: {e}\n")
 
     def single_slab_fit(self):
         """Run single slab fit analysis."""
-        self.data_field.clear()
         self.data_field.insert_text("Running single slab fit analysis...\n")
         
         try:
-            # Check if we have the necessary components for slab fitting
-            if not hasattr(self.islat, 'run_single_slab_fit'):
-                self.data_field.insert_text("Single slab fit functionality not available.\n")
-                return
-                
-            # Run the slab fit
-            result_text = self.islat.run_single_slab_fit()
+            # Use the SlabModel class to perform the fit
+            slab_model = SlabModel(
+                min_lamb=self.config.model_lam_min,
+                max_lamb=self.config.model_lam_max,
+                intrinsic_line_width=self.config.intrins_line_broad,
+                cc=self.config.cc,
+                mol=self.islat.active_molecule,
+                molpath=self.islat.molecule_path
+            )
             
-            if result_text:
-                self.data_field.insert_text("Slab fit results:\n")
-                self.data_field.insert_text(str(result_text))
-                self.data_field.insert_text("\n")
-            else:
-                self.data_field.insert_text("Slab fit completed but no results returned.\n")
                 
         except Exception as e:
             self.data_field.insert_text(f"Error running single slab fit: {e}\n")
 
     def export_models(self):
         """Export current models and data."""
-        self.data_field.clear()
         self.data_field.insert_text("Exporting current models...\n")
         
         try:

@@ -1,8 +1,9 @@
 from iSLAT.ir_model.spectrum import Spectrum
 from iSLAT.ir_model.moldata import MolData
 from iSLAT.ir_model.intensity import Intensity
-from iSLAT.ir_model.constants import constants as c
-import iSLAT.iSLATDefaultInputParms as default_parms
+#from iSLAT.ir_model.Constants import Constants as c
+import iSLAT.Constants as c
+#import iSLAT.Constants as default_parms
 import numpy as np
 
 class Molecule:
@@ -68,10 +69,10 @@ class Molecule:
             self.is_visible = usd.get('Vis', kwargs.get('is_visible', True))
             
             # Get instance values from user save data or kwargs
-            distance_val = usd.get('Dist', kwargs.get('distance', default_parms.dist))
-            fwhm_val = usd.get('FWHM', kwargs.get('fwhm', default_parms.fwhm))
-            broad_val = usd.get('Broad', kwargs.get('broad', default_parms.intrinsic_line_width))
-            self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
+            distance_val = usd.get('Dist', kwargs.get('distance', c.DEFAULT_DISTANCE))
+            fwhm_val = usd.get('FWHM', kwargs.get('fwhm', c.DEFAULT_FWHM))
+            broad_val = usd.get('Broad', kwargs.get('broad', c.INTRINSIC_LINE_WIDTH))
+            self.stellar_rv = kwargs.get('stellar_rv', c.DEFAULT_STELLAR_RV)
         else:
             self.name = kwargs.get('name', kwargs.get('displaylabel', kwargs.get('filepath', 'Unknown Molecule')))
             self.filepath = kwargs.get('filepath', (self.hitran_data if hasattr(self, 'hitran_data') else None))
@@ -83,10 +84,10 @@ class Molecule:
             self.is_visible = kwargs.get('is_visible', True)
             
             # Get instance values from kwargs or defaults
-            distance_val = kwargs.get('distance', default_parms.dist)
-            fwhm_val = kwargs.get('fwhm', default_parms.fwhm)
-            broad_val = kwargs.get('broad', default_parms.intrinsic_line_width)
-            self.stellar_rv = kwargs.get('stellar_rv', default_parms.star_rv)
+            distance_val = kwargs.get('distance', c.DEFAULT_DISTANCE)
+            fwhm_val = kwargs.get('fwhm', c.FWHM_TOLERANCE)
+            broad_val = kwargs.get('broad', c.INTRINSIC_LINE_WIDTH)
+            self.stellar_rv = kwargs.get('stellar_rv', c.DEFAULT_STELLAR_RV)
 
         # Set all instance-level parameters
         self.mol_data = MolData(self.name, self.filepath)
@@ -109,9 +110,9 @@ class Molecule:
         self.broad = float(broad_val)
 
         # Set wavelength range and model parameters
-        self.wavelength_range = kwargs.get('wavelength_range', default_parms.wavelength_range)
-        self.model_pixel_res = kwargs.get('model_pixel_res', default_parms.model_pixel_res)
-        self.model_line_width = kwargs.get('model_line_width', default_parms.model_line_width)
+        self.wavelength_range = kwargs.get('wavelength_range', c.WAVELENGTH_RANGE)
+        self.model_pixel_res = kwargs.get('model_pixel_res', c.MODEL_PIXEL_RESOLUTION)
+        self.model_line_width = kwargs.get('model_line_width', c.MODEL_LINE_WIDTH)
 
         self.intensity = Intensity(self.mol_data)
         self.calculate_intensity()
@@ -140,7 +141,7 @@ class Molecule:
             
         t_kin = getattr(self, '_temp', self.t_kin)
         n_mol = getattr(self, '_n_mol', self.n_mol_init)
-        dv = getattr(self, '_fwhm', default_parms.fwhm)
+        dv = getattr(self, '_fwhm', c.FWHM_TOLERANCE)
         self.intensity.calc_intensity(
             t_kin=t_kin,
             n_mol=n_mol,
@@ -320,12 +321,12 @@ class Molecule:
     @property
     def star_rv(self):
         """Stellar RV getter"""
-        return getattr(self, 'stellar_rv', default_parms.star_rv)
+        return getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)
     
     @star_rv.setter
     def star_rv(self, value):
         """Stellar RV setter"""
-        old_value = getattr(self, 'stellar_rv', default_parms.star_rv)
+        old_value = getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)
         self.stellar_rv = float(value)
         self._notify_my_parameter_change('stellar_rv', old_value, self.stellar_rv)
     

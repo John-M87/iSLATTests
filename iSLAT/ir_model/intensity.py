@@ -20,7 +20,8 @@ except ImportError:
     pass
 
 from .moldata import MolData
-from .constants import constants as c
+#from .Constants import constants as c
+import iSLAT.Constants as c
 
 
 __all__ = ["Intensity"]
@@ -63,11 +64,11 @@ class Intensity:
             Blackbody intensity in erg/s/cm**2/sr/Hz
         """
 
-        x = c.h * nu / (c.k * T)
-        bb_RJ = np.where(x < 1.0e-5, 2.0 * nu ** 2 * c.k * T / (c.c ** 2), 0.0)
-        bb_Wien = np.where(x > 20.0, 2.0 * c.h * nu ** 3 / c.c ** 2 * np.exp(-x), 0.0)
+        x = c.PLANCK_CONSTANT * nu / (c.BOLTZMANN_CONSTANT * T)
+        bb_RJ = np.where(x < 1.0e-5, 2.0 * nu ** 2 * c.BOLTZMANN_CONSTANT * T / (c.SPEED_OF_LIGHT_CGS ** 2), 0.0)
+        bb_Wien = np.where(x > 20.0, 2.0 * c.PLANCK_CONSTANT * nu ** 3 / c.SPEED_OF_LIGHT_CGS ** 2 * np.exp(-x), 0.0)
         bb_Planck = np.where((x >= 1.e-5) * (x <= 20.0),
-                             2. * c.h * nu ** 3 / c.c ** 2 * 1. / (np.exp(np.where(x <= 20.0, x, 20.0)) - 1.), 0.0)
+                             2. * c.PLANCK_CONSTANT * nu ** 3 / c.SPEED_OF_LIGHT_CGS ** 2 * 1. / (np.exp(np.where(x <= 20.0, x, 20.0)) - 1.), 0.0)
 
         return bb_RJ + bb_Wien + bb_Planck
 
@@ -138,16 +139,16 @@ class Intensity:
         x_up = m.lines.g_up * np.exp(-m.lines.e_up / t_kin) / q_sum
 
         # Eq. A2 of Banzatti et al. 2012
-        tau = m.lines.a_stein * c.c ** 3 / (8.0 * np.pi * m.lines.freq ** 3 * 1e5 * dv * c.fgauss) * n_mol \
+        tau = m.lines.a_stein * c.SPEED_OF_LIGHT_CGS ** 3 / (8.0 * np.pi * m.lines.freq ** 3 * 1e5 * dv * c.FGAUSS_PREFACTOR) * n_mol \
             * (x_low * m.lines.g_up / m.lines.g_low - x_up)
 
         # 3. line intensity
         if method == "radex":
-            intensity = c.fgauss * (1e5 * dv) * m.lines.freq / c.c * self._bb(m.lines.freq, t_kin) * \
+            intensity = c.FGAUSS_PREFACTOR * (1e5 * dv) * m.lines.freq / c.SPEED_OF_LIGHT_CGS * self._bb(m.lines.freq, t_kin) * \
                         (1.0 - np.exp(-tau))
         elif method == "curve_growth":
             # Eq. A1 of Banzatti et al. 2012
-            intensity = 1.0 / (2.0 * np.sqrt(np.log(2.0))) * (1e5 * dv) * m.lines.freq / c.c * \
+            intensity = 1.0 / (2.0 * np.sqrt(np.log(2.0))) * (1e5 * dv) * m.lines.freq / c.SPEED_OF_LIGHT_CGS * \
                         self._bb(m.lines.freq, t_kin) * self._fint(tau)
         else:
             raise ValueError("Intensity calculation method not known")

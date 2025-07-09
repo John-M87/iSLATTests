@@ -46,7 +46,7 @@ class LineAnalyzer:
         self.molecular_lines = {}  # Will be populated as needed
         
         # Detection parameters
-        self.min_snr = 3.0
+        self.min_snr = 0.1
         self.min_line_width = 0.001  # microns
         self.max_line_width = 0.1    # microns
         self.continuum_window = 0.05  # microns for local continuum estimation
@@ -147,6 +147,8 @@ class LineAnalyzer:
             continuum = self.continuum_level
             noise_std = self.noise_level
         
+        #print("Wave data, and flux data", wave_data, flux_data)
+        
         detected_lines = []
         
         if detection_type in ['emission', 'both']:
@@ -157,6 +159,8 @@ class LineAnalyzer:
             absorption_lines = self._detect_absorption_lines(wave_data, flux_data, continuum, noise_std)
             detected_lines.extend(absorption_lines)
         
+        #print(f"Detected {len(detected_lines)} lines ({len(emission_lines)} emission, {len(absorption_lines)} absorption)")
+
         # Sort by wavelength
         detected_lines.sort(key=lambda x: x['wavelength'])
         
@@ -169,6 +173,8 @@ class LineAnalyzer:
         excess_flux = flux_data - continuum
         threshold = self.min_snr * noise_std
         
+        #print("Excess flux:", excess_flux, "\nThreshold for peak detection:", threshold)
+
         # Find peaks
         peaks, properties = find_peaks(
             excess_flux,

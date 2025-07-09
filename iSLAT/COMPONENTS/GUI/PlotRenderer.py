@@ -1,7 +1,8 @@
 import matplotlib.pyplot as plt
 import numpy as np
 #from matplotlib.widgets import SpanSelector
-from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh
+#from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh
+import iSLAT.Constants as c
 
 class PlotRenderer:
     """Pure plotting logic - handles all plot rendering and visual updates"""
@@ -241,12 +242,12 @@ class PlotRenderer:
             eu = int_pars['e_up']
 
             # Calculating the y-axis for the population diagram
-            area = np.pi * (molecule.radius * au * 1e2) ** 2  # In cm^2
-            Dist = dist * pc
-            beam_s = area / Dist ** 2
+            area = np.pi * (molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2  # In cm^2
+            dist = self.islat.active_molecule.distance * c.PARSEC_CM  # In cm
+            beam_s = area / dist ** 2
             F = intens_mod * beam_s
-            freq = ccum / wl
-            rd_yax = np.log(4 * np.pi * F / (Astein_mod * hh * freq * gu))
+            freq = c.SPEED_OF_LIGHT_MICRONS / wl
+            rd_yax = np.log(4 * np.pi * F / (Astein_mod * c.PLANCK_CONSTANT * freq * gu))
             threshold = np.nanmax(F) / 100
 
             # Set limits

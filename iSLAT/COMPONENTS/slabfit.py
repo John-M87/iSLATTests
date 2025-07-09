@@ -18,7 +18,7 @@ class Config:
         self.model_lam_min = min_lamb
         self.model_lam_max = max_lamb
         self.intrins_line_broad = intrinsic_line_width
-        self.rings = 1
+        self.rings = 1 #  what is this used for?
         self.cc = cc  # speed of light in km/s
         self.molecule_name = mol  # Add molecule_name attribute
         self.molecule_path = molpath  # Add molecule_name attribute
