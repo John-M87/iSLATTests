@@ -3,7 +3,6 @@ import time
 from matplotlib.widgets import SpanSelector
 from typing import Optional, Tuple, Callable, Dict, Any
 
-
 class InteractionHandler:
     """Mouse/keyboard events - handles all user interactions with plots"""
     
