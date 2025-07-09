@@ -6,3 +6,4 @@ from .DataProcessor import DataProcessor
 from .InteractionHandler import InteractionHandler
 from .FittingEngine import FittingEngine
 from .LineAnalyzer import LineAnalyzer
+from .Data_field import DataField
