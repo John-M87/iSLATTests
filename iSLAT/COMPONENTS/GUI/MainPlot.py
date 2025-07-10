@@ -3,13 +3,9 @@ matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
-from matplotlib.widgets import SpanSelector
 import numpy as np
-from lmfit.models import GaussianModel
-from iSLAT.ir_model import Spectrum
-#from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh, specsep
-import iSLAT.Constants as c
 
+import iSLAT.Constants as c
 from iSLAT.COMPONENTS.Molecule import Molecule
 
 # Import the new modular classes
@@ -40,6 +36,9 @@ class iSLATPlot:
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent_frame)
         self.toolbar = NavigationToolbar2Tk(self.canvas, parent_frame)
+        
+        # Apply theme to matplotlib figure and toolbar
+        self._apply_plot_theming()
 
         # Initialize the new modular classes
         self.plot_renderer = PlotRenderer(self)
@@ -80,6 +79,58 @@ class iSLATPlot:
         
         # Set initial zoom range to display_range if available
         self._set_initial_zoom_range()
+
+    def _apply_plot_theming(self):
+        """Apply theme colors to matplotlib figure and toolbar"""
+        try:
+            # Set figure background color
+            self.fig.patch.set_facecolor(self.theme.get("background", "#181A1B"))
+            
+            # Set axes background colors and text colors
+            for ax in [self.ax1, self.ax2, self.ax3]:
+                ax.set_facecolor(self.theme.get("graph_fill_color", "#282C34"))
+                ax.tick_params(colors=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), which='both')
+                ax.xaxis.label.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
+                ax.yaxis.label.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
+                ax.title.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
+                
+                # Set spine colors
+                for spine in ax.spines.values():
+                    spine.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
+                    
+                # Set grid colors if grid is enabled
+                ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
+            
+            # Apply theme to toolbar if possible
+            if hasattr(self.toolbar, 'configure'):
+                try:
+                    self.toolbar.configure(bg=self.theme.get("toolbar", "#23272A"))
+                except:
+                    pass
+            
+            # Try to style toolbar buttons
+            if hasattr(self.toolbar, 'winfo_children'):
+                for child in self.toolbar.winfo_children():
+                    try:
+                        if hasattr(child, 'configure'):
+                            child.configure(
+                                bg=self.theme.get("toolbar", "#23272A"),
+                                fg=self.theme.get("foreground", "#F0F0F0"),
+                                activebackground=self.theme.get("selection_color", "#00FF99"),
+                                activeforeground=self.theme.get("foreground", "#F0F0F0")
+                            )
+                    except:
+                        pass
+                    
+            # Apply theme to canvas
+            if hasattr(self.canvas.get_tk_widget(), 'configure'):
+                try:
+                    self.canvas.get_tk_widget().configure(bg=self.theme.get("background", "#181A1B"))
+                except:
+                    pass
+                    
+        except Exception as e:
+            print(f"Could not apply plot theming: {e}")
 
     def _register_update_callbacks(self):
         """Register callbacks to handle parameter and molecule changes"""
@@ -1136,3 +1187,23 @@ class iSLATPlot:
             molecules = self.islat.molecules_dict.values()
         
         return self.data_processor.process_molecule_spectra(molecules, visible_only)
+
+    def apply_theme(self, theme=None):
+        """Public method to apply theme to the plot and update colors"""
+        if theme:
+            self.theme = theme
+        self._apply_plot_theming()
+        # Refresh the plots to apply new colors
+        if hasattr(self, 'canvas'):
+            self.canvas.draw()
+        # Also update any existing plots to use new colors
+        self._refresh_existing_plots()
+    
+    def _refresh_existing_plots(self):
+        """Refresh existing plots to use new theme colors"""
+        try:
+            # This method can be called to refresh plots after theme changes
+            if hasattr(self, 'update_all_plots'):
+                self.update_all_plots()
+        except:
+            pass
