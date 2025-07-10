@@ -23,8 +23,9 @@
     "saved_line_color": "#FF8C00",
     "saved_line_color_two": "#FF6B6B",
     "highlighted_line_color": "#FFD700",
-    "delete_button_bg_color": "red",
+    "delete_button_bg_color": "#b1403b",
     "delete_button_fg_color": "#000000",
+    "data_field_background": "#23272A",
     "buttons": {
         "DefaultBotton": {
             "background": "#23272A",
