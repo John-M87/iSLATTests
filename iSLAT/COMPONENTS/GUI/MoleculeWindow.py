@@ -13,17 +13,135 @@ class MoleculeWindow:
         self.molecules_dict = self.islat.molecules_dict
         self.molecules = {}
 
+        # Ensure molecule colors are initialized before building the table
+        self._ensure_molecule_colors_initialized()
+
         self.build_table()
         self.update_table()
+        
+        # Apply theme one more time after everything is built to ensure proper theming
+        if hasattr(self.parent_frame, 'after'):
+            self.parent_frame.after(50, lambda: self.apply_theme())
+        elif hasattr(self.parent_frame, 'master') and hasattr(self.parent_frame.master, 'after'):
+            self.parent_frame.master.after(50, lambda: self.apply_theme())
+
+    def _apply_theme_to_frame(self):
+        """Apply theme colors to the main frame"""
+        self.frame.configure(
+            bg=self.theme["background"],
+            fg=self.theme["foreground"]
+        )
+
+    def _apply_theme_to_canvas_and_scrollbar(self):
+        """Apply theme colors to canvas and scrollbar"""
+        self.canvas.configure(
+            bg=self.theme["background"],
+            highlightthickness=0
+        )
+        
+        # For TTK Scrollbar, we need to configure the style
+        try:
+            style = ttk.Style()
+            style.theme_use('clam')  # Use a theme that supports customization
+            
+            # Configure scrollbar colors
+            style.configure("Vertical.TScrollbar",
+                          background=self.theme["background_accent_color"],
+                          troughcolor=self.theme["background"],
+                          bordercolor=self.theme["background_accent_color"],
+                          arrowcolor=self.theme["foreground"],
+                          darkcolor=self.theme["background_accent_color"],
+                          lightcolor=self.theme["background_accent_color"])
+            
+            style.map("Vertical.TScrollbar",
+                     background=[('active', self.theme["selection_color"]),
+                               ('pressed', self.theme["selection_color"])])
+        except:
+            # Fallback if TTK styling fails
+            pass
+
+    def _apply_theme_to_widget(self, widget):
+        """Apply theme to any tkinter widget recursively"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame', 'LabelFrame']:
+                widget.configure(bg=self.theme["background"], fg=self.theme["foreground"])
+            elif widget_class == 'Label':
+                widget.configure(bg=self.theme["background"], fg=self.theme["foreground"])
+            elif widget_class == 'Button':
+                # Check if this is a marked color selection button - never theme these
+                if hasattr(widget, '_is_color_button') and widget._is_color_button:
+                    # This is a color selection button - preserve its molecule color
+                    pass
+                else:
+                    # Check other button characteristics
+                    current_bg = widget.cget('bg')
+                    current_text = widget.cget('text')
+                    
+                    # Don't theme color selection buttons (they should keep their molecule color)
+                    # And don't theme delete buttons (they have custom theme colors)
+                    if current_text == "X":
+                        # This is a delete button - apply delete button theme
+                        widget.configure(
+                            bg=self.theme.get("delete_button_bg_color", "#FF4444"),
+                            fg=self.theme.get("delete_button_fg_color", "#FFFFFF"),
+                            activebackground=self.theme.get("delete_button_bg_color", "#FF4444"),
+                            activeforeground=self.theme.get("delete_button_fg_color", "#FFFFFF")
+                        )
+                    elif current_bg and current_bg.startswith('#') and len(current_bg) == 7:
+                        # This is likely a color selection button - preserve its background color
+                        pass
+                    else:
+                        # Regular button - apply normal theme
+                        btn_theme = self.theme["buttons"].get("DefaultBotton", self.theme["buttons"]["DefaultBotton"])
+                        widget.configure(
+                            bg=btn_theme["background"],
+                            fg=self.theme["foreground"],
+                            activebackground=btn_theme["active_background"],
+                            activeforeground=self.theme["foreground"]
+                        )
+            elif widget_class == 'Entry':
+                widget.configure(
+                    bg=self.theme["background_accent_color"],
+                    fg=self.theme["foreground"],
+                    insertbackground=self.theme["foreground"],
+                    selectbackground=self.theme["selection_color"],
+                    selectforeground=self.theme["background"]
+                )
+            elif widget_class == 'Checkbutton':
+                widget.configure(
+                    bg=self.theme["background"],
+                    fg=self.theme["foreground"],
+                    activebackground=self.theme["background"],
+                    activeforeground=self.theme["foreground"],
+                    selectcolor=self.theme["background_accent_color"]
+                )
+            elif widget_class == 'Canvas':
+                widget.configure(bg=self.theme["background"])
+                
+            # Recursively apply to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widget(child)
+        except tk.TclError:
+            pass
 
     def build_table(self):
+        # Ensure all molecules have colors assigned
+        self._ensure_molecule_colors_initialized()
+        
         self.frame = tk.LabelFrame(self.parent_frame, text="Molecules")
-        #self.frame.pack(fill="both", expand=True, padx=5, pady=5)
-
+        
+        # Apply theme to the main frame
+        self._apply_theme_to_frame()
+        
         # Create a canvas and scrollbar for scrolling
         self.canvas = tk.Canvas(self.frame, height=300)
         self.scrollbar = ttk.Scrollbar(self.frame, orient="vertical", command=self.canvas.yview)
         self.scrollable_frame = ttk.Frame(self.canvas)
+
+        # Apply theme to canvas and scrollbar
+        self._apply_theme_to_canvas_and_scrollbar()
 
         self.scrollable_frame.bind(
             "<Configure>",
@@ -54,9 +172,19 @@ class MoleculeWindow:
 
         headers = ["Molecule", "Temp", "Radius", "Density", "On", "Color", "Delete"]
         for col, text in enumerate(headers):
-            tk.Label(self.scrollable_frame, text=text).grid(row=0, column=col, padx=2, pady=2)
+            header_label = tk.Label(self.scrollable_frame, text=text)
+            header_label.grid(row=0, column=col, padx=2, pady=2)
+            # Apply theme to header
+            header_label.configure(
+                bg=self.theme["background"],
+                fg=self.theme["foreground"],
+                font=('TkDefaultFont', 9, 'bold')
+            )
 
     def update_table(self):
+        # Ensure all molecules have colors assigned
+        self._ensure_molecule_colors_initialized()
+        
         # Clear existing widgets in the scrollable frame (except headers)
         for widget in self.scrollable_frame.winfo_children()[7:]:  # Skip the 7 header labels
             widget.destroy()
@@ -98,6 +226,16 @@ class MoleculeWindow:
             var.set(str(current_val))
             
             entry = tk.Entry(parent, textvariable=var, width=width)
+            
+            # Apply theme to entry
+            entry.configure(
+                bg=self.theme["background_accent_color"],
+                fg=self.theme["foreground"],
+                insertbackground=self.theme["foreground"],
+                selectbackground=self.theme["selection_color"],
+                selectforeground=self.theme["background"]
+            )
+            
             if grid_args:
                 entry.grid(**grid_args)
             
@@ -170,9 +308,26 @@ class MoleculeWindow:
                 m.is_visible = var.get()
                 self.update_lines()
             on_btn = tk.Checkbutton(self.scrollable_frame, variable=on_var, command=on_toggle)
+            # Apply theme to checkbutton
+            on_btn.configure(
+                bg=self.theme["background"],
+                fg=self.theme["foreground"],
+                activebackground=self.theme["background"],
+                activeforeground=self.theme["foreground"],
+                selectcolor=self.theme["background_accent_color"]
+            )
             on_btn.grid(row=i+1, column=4, padx=2, pady=1)
 
-            color = getattr(mol_obj, "color", self.theme["default_molecule_colors"][i % len(self.theme["default_molecule_colors"])])
+            # Get color from molecule object, or assign default color from theme
+            default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+            
+            # Always use molecule's color if it exists, otherwise assign a default
+            if hasattr(mol_obj, 'color') and mol_obj.color is not None:
+                color = mol_obj.color
+            else:
+                color = default_colors[i % len(default_colors)]
+                mol_obj.color = color  # Set the color on the molecule object
+                
             def pick_and_set_color(mol_name=mol_name, mol_obj=mol_obj, btn=None):
                 color_code = colorchooser.askcolor(title=f"Pick color for {mol_name}")[1]
                 if color_code:
@@ -180,12 +335,15 @@ class MoleculeWindow:
                     btn.config(bg=color_code)
                     self.molecules[mol_name]["color"] = color_code
                     self.update_lines()
+                    
             color_btn = tk.Button(self.scrollable_frame, bg=color, width=4)
             color_btn.config(command=lambda m=mol_name, mo=mol_obj, b=color_btn: pick_and_set_color(m, mo, b))
+            # Mark this as a color selection button so theming will ignore it
+            color_btn._is_color_button = True
             color_btn.grid(row=i+1, column=5, padx=2, pady=1)
 
             # Add delete button
-            delete_btn = tk.Button(self.scrollable_frame, text="X", bg="red", fg="white", width=3,
+            delete_btn = tk.Button(self.scrollable_frame, text="X", bg=self.theme["delete_button_bg_color"], fg=self.theme["delete_button_fg_color"], width=3,
                                  command=lambda m=mol_name: self.delete_molecule(m))
             delete_btn.grid(row=i+1, column=6, padx=2, pady=1)
 
@@ -205,6 +363,9 @@ class MoleculeWindow:
             }
 
         self.update_lines()
+        
+        # Apply theme to all widgets in the scrollable frame
+        self._apply_theme_to_widget(self.scrollable_frame)
 
     def refresh_fields_from_molecules(self):
         """Update all GUI fields to reflect current molecule object values."""
@@ -230,8 +391,8 @@ class MoleculeWindow:
                 if "on_var" in props:
                     props["on_var"].set(mol_obj.is_visible)
                 
-                # Update color button
-                if "color_btn" in props and hasattr(mol_obj, 'color'):
+                # Update color button - always use molecule's actual color
+                if "color_btn" in props and hasattr(mol_obj, 'color') and mol_obj.color:
                     props["color_btn"].config(bg=mol_obj.color)
                     props["color"] = mol_obj.color
 
@@ -280,9 +441,13 @@ class MoleculeWindow:
             if "on_var" in props:
                 mol_obj.is_visible = props["on_var"].get()
             
-            # Ensure color is up to date
-            if "color" in props:
-                mol_obj.color = props["color"]
+            # Ensure the molecule retains its own color (don't override with theme color)
+            if "color" in props and hasattr(mol_obj, 'color') and mol_obj.color:
+                # Update local storage to match molecule's actual color
+                props["color"] = mol_obj.color
+                # Make sure the color button reflects the molecule's color
+                if "color_btn" in props:
+                    props["color_btn"].config(bg=mol_obj.color)
         
         # Update the model spectrum and plots using coordinator
         if hasattr(self.islat, 'request_update'):
@@ -292,3 +457,27 @@ class MoleculeWindow:
             # Fallback to direct update
             self.islat.update_model_spectrum()
             self.plot.update_all_plots()
+
+    def apply_theme(self, theme=None):
+        """Public method to apply theme to the molecule window and all its widgets"""
+        if theme:
+            self.theme = theme
+            
+        # Apply theme to main frame
+        self._apply_theme_to_frame()
+        
+        # Apply theme to canvas and scrollbar
+        self._apply_theme_to_canvas_and_scrollbar()
+        
+        # Apply theme to all widgets in the scrollable frame
+        if hasattr(self, 'scrollable_frame'):
+            self._apply_theme_to_widget(self.scrollable_frame)
+
+    def _ensure_molecule_colors_initialized(self):
+        """Ensure all molecules have colors assigned"""
+        default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+        
+        for i, (mol_name, mol_obj) in enumerate(self.islat.molecules_dict.items()):
+            if not hasattr(mol_obj, 'color') or mol_obj.color is None:
+                color = default_colors[i % len(default_colors)]
+                mol_obj.color = color

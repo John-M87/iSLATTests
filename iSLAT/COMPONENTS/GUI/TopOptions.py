@@ -195,3 +195,45 @@ class TopOptions:
     def toggle_legend(self):
         #print("Toggled legend on plot")
         self.islat.GUI.plot.toggle_legend()
+        
+    def apply_theme(self, theme=None):
+        """Apply theme to all buttons and widgets in TopOptions"""
+        if theme:
+            self.theme = theme
+            
+        # Apply theme to the main frame
+        try:
+            self.frame.configure(bg=self.theme.get("background", "#181A1B"))
+        except:
+            pass
+            
+        # Apply theme to all child widgets recursively
+        self._apply_theme_to_widget(self.frame)
+    
+    def _apply_theme_to_widget(self, widget):
+        """Apply theme to any widget recursively"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame']:
+                widget.configure(bg=self.theme.get("background", "#181A1B"))
+            elif widget_class == 'Button':
+                btn_theme = self.theme.get("buttons", {}).get("DefaultBotton", {})
+                widget.configure(
+                    bg=btn_theme.get("background", self.theme.get("background_accent_color", "#23272A")),
+                    fg=self.theme.get("foreground", "#F0F0F0"),
+                    activebackground=btn_theme.get("active_background", self.theme.get("selection_color", "#00FF99")),
+                    activeforeground=self.theme.get("foreground", "#F0F0F0")
+                )
+            elif widget_class == 'Label':
+                widget.configure(
+                    bg=self.theme.get("background", "#181A1B"),
+                    fg=self.theme.get("foreground", "#F0F0F0")
+                )
+                
+            # Recursively apply to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widget(child)
+                
+        except tk.TclError:
+            pass

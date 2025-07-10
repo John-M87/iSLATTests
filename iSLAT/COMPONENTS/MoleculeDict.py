@@ -1,7 +1,6 @@
 from iSLAT.COMPONENTS.Molecule import Molecule
-#import iSLAT.iSLATDefaultInputParms as default_parms
-#from iSLAT.Constants import
 import iSLAT.Constants as default_parms
+import numpy as np
 
 class MoleculeDict(dict):
     """A dictionary to store Molecule objects with their names as keys, and to perform operations on the collection of molecules."""
@@ -127,7 +126,6 @@ class MoleculeDict(dict):
     
     def get_summed_flux(self, wave_data, visible_only=True):
         """Get summed flux for all visible molecules with caching"""
-        import numpy as np
         
         # Create cache key
         wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
@@ -264,7 +262,6 @@ class MoleculeDict(dict):
     
     def _update_model_parameters(self):
         """Update model parameters when wavelength range or fwhm changes"""
-        import numpy as np
         self._global_model_line_width = default_parms.SPEED_OF_LIGHT_KMS / self._global_fwhm
         self._global_model_pixel_res = (np.mean(self._global_wavelength_range) / default_parms.SPEED_OF_LIGHT_KMS * self._global_fwhm) / default_parms.PIXELS_PER_FWHM
         
