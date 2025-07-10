@@ -1,12 +1,8 @@
 import numpy as np
 import tkinter as tk
 import traceback
-#import pandas as pd
-#import os
-#from tkinter import ttk
 import iSLAT.iSLATFileHandling as ifh
 from .GUIFunctions import create_button
-#from iSLAT.COMPONENTS.GUI.MainPlot import iSLATPlot
 from iSLAT.COMPONENTS.slabfit import SlabFit as SlabModel
 
 
@@ -381,3 +377,45 @@ class BottomOptions:
         except Exception as e:
             self.data_field.insert_text(f"Error displaying atomic lines: {e}\n")
             traceback.print_exc()
+    
+    def apply_theme(self, theme=None):
+        """Apply theme to all buttons and widgets in BottomOptions"""
+        if theme:
+            self.theme = theme
+            
+        # Apply theme to the main frame
+        try:
+            self.frame.configure(bg=self.theme.get("background", "#181A1B"))
+        except:
+            pass
+            
+        # Apply theme to all child widgets recursively
+        self._apply_theme_to_widget(self.frame)
+    
+    def _apply_theme_to_widget(self, widget):
+        """Apply theme to any widget recursively"""
+        try:
+            widget_class = widget.winfo_class()
+            
+            if widget_class in ['Frame']:
+                widget.configure(bg=self.theme.get("background", "#181A1B"))
+            elif widget_class == 'Button':
+                btn_theme = self.theme.get("buttons", {}).get("DefaultBotton", {})
+                widget.configure(
+                    bg=btn_theme.get("background", "lightgray"),
+                    fg=self.theme.get("foreground", "#F0F0F0"),
+                    activebackground=btn_theme.get("active_background", self.theme.get("selection_color", "#00FF99")),
+                    activeforeground=self.theme.get("foreground", "#F0F0F0")
+                )
+            elif widget_class == 'Label':
+                widget.configure(
+                    bg=self.theme.get("background", "#181A1B"),
+                    fg=self.theme.get("foreground", "#F0F0F0")
+                )
+                
+            # Recursively apply to children
+            for child in widget.winfo_children():
+                self._apply_theme_to_widget(child)
+                
+        except tk.TclError:
+            pass

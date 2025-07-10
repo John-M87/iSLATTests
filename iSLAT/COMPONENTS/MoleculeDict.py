@@ -1,6 +1,4 @@
 from iSLAT.COMPONENTS.Molecule import Molecule
-#import iSLAT.iSLATDefaultInputParms as default_parms
-#from iSLAT.Constants import
 import iSLAT.Constants as default_parms
 
 class MoleculeDict(dict):
