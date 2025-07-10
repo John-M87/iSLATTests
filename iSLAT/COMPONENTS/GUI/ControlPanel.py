@@ -1,6 +1,7 @@
 import tkinter as tk
-import tkinter as tk
 from tkinter import ttk
+from iSLAT.COMPONENTS.Molecule import Molecule
+from iSLAT.COMPONENTS.Molecule import Molecule
 
 class ControlPanel:
     def __init__(self, master, islat):
@@ -14,12 +15,21 @@ class ControlPanel:
         # Create the control panel frame
         self.frame = tk.Frame(master, borderwidth=2, relief="groove")
         self.frame.pack(side="left", fill="y")
+        
+        # Apply theme to the main frame immediately
+        self.frame.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            highlightbackground=self.theme.get("foreground", "#F0F0F0")
+        )
 
         # Initialize all UI components
         self._create_all_components()
         
         # Register for change notifications using the new callback system
         self._register_callbacks()
+        
+        # Apply theming after everything is created
+        self.frame.after(50, lambda: self.apply_theme(self.theme))
 
     def _register_callbacks(self):
         """Register callbacks using the new iSLAT callback system"""
@@ -33,7 +43,6 @@ class ControlPanel:
                 self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
             
             # Register for individual molecule parameter changes
-            from iSLAT.COMPONENTS.Molecule import Molecule
             Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
             
         except Exception as e:
@@ -107,7 +116,14 @@ class ControlPanel:
 
     def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
         """Create a simple entry field with label and change callback"""
-        tk.Label(self.frame, text=label_text).grid(row=row, column=col, padx=5, pady=5)
+        label = tk.Label(self.frame, text=label_text)
+        label.grid(row=row, column=col, padx=5, pady=5)
+        
+        # Apply theme to the label
+        label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
         
         var = tk.StringVar()
         var.set(str(initial_value))
@@ -120,7 +136,7 @@ class ControlPanel:
             bg=self.theme.get("background_accent_color", "#23272A"),
             fg=self.theme.get("foreground", "#F0F0F0"),
             insertbackground=self.theme.get("foreground", "#F0F0F0"),
-            selectbackground=self.theme.get("control_panel_text_highlight_color", "#8c8ca9"),
+            selectbackground=self.theme.get("selection_color", "#00FF99"),
             selectforeground=self.theme.get("background", "#181A1B")
         )
         
@@ -179,8 +195,13 @@ class ControlPanel:
     def _create_global_parameter_controls(self, start_row, start_col):
         """Create global parameter entry fields using MoleculeDict properties"""
         if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
-            tk.Label(self.frame, text="Global parameters not available").grid(
-                row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+            label = tk.Label(self.frame, text="Global parameters not available")
+            label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+            # Apply theme to the label
+            label.configure(
+                bg=self.theme.get("background", "#181A1B"),
+                fg=self.theme.get("foreground", "#F0F0F0")
+            )
             return
 
         # Define parameters with their labels - all info comes from MoleculeDict
@@ -201,15 +222,22 @@ class ControlPanel:
 
     def _create_molecule_selector(self, row, column):
         """Create molecule dropdown selector"""
-        tk.Label(self.frame, text="Molecule:").grid(row=row, column=column, padx=5, pady=5)
+        label = tk.Label(self.frame, text="Molecule:")
+        label.grid(row=row, column=column, padx=5, pady=5)
+        
+        # Apply theme to the label
+        label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
 
         self.molecule_var = tk.StringVar(self.frame)
         self.dropdown = ttk.Combobox(self.frame, textvariable=self.molecule_var)
         self.dropdown.grid(row=row, column=column + 1, padx=5, pady=5)
         self.dropdown.bind("<<ComboboxSelected>>", self._on_molecule_selected)
         
-        # Apply theming to the control panel
-        self._apply_theming()
+        # Apply theming to the control panel after all components are created
+        self.frame.after(10, self._apply_theming)
 
     def _apply_theming(self):
         """Apply theme to all control panel widgets"""
@@ -419,11 +447,16 @@ class ControlPanel:
             self.max_wavelength_var.set(str(max_val))
         
         self._reload_molecule_dropdown()
+        
+        # Ensure theming is applied after refresh
+        self.apply_theme()
 
     # Public interface methods for backward compatibility
     def reload_molecule_dropdown(self):
         """Public method for reloading molecule dropdown"""
         self._reload_molecule_dropdown()
+        # Ensure theming is applied after reload
+        self.apply_theme()
 
     def update_plots(self):
         """Public method for triggering plot updates using iSLAT's update coordinator"""

@@ -556,6 +556,12 @@ class GUI:
         self.file_frame = tk.LabelFrame(file_selector_frame, text="Spectrum File")
         self.file_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
+        # Apply theme to the file frame immediately
+        self.file_frame.configure(
+            bg=self.theme["background"],
+            fg=self.theme["foreground"]
+        )
+        
         # Initialize with default text or show loaded file name if available
         default_text = "No file loaded"
         if hasattr(self.islat_class, 'loaded_spectrum_name'):
@@ -563,10 +569,26 @@ class GUI:
         
         self.file_label = tk.Label(self.file_frame, text=default_text, wraplength=250)
         self.file_label.pack(pady=2)
+        
+        # Apply theme to the label
+        self.file_label.configure(
+            bg=self.theme["background"],
+            fg=self.theme["foreground"]
+        )
+        
         load_spectrum_btn = tk.Button(self.file_frame, text="Load Spectrum", command=self.islat_class.load_spectrum)
         load_spectrum_btn.pack(pady=2)
         
-        # Apply theme to these widgets
+        # Apply theme to the button
+        btn_theme = self.theme["buttons"].get("DefaultBotton", self.theme["buttons"]["DefaultBotton"])
+        load_spectrum_btn.configure(
+            bg=btn_theme["background"],
+            fg=self.theme["foreground"],
+            activebackground=btn_theme["active_background"],
+            activeforeground=self.theme["foreground"]
+        )
+        
+        # Apply theme to all widgets in the file frame recursively
         self._apply_theme_to_widget(self.file_frame)
         
         self._add_popout_button_to_corner(self.file_frame, "Spectrum File", self.file_frame, file_selector_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
@@ -574,10 +596,19 @@ class GUI:
         # Control panel for input parameters
         self.control_frame = tk.LabelFrame(control_panel_frame, text="Control Panel")
         self.control_frame.pack(fill="both", expand=True, padx=5, pady=5)
+        
+        # Apply theme to the control frame immediately
+        self.control_frame.configure(
+            bg=self.theme["background"],
+            fg=self.theme["foreground"]
+        )
+        
         self.control_panel = ControlPanel(self.control_frame, self.islat_class)
         
-        # Apply theme to control panel
+        # Apply theme to control panel and all its widgets
         self._apply_theme_to_widget(self.control_frame)
+        if hasattr(self.control_panel, 'apply_theme'):
+            self.control_panel.apply_theme(self.theme)
         
         self._add_popout_button_to_corner(self.control_frame, "Control Panel", self.control_frame, control_panel_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
 
