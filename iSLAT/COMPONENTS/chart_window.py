@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk
-from COMPONENTS.hitran_downloader import download_hitran_data
+from .hitran_downloader import download_hitran_data
 
 class MoleculeSelector:
     def __init__(self, master, data_field):
@@ -124,8 +124,7 @@ class MoleculeSelector:
 
             # Update the main GUI data_field
             self.data_field.delete('1.0', "end")
-            self.data_field.insert('1.0', f"{isotopologue} downloaded from HITRAN.")
+            self.data_field.insert_text(f"{isotopologue} downloaded from HITRAN.", clear_first=True, console_print=True)
 
     def on_done(self):
         self.window.destroy()
-        

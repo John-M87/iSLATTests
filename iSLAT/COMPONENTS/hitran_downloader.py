@@ -1,8 +1,8 @@
 import os
 import datetime
-from COMPONENTS.Hitran_data import get_Hitran_data
-from COMPONENTS.partition_function_writer import write_partition_function
-from COMPONENTS.line_data_writer import write_line_data
+from .Hitran_data import get_Hitran_data
+from .partition_function_writer import write_partition_function
+from .line_data_writer import write_line_data
 
 def download_hitran_data(mols, basem, isot):
     #mols = ["H2", "HD", "H2O", "H218O", "CO2", "13CO2", "CO", "13CO", "C18O", "CH4", "HCN", "H13CN", "NH3", "OH", "C2H2", "13CCH2", "C2H4", "C4H2", "C2H6", "HC3N"]
@@ -31,14 +31,22 @@ def download_hitran_data(mols, basem, isot):
             continue
 
         print("Downloading data for mol: {:}".format(mol))
-        Htbl, qdata, M, G = get_Hitran_data(bm, iso, min_vu, max_vu)
-        os.makedirs(save_folder, exist_ok=True)  # Create the folder if it doesn't exist
+        try:
+            Htbl, qdata, M, G = get_Hitran_data(bm, iso, min_vu, max_vu)
+            os.makedirs(save_folder, exist_ok=True)  # Create the folder if it doesn't exist
 
-        with open(file_path, 'w') as fh:
-            fh.write("# HITRAN 2020 {:}; id:{:}; iso:{:};gid:{:}\n".format(mol, M, iso, G))
-            fh.write("# Downloaded from the Hitran website\n")
-            fh.write("# {:s}\n".format(str(datetime.date.today())))
-            fh = write_partition_function(fh, qdata)
-            fh = write_line_data(fh, Htbl)
+            with open(file_path, 'w') as fh:
+                fh.write("# HITRAN 2020 {:}; id:{:}; iso:{:};gid:{:}\n".format(mol, M, iso, G))
+                fh.write("# Downloaded from the Hitran website\n")
+                fh.write("# {:s}\n".format(str(datetime.date.today())))
+                fh = write_partition_function(fh, qdata)
+                fh = write_line_data(fh, Htbl)
 
-        print("Data for Mol: {:} downloaded and saved.".format(mol))
+            print("Data for Mol: {:} downloaded and saved.".format(mol))
+            
+        except (ValueError, RuntimeError) as e:
+            print(f"Skipping molecule {mol}: {str(e)}")
+            continue
+        except Exception as e:
+            print(f"Unexpected error downloading {mol}: {str(e)}")
+            continue
