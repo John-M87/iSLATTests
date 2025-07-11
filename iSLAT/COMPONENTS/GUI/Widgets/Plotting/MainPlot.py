@@ -6,14 +6,14 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolb
 import numpy as np
 
 import iSLAT.Constants as c
-from iSLAT.COMPONENTS.Molecule import Molecule
+from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 
 # Import the new modular classes
 from .PlotRenderer import PlotRenderer
-from .DataProcessor import DataProcessor
-from .InteractionHandler import InteractionHandler
-from .FittingEngine import FittingEngine
-from .LineAnalyzer import LineAnalyzer
+from iSLAT.COMPONENTS.DataProcessing.DataProcessor import DataProcessor
+from iSLAT.COMPONENTS.GUI.InteractionHandler import InteractionHandler
+from iSLAT.COMPONENTS.DataProcessing.FittingEngine import FittingEngine
+from iSLAT.COMPONENTS.DataProcessing.LineAnalyzer import LineAnalyzer
 
 class iSLATPlot:
     def __init__(self, parent_frame, wave_data, flux_data, theme, islat_class_ref):

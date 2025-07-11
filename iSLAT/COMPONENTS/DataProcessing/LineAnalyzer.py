@@ -16,7 +16,7 @@ from scipy.integrate import trapezoid, simpson
 from scipy.ndimage import median_filter
 from scipy.interpolate import interp1d
 import json
-import iSLAT.iSLATFileHandling as ifh
+import iSLAT.COMPONENTS.FileHandling.iSLATFileHandling as ifh
 
 class LineAnalyzer:
     """

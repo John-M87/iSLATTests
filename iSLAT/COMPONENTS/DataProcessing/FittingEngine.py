@@ -15,7 +15,7 @@ from lmfit.models import GaussianModel, PseudoVoigtModel
 from lmfit import Parameters, minimize, fit_report
 from scipy.optimize import fmin
 from scipy.signal import find_peaks
-from iSLAT.ir_model import Chi2Spectrum, FluxMeasurement
+from iSLAT.COMPONENTS.DataTypes.ir_model import Chi2Spectrum, FluxMeasurement
 from iSLAT.COMPONENTS.slabfit import SlabFit
 
 

@@ -7,14 +7,14 @@ import numpy as np
 import pandas as pd
 import os
 
-from .iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
+from .COMPONENTS.FileHandling.iSLATFileHandling import load_user_settings, read_default_molecule_parameters, read_initial_molecule_parameters, read_save_data, read_HITRAN_data, read_from_user_csv, read_default_csv, read_spectral_data
 
-from .ir_model import *
+from .COMPONENTS.DataTypes.ir_model import *
 from .COMPONENTS.slabfit import *
 import iSLAT.Constants as c
 from .COMPONENTS.GUI import *
-from .COMPONENTS.Molecule import Molecule
-from .COMPONENTS.MoleculeDict import MoleculeDict
+from .COMPONENTS.DataTypes.Molecule import Molecule
+from .COMPONENTS.DataTypes.MoleculeDict import MoleculeDict
 
 class UpdateCoordinator:
     """Centralized update coordinator to manage and debounce plot updates"""

@@ -20,7 +20,6 @@ except ImportError:
     pass
 
 from .moldata import MolData
-#from .Constants import constants as c
 import iSLAT.Constants as c
 
 
