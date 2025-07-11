@@ -3,7 +3,7 @@ import csv
 import json
 import pandas as pd
 import numpy as np
-from .Constants import MOLECULES_DATA
+from ...Constants import MOLECULES_DATA
 
 save_folder_path = "DATAFILES/SAVES"
 user_configuration_file_path = config_file_path = "DATAFILES/CONFIG"

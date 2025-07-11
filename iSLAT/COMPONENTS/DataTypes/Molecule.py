@@ -1,6 +1,6 @@
-from iSLAT.ir_model.spectrum import Spectrum
-from iSLAT.ir_model.moldata import MolData
-from iSLAT.ir_model.intensity import Intensity
+from .ir_model.spectrum import Spectrum
+from .ir_model.moldata import MolData
+from .ir_model.intensity import Intensity
 #from iSLAT.ir_model.Constants import Constants as c
 import iSLAT.Constants as c
 #import iSLAT.Constants as default_parms

@@ -1,10 +1,12 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from .GUIFunctions import create_button
-from iSLAT.iSLATFileHandling import save_folder_path, molsave_file_name
-from iSLAT.iSLATFileHandling import write_molecules_to_csv, write_molecules_list_csv
 import os
 import csv
+
+from ..GUIFunctions import create_button
+from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import save_folder_path, molsave_file_name
+from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import write_molecules_to_csv, write_molecules_list_csv
+from iSLAT.COMPONENTS.GUI.Widgets.ChartWindow import MoleculeSelector
 
 class TopOptions:
     def __init__(self, master, islat, theme, data_field=None):
@@ -33,7 +35,6 @@ class TopOptions:
         This replicates the functionality from the original iSLAT HITRAN query feature.
         """
         try:
-            from iSLAT.COMPONENTS.chart_window import MoleculeSelector
             # Use the root window from the islat class for the MoleculeSelector
             root_window = getattr(self.islat, 'root', self.master)
             MoleculeSelector(root_window, self.data_field)

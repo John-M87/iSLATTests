@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import fmin
 from astropy.io import ascii
-from iSLAT.ir_model import Chi2Spectrum, MolData, Intensity, Spectrum
+from iSLAT.COMPONENTS.DataTypes.ir_model import Chi2Spectrum, MolData, Intensity, Spectrum
 
 
 class Config:

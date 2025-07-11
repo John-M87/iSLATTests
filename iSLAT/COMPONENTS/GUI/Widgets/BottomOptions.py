@@ -1,8 +1,8 @@
 import numpy as np
 import tkinter as tk
 import traceback
-import iSLAT.iSLATFileHandling as ifh
-from .GUIFunctions import create_button
+import iSLAT.COMPONENTS.FileHandling.iSLATFileHandling as ifh
+from ..GUIFunctions import create_button
 from iSLAT.COMPONENTS.slabfit import SlabFit as SlabModel
 
 

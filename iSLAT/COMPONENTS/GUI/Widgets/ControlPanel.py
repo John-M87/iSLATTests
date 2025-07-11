@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
-from iSLAT.COMPONENTS.Molecule import Molecule
-from iSLAT.COMPONENTS.Molecule import Molecule
+from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
+from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 
 class ControlPanel:
     def __init__(self, master, islat):

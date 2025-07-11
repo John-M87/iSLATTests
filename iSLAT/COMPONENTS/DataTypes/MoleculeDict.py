@@ -1,4 +1,4 @@
-from iSLAT.COMPONENTS.Molecule import Molecule
+from .Molecule import Molecule
 import iSLAT.Constants as default_parms
 import numpy as np
 
