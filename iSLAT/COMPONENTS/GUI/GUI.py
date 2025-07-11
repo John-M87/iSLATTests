@@ -2,7 +2,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 import os
 from .Widgets.Plotting.MainPlot import iSLATPlot
-from .Widgets.Data_field import DataField
+from .Widgets.DataField import DataField
 from .Widgets.MoleculeWindow import MoleculeWindow
 from .Widgets.ControlPanel import ControlPanel
 from .Widgets.TopOptions import TopOptions

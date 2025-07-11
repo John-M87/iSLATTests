@@ -1,10 +1,9 @@
 import os
-import pandas as pd
+#import pandas as pd
 import numpy as np
 from scipy.optimize import fmin
-from astropy.io import ascii
+#from astropy.io import ascii
 from iSLAT.COMPONENTS.DataTypes.ir_model import Chi2Spectrum, MolData, Intensity, Spectrum
-
 
 class Config:
     """Configuration class for slab fitting parameters."""
@@ -31,7 +30,6 @@ class Config:
     def model_pixel_res(self):
         return (self.model_lam_min + self.model_lam_max) / 2 / self.cc * self.fwhm / self.npix
 
-
 class DataLoader:
     """Data loader class for loading spectroscopic data and molecular data."""
     
@@ -46,7 +44,6 @@ class DataLoader:
         self.chi2_h2o.load_file(self.config.input_file)
         self.mol_h2o = MolData(f"{self.config.molecule_name}", f"{self.config.molecule_path}")
         self.intensity_h2o = Intensity(self.mol_h2o)
-
 
 class ModelFitting:
     """Model fitting class for performing slab model optimization."""
@@ -118,7 +115,6 @@ class ModelFitting:
         if self.data_field is not None:
             self.data_field.clear()
             self.data_field.insert_text("Fitting slab...")
-
 
 class SlabFit:
     """

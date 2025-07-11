@@ -3,8 +3,7 @@ import tkinter as tk
 import traceback
 import iSLAT.COMPONENTS.FileHandling.iSLATFileHandling as ifh
 from ..GUIFunctions import create_button
-from iSLAT.COMPONENTS.slabfit import SlabFit as SlabModel
-
+from iSLAT.COMPONENTS.DataProcessing.Slabfit import SlabFit as SlabModel
 
 class BottomOptions:
     def __init__(self, master, islat, theme, main_plot, data_field, config):

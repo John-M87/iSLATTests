@@ -7,6 +7,7 @@ iSLAT/COMPONENTS/FileHandling/__pycache__/
 iSLAT/COMPONENTS/GUI/__pycache__/
 iSLAT/COMPONENTS/GUI/Widgets/__pycache__/
 iSLAT/COMPONENTS/GUI/Widgets/Plotting/__pycache__/
+iSLAT/COMPONENTS/DataProcessing/PlottingLogic/__pycache__/
 
 iSLATOld/__pycache__/
 iSLATOld/COMPONENTS/__pycache__/
