@@ -16,8 +16,7 @@ from lmfit import Parameters, minimize, fit_report
 from scipy.optimize import fmin
 from scipy.signal import find_peaks
 from iSLAT.COMPONENTS.DataTypes.ir_model import Chi2Spectrum, FluxMeasurement
-from iSLAT.COMPONENTS.slabfit import SlabFit
-
+from iSLAT.COMPONENTS.DataProcessing.Slabfit import SlabFit
 
 class FittingEngine:
     """
