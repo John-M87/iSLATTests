@@ -90,7 +90,13 @@ class Spectrum:
 
         # 1. get intensity and wavelength of the lines
         I_all = intensity.intensity
-        lam_all = intensity.molecule.lines.lam
+        # Get wavelengths from the new MoleculeLineList structure
+        lam_all = intensity.molecule.get_wavelengths()
+        
+        # Check if we have any lines to process
+        if len(lam_all) == 0 or len(I_all) == 0:
+            # No lines to add, just return without error
+            return
 
         # 2. select only lines within the selected wavelength range
         select_border = 100 * self._lam_max / self._R
@@ -114,7 +120,7 @@ class Spectrum:
         self._lam_list = np.hstack((self._lam_list, lam_all[lines_selected]))
 
         # 5. append to components
-        self._components.append({'name': intensity.molecule.name, 'fname': intensity.molecule.fname,
+        self._components.append({'name': intensity.molecule.name, 'fname': getattr(intensity.molecule, 'fname', ''),
                                 't_kin': intensity.t_kin, 'n_mol': intensity.n_mol, 'dv': intensity.dv,
                                  'area': dA})
 
@@ -128,6 +134,11 @@ class Spectrum:
         """
 
         #debug_printed = Spectrum.debug_printed
+        
+        # Check if we have any intensities to process
+        if len(self._I_list) == 0 or len(self._lam_list) == 0:
+            # Return a zero flux array if no intensities were added
+            return np.zeros_like(self._lamgrid)
 
         '''if not debug_printed:
             I_all = intensity.intensity
