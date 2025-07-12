@@ -56,11 +56,12 @@ class MolecularDataReader:
     Currently supports .par files in the format used by the original Fortran 90 code.
     """
     
-    def __init__(self):
+    def __init__(self, debug=False):
         # Define namedtuple types for data structure
         self._partition_type = namedtuple('partition', ['t', 'q'])
         self._lines_type = namedtuple('lines', ['nr', 'lev_up', 'lev_low', 'lam', 'freq', 'a_stein',
                                                'e_up', 'e_low', 'g_up', 'g_low'])
+        self.debug = debug
 
     def read_par_file(self, filename):
         """
@@ -109,32 +110,25 @@ class MolecularDataReader:
         with open(filename, "r") as f:
             data_raw = f.readlines()
 
-        # Remove comments and empty lines - use exact same logic as old MolData
-        data_clean = list(filter(lambda x: len(x.strip()) > 0 and x.strip()[0] != "#", data_raw))
+        # Remove comments and empty lines - optimized filtering
+        data_clean = [line for line in data_raw if line.strip() and not line.strip().startswith("#")]
         
-        # Debug output
-        print(f"Debug: Reading {filename}")
-        print(f"Debug: Total raw lines: {len(data_raw)}")
-        print(f"Debug: Clean data lines: {len(data_clean)}")
-        print(f"Debug: First few clean lines: {data_clean[:5]}")
+        if self.debug:
+            print(f"Debug: Reading {filename}")
+            print(f"Debug: Total raw lines: {len(data_raw)}")
+            print(f"Debug: Clean data lines: {len(data_clean)}")
 
         # Split file into partition function and line section
         n_partition = int(data_clean[0])
-        print(f"Debug: Number of partition function entries: {n_partition}")
-
+        
+        if self.debug:
+            print(f"Debug: Number of partition function entries: {n_partition}")
+            
         data_q = data_clean[1:n_partition + 1]
         data_lines = data_clean[n_partition + 1:]
-        
-        print(f"Debug: Partition data lines: {len(data_q)}")
-        print(f"Debug: Line data sections: {len(data_lines)}")
-        if len(data_lines) > 2:
-            print(f"Debug: Line count from file: {data_lines[0]}")
-            print(f"Debug: First few line entries: {data_lines[1:4]}")
 
-        # Read partition function
+        # Read partition function and lines
         partition_function = self._read_partition_function(data_q)
-        
-        # Read lines
         lines_data = self._read_lines_data(data_lines)
         
         return partition_function, lines_data
@@ -171,73 +165,39 @@ class MolecularDataReader:
         list
             List of dictionaries containing line data
         """
-        # Skip_header is to skip the number of lines printed in the file
-        print(f"Debug: Processing {len(data_lines)} line data entries")
-        print(f"Debug: Skip_header=2, so processing lines starting from index 2")
-        if len(data_lines) > 2:
-            print(f"Debug: Sample line data entries:")
-            for i, line in enumerate(data_lines[:5]):
-                print(f"  [{i}]: '{line}'")
-        
+        # Parse the structured data using numpy - skip_header=2 to skip the number of lines
         M = np.genfromtxt(data_lines, dtype="i4,S30,S30,f8,f8,f8,f8,f8,f8,f8", skip_header=2,
                           delimiter=(6, 30, 30, 11, 15, 13, 15, 15, 7, 7))
 
-        print(f"Debug: genfromtxt returned array with shape: {M.shape if hasattr(M, 'shape') else 'scalar'}")
-        print(f"Debug: genfromtxt dtype: {M.dtype}")
+        if self.debug:
+            print(f"Debug: Processing {len(data_lines)} line data entries")
+            print(f"Debug: genfromtxt returned array with shape: {M.shape if hasattr(M, 'shape') else 'scalar'}")
 
+        # Extract all fields at once
         nr, lev_up, lev_low, lam, freq, a_stein, e_up, e_low, g_up, g_low = [M[field] for field in M.dtype.names]
 
-        print(f"Debug: Extracted arrays lengths:")
-        print(f"  nr: {len(nr)}, lam: {len(lam)}, freq: {len(freq)}")
-        print(f"  a_stein: {len(a_stein)}, e_up: {len(e_up)}, e_low: {len(e_low)}")
-        print(f"  g_up: {len(g_up)}, g_low: {len(g_low)}")
-        
-        # Check for any NaN values in the raw data
-        print(f"Debug: NaN check in raw arrays:")
-        print(f"  lam NaNs: {np.sum(np.isnan(lam))}, freq NaNs: {np.sum(np.isnan(freq))}")
-        print(f"  a_stein NaNs: {np.sum(np.isnan(a_stein))}, e_up NaNs: {np.sum(np.isnan(e_up))}")
-        print(f"  e_low NaNs: {np.sum(np.isnan(e_low))}, g_up NaNs: {np.sum(np.isnan(g_up))}")
-        print(f"  g_low NaNs: {np.sum(np.isnan(g_low))}")
+        # Decode string fields efficiently using vectorized operations
+        lev_up = np.char.decode(lev_up).astype('U30')
+        lev_low = np.char.decode(lev_low).astype('U30')
+        lev_up = np.char.strip(lev_up)
+        lev_low = np.char.strip(lev_low)
 
-        # Decode and strip string fields - use exact same logic as old MolData
-        lev_up = list(map(self._decode_strip, lev_up))
-        lev_low = list(map(self._decode_strip, lev_low))
+        # Convert frequency from GHz to Hz using vectorized operation
+        freq = freq * 1e9
 
-        # Convert frequency from GHz to Hz - use exact same logic as old MolData
-        freq = 1e9 * freq
+        # Create list of dictionaries using zip for efficiency
+        field_names = ['nr', 'lev_up', 'lev_low', 'lam', 'freq', 'a_stein', 'e_up', 'e_low', 'g_up', 'g_low']
+        field_arrays = [nr, lev_up, lev_low, lam, freq, a_stein, e_up, e_low, g_up, g_low]
         
-        print(f"Debug: After frequency conversion, freq NaNs: {np.sum(np.isnan(freq))}")
-
-        # Create list of line data dictionaries using list comprehension
-        lines_data = [
-            {
-                'nr': nr[i],
-                'lev_up': lev_up[i],
-                'lev_low': lev_low[i],
-                'lam': lam[i],
-                'freq': freq[i],
-                'a_stein': a_stein[i],
-                'e_up': e_up[i],
-                'e_low': e_low[i],
-                'g_up': g_up[i],
-                'g_low': g_low[i]
-            }
-            for i in range(len(nr))
-        ]
+        lines_data = [dict(zip(field_names, values)) for values in zip(*field_arrays)]
         
-        print(f"Debug: Created {len(lines_data)} line data dictionaries")
-        if len(lines_data) > 0:
-            print(f"Debug: Sample line data:")
-            sample_line = lines_data[0]
-            for key, value in sample_line.items():
-                print(f"  {key}: {value} (type: {type(value)})")
+        if self.debug:
+            print(f"Debug: Created {len(lines_data)} line data dictionaries")
+            if lines_data:
+                print(f"Debug: Sample line data: {list(lines_data[0].keys())}")
             
         return lines_data
 
-    def _decode_strip(self, x):
-        """Decode and strip bytes to string"""
-        return x.decode().strip()
-    
     @staticmethod
     def validate_par_file(filename):
         """
@@ -255,27 +215,33 @@ class MolecularDataReader:
         """
         try:
             with open(filename, "r") as f:
-                data_raw = f.readlines()
+                # Read only what we need for validation
+                lines_read = 0
+                data_clean = []
+                
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        data_clean.append(stripped)
+                        lines_read += 1
+                        
+                        # Early exit if we have enough to validate
+                        if lines_read == 1:
+                            try:
+                                n_partition = int(data_clean[0])
+                            except ValueError:
+                                return False
+                        elif lines_read >= 3:  # Minimum needed for validation
+                            break
             
-            # Remove comments and empty lines
-            data_clean = list(filter(lambda x: len(x.strip()) > 0 and x.strip()[0] != "#", data_raw))
-            
-            if len(data_clean) < 3:  # Need at least partition count, one partition entry, and line count
+            if len(data_clean) < 3:
                 return False
                 
-            # Check if first line is a number (partition function count)
-            try:
-                n_partition = int(data_clean[0])
-            except ValueError:
-                return False
+            # Check if we would have enough lines for partition function
+            n_partition = int(data_clean[0])
+            return len(data_clean) >= n_partition + 2  # +2 for partition count and line count
                 
-            # Check if we have enough lines for partition function
-            if len(data_clean) < n_partition + 2:  # +2 for partition count and line count
-                return False
-                
-            return True
-            
-        except (IOError, OSError):
+        except (IOError, OSError, ValueError):
             return False
     
     @staticmethod
@@ -298,29 +264,28 @@ class MolecularDataReader:
         
         try:
             with open(filename, "r") as f:
-                data_raw = f.readlines()
-            
-            # Remove comments and empty lines
-            data_clean = list(filter(lambda x: len(x.strip()) > 0 and x.strip()[0] != "#", data_raw))
-            
-            if len(data_clean) < 3:
-                return info
-                
-            # Get partition function count
-            try:
-                n_partition = int(data_clean[0])
-                info['num_partition_points'] = n_partition
-            except ValueError:
-                return info
-                
-            # Get line count
-            if len(data_clean) > n_partition + 1:
-                try:
-                    n_lines = int(data_clean[n_partition + 1])
-                    info['num_lines'] = n_lines
-                    info['valid'] = True
-                except ValueError:
-                    pass
+                # Read only the lines we need for file info
+                data_clean = []
+                for line in f:
+                    stripped = line.strip()
+                    if stripped and not stripped.startswith("#"):
+                        data_clean.append(stripped)
+                        
+                        # Stop early once we have what we need
+                        if len(data_clean) == 1:
+                            try:
+                                n_partition = int(data_clean[0])
+                                info['num_partition_points'] = n_partition
+                            except ValueError:
+                                return info
+                        elif len(data_clean) > n_partition + 1:
+                            try:
+                                n_lines = int(data_clean[n_partition + 1])
+                                info['num_lines'] = n_lines
+                                info['valid'] = True
+                                break
+                            except ValueError:
+                                return info
                     
         except (IOError, OSError):
             pass
