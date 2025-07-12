@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from ...Constants import MOLECULES_DATA
+from .molecular_data_reader import read_molecular_data
 
 save_folder_path = "DATAFILES/SAVES"
 user_configuration_file_path = config_file_path = "DATAFILES/CONFIG"
@@ -321,3 +322,34 @@ def load_atomic_lines(file_path=atomic_lines_file_name):
     except Exception as e:
         print(f"Error loading atomic lines: {str(e)}")
         return pd.DataFrame()
+
+def load_molecular_data_from_par(molecule_name, filename):
+    """
+    Load molecular data from a .par file.
+    
+    This function provides a convenient interface to load molecular line data
+    and partition functions from .par format files.
+    
+    Parameters
+    ----------
+    molecule_name : str
+        Name of the molecule (e.g., "CO", "H2O")
+    filename : str
+        Path to the .par file
+        
+    Returns
+    -------
+    tuple
+        (partition_function, lines_data) where:
+        - partition_function: namedtuple with temperature and Q values
+        - lines_data: list of dictionaries containing line data
+        
+    Examples
+    --------
+    >>> partition, lines = load_molecular_data_from_par("H2O", "path/to/h2o.par")
+    >>> print(f"Loaded {len(lines)} lines for {molecule_name}")
+    """
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"Molecular data file not found: {filename}")
+    
+    return read_molecular_data(molecule_name, filename)

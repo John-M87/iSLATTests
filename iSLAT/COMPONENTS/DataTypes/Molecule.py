@@ -1,8 +1,9 @@
 from .ir_model.spectrum import Spectrum
-from .ir_model.moldata import MolData
+#from .ir_model.moldata import MolData
 from .ir_model.intensity import Intensity
 #from iSLAT.ir_model.Constants import Constants as c
 import iSLAT.Constants as c
+from .MoleculeLineList import MoleculeLineList
 #import iSLAT.Constants as default_parms
 import numpy as np
 
@@ -90,7 +91,13 @@ class Molecule:
             self.stellar_rv = kwargs.get('stellar_rv', c.DEFAULT_STELLAR_RV)
 
         # Set all instance-level parameters
-        self.mol_data = MolData(self.name, self.filepath)
+        # Load molecular line data from file
+        if self.filepath:
+            print("self.filepath:", self.filepath)
+            self.lines = MoleculeLineList(molecule_id=self.name, filename=self.filepath)
+        else:
+            print("hey bestie")
+            self.lines = MoleculeLineList(molecule_id=self.name)
 
         # Set kinetic temperature and molecule-specific parameters
         self.t_kin = self.initial_molecule_parameters.get('t_kin', temp_val if temp_val is not None else 300.0)
@@ -114,7 +121,7 @@ class Molecule:
         self.model_pixel_res = kwargs.get('model_pixel_res', c.MODEL_PIXEL_RESOLUTION)
         self.model_line_width = kwargs.get('model_line_width', c.MODEL_LINE_WIDTH)
 
-        self.intensity = Intensity(self.mol_data)
+        self.intensity = Intensity(self.lines)
         self.calculate_intensity()
 
         self.spectrum = Spectrum(
