@@ -19,7 +19,7 @@ except ImportError:
     pd = None
     pass
 
-from .moldata import MolData
+from ..MoleculeLineList import MoleculeLineList
 import iSLAT.Constants as c
 
 
@@ -28,17 +28,17 @@ __all__ = ["Intensity"]
 
 class Intensity:
 
-    def __init__(self, molecule):
+    def __init__(self, molecule_line_list):
         """Initialize an intensity class which calculates the intensities for a given molecule and provided
         physical parameters.
 
         Parameters
         ----------
-        molecule: MolData
-            Molecular data to calculate the intensity
+        molecule_line_list: MoleculeLineList
+            Molecular line list data to calculate the intensity
         """
 
-        self._molecule = molecule
+        self._molecule = molecule_line_list
         self._intensity = None
         self._tau = None
         self._t_kin = None
@@ -134,21 +134,22 @@ class Intensity:
         q_sum = np.interp(t_kin, m.partition.t, m.partition.q)
 
         # 2. line opacity
-        x_low = m.lines.g_low * np.exp(-m.lines.e_low / t_kin) / q_sum
-        x_up = m.lines.g_up * np.exp(-m.lines.e_up / t_kin) / q_sum
+        lines = m.lines_as_namedtuple
+        x_low = lines.g_low * np.exp(-lines.e_low / t_kin) / q_sum
+        x_up = lines.g_up * np.exp(-lines.e_up / t_kin) / q_sum
 
         # Eq. A2 of Banzatti et al. 2012
-        tau = m.lines.a_stein * c.SPEED_OF_LIGHT_CGS ** 3 / (8.0 * np.pi * m.lines.freq ** 3 * 1e5 * dv * c.FGAUSS_PREFACTOR) * n_mol \
-            * (x_low * m.lines.g_up / m.lines.g_low - x_up)
+        tau = lines.a_stein * c.SPEED_OF_LIGHT_CGS ** 3 / (8.0 * np.pi * lines.freq ** 3 * 1e5 * dv * c.FGAUSS_PREFACTOR) * n_mol \
+            * (x_low * lines.g_up / lines.g_low - x_up)
 
         # 3. line intensity
         if method == "radex":
-            intensity = c.FGAUSS_PREFACTOR * (1e5 * dv) * m.lines.freq / c.SPEED_OF_LIGHT_CGS * self._bb(m.lines.freq, t_kin) * \
+            intensity = c.FGAUSS_PREFACTOR * (1e5 * dv) * lines.freq / c.SPEED_OF_LIGHT_CGS * self._bb(lines.freq, t_kin) * \
                         (1.0 - np.exp(-tau))
         elif method == "curve_growth":
             # Eq. A1 of Banzatti et al. 2012
-            intensity = 1.0 / (2.0 * np.sqrt(np.log(2.0))) * (1e5 * dv) * m.lines.freq / c.SPEED_OF_LIGHT_CGS * \
-                        self._bb(m.lines.freq, t_kin) * self._fint(tau)
+            intensity = 1.0 / (2.0 * np.sqrt(np.log(2.0))) * (1e5 * dv) * lines.freq / c.SPEED_OF_LIGHT_CGS * \
+                        self._bb(lines.freq, t_kin) * self._fint(tau)
         else:
             raise ValueError("Intensity calculation method not known")
 
@@ -174,7 +175,7 @@ class Intensity:
         if pd is None:
             raise ImportError("Pandas required to create table")
 
-        mask = (self.molecule.lines.lam >= lam_min) & (self.molecule.lines.lam <= lam_max)
+        mask = (self.molecule.lines_as_namedtuple.lam >= lam_min) & (self.molecule.lines_as_namedtuple.lam <= lam_max)
         return self.get_table[mask]
 
     @property
@@ -189,7 +190,7 @@ class Intensity:
 
     @property
     def molecule(self):
-        """MolData: Molecular data used for calculation"""
+        """MoleculeLineList: Molecular line list data used for calculation"""
         return self._molecule
 
     @property
@@ -218,14 +219,15 @@ class Intensity:
         if pd is None:
             raise ImportError("Pandas required to create table")
 
-        return pd.DataFrame({'lev_up': self.molecule.lines.lev_up,
-                             'lev_low': self.molecule.lines.lev_low,
-                             'lam': self.molecule.lines.lam,
+        lines = self.molecule.lines_as_namedtuple
+        return pd.DataFrame({'lev_up': lines.lev_up,
+                             'lev_low': lines.lev_low,
+                             'lam': lines.lam,
                              'tau': self.tau,
                              'intens': self.intensity,
-                             'a_stein': self.molecule.lines.a_stein,
-                             'e_up': self.molecule.lines.e_up,
-                             'g_up': self.molecule.lines.g_up})
+                             'a_stein': lines.a_stein,
+                             'e_up': lines.e_up,
+                             'g_up': lines.g_up})
 
     def _repr_html_(self):
         # noinspection PyProtectedMember

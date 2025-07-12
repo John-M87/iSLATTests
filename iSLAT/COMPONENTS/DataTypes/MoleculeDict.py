@@ -271,3 +271,11 @@ class MoleculeDict(dict):
             molecule.model_pixel_res = self._global_model_pixel_res
             # Recreate spectrum with new parameters
             molecule._recreate_spectrum()
+    
+    def get_ndarray_of_attributes(self, attribute_name):
+        """Get a numpy array of a specific attribute for all molecules."""
+        return np.array([getattr(mol, attribute_name, None) for mol in self.values()])
+    
+    def get_ndarray_of_line_attributes(self, attribute_name):
+        """Get a numpy array of a specific line attribute for all molecules."""
+        return np.array([mol.lines.get_ndarray_of_attribute(attribute_name) for mol in self.values() if hasattr(mol, 'lines')])
