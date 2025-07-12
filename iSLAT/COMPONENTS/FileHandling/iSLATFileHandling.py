@@ -154,6 +154,19 @@ def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_n
     #print(f"Saving line to {filename}")
     df = pd.DataFrame([line_info])
     
+    '''# Check if file exists and read existing data
+    if os.path.exists(filename):
+        existing_df = pd.read_csv(filename)
+        # Append new line to existing data
+        new_df = pd.concat([existing_df, pd.DataFrame([line_info])], ignore_index=True)
+        # Save the updated DataFrame
+        new_df.to_csv(filename, index=False)
+    else:
+        # Create new DataFrame with just the new line
+        new_df = pd.DataFrame([line_info])
+        # Save the new DataFrame
+        new_df.to_csv(filename, index=False)'''
+
     # Ensure the directory exists
     os.makedirs(file_path, exist_ok=True)
     

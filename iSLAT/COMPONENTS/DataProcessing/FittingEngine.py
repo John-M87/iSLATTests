@@ -331,10 +331,31 @@ class FittingEngine:
                     xmin = wave_data.min()
                 if xmax is None:
                     xmax = wave_data.max()
-                    
-                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
                 
-                if not line_data.empty:
+                # Try the new MoleculeLine approach first
+                line_data = None
+                try:
+                    lines_with_intensity = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
+                    if lines_with_intensity:
+                        # Convert to DataFrame-like format for compatibility
+                        line_centers = np.array([line.lam for line, _, _ in lines_with_intensity])
+                        intensities = np.array([intensity for _, intensity, _ in lines_with_intensity])
+                        line_data = {'lam': line_centers, 'intens': intensities}
+                except Exception as e:
+                    print(f"Warning: Could not use new MoleculeLine approach: {e}")
+                
+                # Fallback to pandas DataFrame approach
+                if line_data is None:
+                    try:
+                        line_data_df = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                        if not line_data_df.empty:
+                            line_centers = np.array(line_data_df['lam'])
+                            intensities = np.array(line_data_df['intens'])
+                            line_data = {'lam': line_centers, 'intens': intensities}
+                    except Exception as e:
+                        print(f"Warning: Could not get line data: {e}")
+                
+                if line_data is not None:
                     # Get centers and intensities
                     line_centers = np.array(line_data['lam'])
                     intensities = np.array(line_data['intens'])
@@ -412,11 +433,31 @@ class FittingEngine:
                     xmin = wave_data.min()
                 if xmax is None:
                     xmax = wave_data.max()
-                    
-                # Get line data in range (similar to onselect() in iSLATOld)
-                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
                 
-                if not line_data.empty:
+                # Try the new MoleculeLine approach first
+                line_data = None
+                try:
+                    lines_with_intensity = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
+                    if lines_with_intensity:
+                        # Convert to DataFrame-like format for compatibility
+                        line_centers = np.array([line.lam for line, _, _ in lines_with_intensity])
+                        intensities = np.array([intensity for _, intensity, _ in lines_with_intensity])
+                        line_data = {'lam': line_centers, 'intens': intensities}
+                except Exception as e:
+                    print(f"Warning: Could not use new MoleculeLine approach: {e}")
+                
+                # Fallback to pandas DataFrame approach  
+                if line_data is None:
+                    try:
+                        line_data_df = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                        if not line_data_df.empty:
+                            line_centers = np.array(line_data_df['lam'])
+                            intensities = np.array(line_data_df['intens'])
+                            line_data = {'lam': line_centers, 'intens': intensities}
+                    except Exception as e:
+                        print(f"Warning: Could not get line data: {e}")
+                
+                if line_data is not None:
                     # Apply line_threshold filtering like iSLATOld
                     line_threshold = 0.03  # Default from iSLATOld
                     try:
@@ -426,7 +467,9 @@ class FittingEngine:
                         pass
                     
                     # Filter lines above threshold (like iSLATOld does)
-                    max_intensity = line_data['intens'].max()
+                    line_centers = np.array(line_data['lam'])
+                    intensities = np.array(line_data['intens'])
+                    max_intensity = intensities.max()
                     threshold_intensity = max_intensity * line_threshold
                     strong_lines = line_data[line_data['intens'] >= threshold_intensity]
                     

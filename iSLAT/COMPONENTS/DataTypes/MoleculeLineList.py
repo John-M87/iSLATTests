@@ -229,6 +229,44 @@ class MoleculeLineList:
         """
         return np.array([line.g_low for line in self.lines])
     
+    def get_lines_in_range(self, lam_min, lam_max):
+        """
+        Get lines within a wavelength range as MoleculeLine objects.
+        
+        Parameters
+        ----------
+        lam_min : float
+            Minimum wavelength in microns
+        lam_max : float
+            Maximum wavelength in microns
+            
+        Returns
+        -------
+        list
+            List of MoleculeLine objects within the range
+        """
+        lines_in_range = []
+        for line in self.lines:
+            if lam_min <= line.lam <= lam_max:
+                lines_in_range.append(line)
+        return lines_in_range
+    
+    def get_ndarray_of_attribute(self, attribute_name):
+        """
+        Get a numpy array of a specific attribute for all lines.
+        
+        Parameters
+        ----------
+        attribute_name : str
+            Name of the attribute to extract from each line
+            
+        Returns
+        -------
+        np.ndarray
+            Array of attribute values
+        """
+        return np.array([getattr(line, attribute_name) for line in self.lines])
+
     @property
     def fname(self):
         """File name for compatibility with old MolData interface"""

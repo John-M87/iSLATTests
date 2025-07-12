@@ -334,13 +334,30 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
 
-        line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-        if line_data.empty:
-            # Clear active lines and update population diagram even if no lines in range
-            self.active_lines.clear()
-            self.update_population_diagram()
-            self.canvas.draw_idle()
-            return
+        # Try the new MoleculeLine approach first
+        line_data = None
+        try:
+            line_data = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
+        except Exception as e:
+            print(f"Warning: Could not use new MoleculeLine approach: {e}")
+        
+        # Fallback to pandas DataFrame approach if new approach failed or returned no data
+        if not line_data:
+            try:
+                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                if hasattr(line_data, 'empty') and line_data.empty:
+                    # Clear active lines and update population diagram even if no lines in range
+                    self.active_lines.clear()
+                    self.update_population_diagram()
+                    self.canvas.draw_idle()
+                    return
+            except Exception as e:
+                print(f"Warning: Could not get line data: {e}")
+                # Clear active lines and update population diagram even if no lines in range
+                self.active_lines.clear()
+                self.update_population_diagram()
+                self.canvas.draw_idle()
+                return
 
         # Clear previous active_lines before plotting new ones
         self.active_lines.clear()
@@ -382,49 +399,102 @@ class iSLATPlot:
         """
         Prepares a list of dictionaries with line properties for plotting.
         Does not create or store matplotlib objects.
+        
+        Parameters
+        ----------
+        line_data : list or pd.DataFrame
+            Either a list of (MoleculeLine, intensity, tau) tuples from the new approach,
+            or a pandas DataFrame from the old approach (for backward compatibility)
+        max_y : float, optional
+            Maximum y value for scaling line heights
+            
+        Returns
+        -------
+        list
+            List of dictionaries with line properties
         """
-        lam = line_data['lam']
-        intensities = line_data['intens']
-        e_up = line_data['e_up']
-        a_stein = line_data['a_stein']
-        g_up = line_data['g_up']
-        lev_up = line_data['lev_up'] if 'lev_up' in line_data else None
-        lev_low = line_data['lev_low'] if 'lev_low' in line_data else None
-        tau = line_data['tau'] if 'tau' in line_data else None
-        max_intensity = intensities.max()
         values = []
-        for i, (lam_val, inten, e, a, g) in enumerate(zip(lam, intensities, e_up, a_stein, g_up)):
-            # Compute lineheight for later plotting
-            lineheight = None
-            if max_y is not None and max_intensity != 0:
-                lineheight = (inten / max_intensity) * max_y
-            # Compute rd_yax for population diagram
-            rd_yax = None
-            if all(x is not None for x in [inten, a, g, lam_val]):
-                area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
-                dist = self.islat.active_molecule.distance * c.PARSEC_CM
-                beam_s = area / dist ** 2
-                F = inten * beam_s
-                freq = c.SPEED_OF_LIGHT_MICRONS / lam_val
-                rd_yax = np.log(4 * np.pi * F / (a * c.PLANCK_CONSTANT * freq * g))
+        
+        # Check if we're using the new MoleculeLine-based approach
+        if isinstance(line_data, list) and line_data and isinstance(line_data[0], tuple):
+            # New approach: list of (MoleculeLine, intensity, tau) tuples
+            intensities = [intensity for _, intensity, _ in line_data]
+            max_intensity = max(intensities) if intensities else 1.0
             
-            # Get additional fields with safe indexing
-            up_lev = lev_up.iloc[i] if lev_up is not None else 'N/A'
-            low_lev = lev_low.iloc[i] if lev_low is not None else 'N/A'
-            tau_val = tau.iloc[i] if tau is not None else 'N/A'
+            for line, intensity, tau_val in line_data:
+                # Compute lineheight for later plotting
+                lineheight = None
+                if max_y is not None and max_intensity != 0:
+                    lineheight = (intensity / max_intensity) * max_y
+                
+                # Compute rd_yax for population diagram
+                rd_yax = None
+                if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
+                    area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+                    dist = self.islat.active_molecule.distance * c.PARSEC_CM
+                    beam_s = area / dist ** 2
+                    F = intensity * beam_s
+                    freq = c.SPEED_OF_LIGHT_MICRONS / line.lam
+                    rd_yax = np.log(4 * np.pi * F / (line.a_stein * c.PLANCK_CONSTANT * freq * line.g_up))
+                
+                values.append({
+                    'lam': line.lam,
+                    'lineheight': lineheight,
+                    'e': line.e_up,
+                    'a': line.a_stein,
+                    'g': line.g_up,
+                    'rd_yax': rd_yax,
+                    'inten': intensity,
+                    'up_lev': line.lev_up if line.lev_up else 'N/A',
+                    'low_lev': line.lev_low if line.lev_low else 'N/A',
+                    'tau': tau_val if tau_val is not None else 'N/A'
+                })
+        else:
+            # Backward compatibility: pandas DataFrame approach
+            lam = line_data['lam']
+            intensities = line_data['intens']
+            e_up = line_data['e_up']
+            a_stein = line_data['a_stein']
+            g_up = line_data['g_up']
+            lev_up = line_data['lev_up'] if 'lev_up' in line_data else None
+            lev_low = line_data['lev_low'] if 'lev_low' in line_data else None
+            tau = line_data['tau'] if 'tau' in line_data else None
+            max_intensity = intensities.max()
             
-            values.append({
-                'lam': lam_val, 
-                'lineheight': lineheight, 
-                'e': e, 
-                'a': a, 
-                'g': g, 
-                'rd_yax': rd_yax, 
-                'inten': inten,
-                'up_lev': up_lev,
-                'low_lev': low_lev,
-                'tau': tau_val
-            })
+            for i, (lam_val, inten, e, a, g) in enumerate(zip(lam, intensities, e_up, a_stein, g_up)):
+                # Compute lineheight for later plotting
+                lineheight = None
+                if max_y is not None and max_intensity != 0:
+                    lineheight = (inten / max_intensity) * max_y
+                
+                # Compute rd_yax for population diagram
+                rd_yax = None
+                if all(x is not None for x in [inten, a, g, lam_val]):
+                    area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+                    dist = self.islat.active_molecule.distance * c.PARSEC_CM
+                    beam_s = area / dist ** 2
+                    F = inten * beam_s
+                    freq = c.SPEED_OF_LIGHT_MICRONS / lam_val
+                    rd_yax = np.log(4 * np.pi * F / (a * c.PLANCK_CONSTANT * freq * g))
+                
+                # Get additional fields with safe indexing
+                up_lev = lev_up.iloc[i] if lev_up is not None else 'N/A'
+                low_lev = lev_low.iloc[i] if lev_low is not None else 'N/A'
+                tau_val = tau.iloc[i] if tau is not None else 'N/A'
+                
+                values.append({
+                    'lam': lam_val, 
+                    'lineheight': lineheight, 
+                    'e': e, 
+                    'a': a, 
+                    'g': g, 
+                    'rd_yax': rd_yax, 
+                    'inten': inten,
+                    'up_lev': up_lev,
+                    'low_lev': low_lev,
+                    'tau': tau_val
+                })
+        
         return values
 
     def find_strongest_line(self):
@@ -454,37 +524,68 @@ class iSLATPlot:
         """
         Alternative method to find strongest line directly from line data,
         which returns a dictionary with line information ready for display.
+        Uses the new MoleculeLine approach when available.
         """
         if not hasattr(self, 'current_selection') or self.current_selection is None:
             return None
             
         xmin, xmax = self.current_selection
         
-        # Get line data for the selected range
-        line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-        if line_data.empty:
-            return None
+        # Try the new MoleculeLine approach first
+        try:
+            lines_with_intensity = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
+            if lines_with_intensity:
+                # Find the line with maximum intensity
+                strongest_line, strongest_intensity, strongest_tau = max(lines_with_intensity, key=lambda x: x[1])
+                
+                # Create a dictionary with the line information
+                line_info = {
+                    'lam': strongest_line.lam,
+                    'e': strongest_line.e_up, 
+                    'a': strongest_line.a_stein,
+                    'g': strongest_line.g_up,
+                    'inten': strongest_intensity,
+                    'up_lev': strongest_line.lev_up if strongest_line.lev_up else 'N/A',
+                    'low_lev': strongest_line.lev_low if strongest_line.lev_low else 'N/A',
+                    'tau': strongest_tau if strongest_tau is not None else 'N/A',
+                    'wavelength': strongest_line.lam,  # For compatibility
+                    'intensity': strongest_intensity,  # For compatibility
+                    'flux': strongest_intensity  # For compatibility
+                }
+                
+                return line_info
+        except Exception as e:
+            print(f"Warning: Could not use new MoleculeLine approach: {e}")
+        
+        # Fallback to the old pandas DataFrame approach
+        try:
+            line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+            if line_data.empty:
+                return None
+                
+            # Find the line with maximum intensity
+            max_idx = line_data['intens'].idxmax()
+            strongest_line_data = line_data.loc[max_idx]
             
-        # Find the line with maximum intensity
-        max_idx = line_data['intens'].idxmax()
-        strongest_line_data = line_data.loc[max_idx]
-        
-        # Create a dictionary with the line information
-        line_info = {
-            'lam': strongest_line_data['lam'],
-            'e': strongest_line_data['e_up'], 
-            'a': strongest_line_data['a_stein'],
-            'g': strongest_line_data['g_up'],
-            'inten': strongest_line_data['intens'],
-            'up_lev': strongest_line_data.get('lev_up', 'N/A'),
-            'low_lev': strongest_line_data.get('lev_low', 'N/A'),
-            'tau': strongest_line_data.get('tau', 'N/A'),
-            'wavelength': strongest_line_data['lam'],  # For compatibility
-            'intensity': strongest_line_data['intens'],  # For compatibility
-            'flux': strongest_line_data['intens']  # For compatibility
-        }
-        
-        return line_info
+            # Create a dictionary with the line information
+            line_info = {
+                'lam': strongest_line_data['lam'],
+                'e': strongest_line_data['e_up'], 
+                'a': strongest_line_data['a_stein'],
+                'g': strongest_line_data['g_up'],
+                'inten': strongest_line_data['intens'],
+                'up_lev': strongest_line_data.get('lev_up', 'N/A'),
+                'low_lev': strongest_line_data.get('lev_low', 'N/A'),
+                'tau': strongest_line_data.get('tau', 'N/A'),
+                'wavelength': strongest_line_data['lam'],  # For compatibility
+                'intensity': strongest_line_data['intens'],  # For compatibility
+                'flux': strongest_line_data['intens']  # For compatibility
+            }
+            
+            return line_info
+        except Exception as e:
+            print(f"Warning: Could not find strongest line: {e}")
+            return None
 
     def flux_integral(self, wave_data, flux_data, err_data, xmin, xmax):
         """
@@ -622,9 +723,20 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
         
-        if line_data is None or line_data.empty:
-            line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-            if line_data.empty:
+        # Get line data using the new approach
+        if line_data is None:
+            try:
+                # Try the new MoleculeLine approach first
+                line_data = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
+                if not line_data:
+                    # Fallback to pandas DataFrame approach
+                    line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
+                    if line_data.empty:
+                        self.ax2.clear()
+                        self.canvas.draw_idle()
+                        return
+            except Exception as e:
+                print(f"Warning: Could not get line data: {e}")
                 self.ax2.clear()
                 self.canvas.draw_idle()
                 return
@@ -664,8 +776,16 @@ class iSLATPlot:
         self.update_population_diagram()
         
         # Ensure we have valid line data
-        if line_data is None or line_data.empty:
+        if line_data is None:
             return
+        
+        # Handle both new and old data formats
+        if (isinstance(line_data, list) and line_data and isinstance(line_data[0], tuple)) or \
+           (hasattr(line_data, 'empty') and line_data.empty):
+            # For new list format, check if empty; for DataFrame format, check .empty
+            if (isinstance(line_data, list) and not line_data) or \
+               (hasattr(line_data, 'empty') and line_data.empty):
+                return
         
         # Recalculate values using current molecule parameters
         values = self.get_active_line_values(line_data)
