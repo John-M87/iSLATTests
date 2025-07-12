@@ -23,6 +23,13 @@ class PlotRenderer:
         self.model_lines = []
         self.active_lines = []
         
+        # Cache for population diagram to prevent unnecessary re-rendering
+        self._pop_diagram_cache = {
+            'molecule_id': None,
+            'parameters_hash': None,
+            'wave_range': None
+        }
+        
     def clear_all_plots(self):
         """Clear all plots and reset visual state"""
         self.ax1.clear()
@@ -30,6 +37,12 @@ class PlotRenderer:
         self.ax3.clear()
         self.model_lines.clear()
         self.active_lines.clear()
+        # Clear population diagram cache
+        self._pop_diagram_cache = {
+            'molecule_id': None,
+            'parameters_hash': None,
+            'wave_range': None
+        }
         
     def clear_model_lines(self):
         """Clear only the model spectrum lines from the main plot"""
@@ -115,15 +128,31 @@ class PlotRenderer:
         # Sort molecules by peak intensity for better visual layering
         mol_intensities = []
         for mol in truly_visible:
+            mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
             try:
                 # Prepare plot data or use molecule's spectrum directly
                 if hasattr(mol, 'prepare_plot_data'):
                     mol.prepare_plot_data(wave_data)
-                    if hasattr(mol, 'plot_flux') and len(mol.plot_flux) > 0:
-                        peak_intensity = np.max(mol.plot_flux)
+                    if hasattr(mol, 'plot_flux') and hasattr(mol, 'plot_lam') and len(mol.plot_flux) > 0:
+                        peak_intensity = np.max(mol.plot_flux) if len(mol.plot_flux) > 0 else 0
                         mol_intensities.append((peak_intensity, mol, mol.plot_lam, mol.plot_flux))
                     else:
                         # Fallback to interpolating spectrum data
+                        if hasattr(mol, 'spectrum') and mol.spectrum is not None:
+                            mol_flux_interp = np.interp(
+                                wave_data,
+                                mol.spectrum.lamgrid,
+                                mol.spectrum.flux_jy,
+                                left=0.0, right=0.0
+                            )
+                            peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
+                            mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
+                        else:
+                            print(f"Warning: {mol_name} has no spectrum data")
+                            continue
+                else:
+                    # Direct interpolation approach
+                    if hasattr(mol, 'spectrum') and mol.spectrum is not None:
                         mol_flux_interp = np.interp(
                             wave_data,
                             mol.spectrum.lamgrid,
@@ -132,35 +161,31 @@ class PlotRenderer:
                         )
                         peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
                         mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
-                else:
-                    # Direct interpolation approach check if this works right
-                    mol_flux_interp = np.interp(
-                        wave_data,
-                        mol.spectrum.lamgrid,
-                        mol.spectrum.flux_jy,
-                        left=0.0, right=0.0
-                    )
-                    peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
-                    mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
+                    else:
+                        print(f"Warning: {mol_name} has no spectrum data")
+                        continue
             except Exception as e:
-                print(f"Error preparing plot data for {getattr(mol, 'name', 'unknown')}: {e}")
+                print(f"Error preparing plot data for {mol_name}: {e}")
                 continue
         
         # Sort by peak intensity (lowest first for better visibility)
         mol_intensities.sort(key=lambda x: x[0])
         
         for peak_intensity, mol, plot_lam, plot_flux in mol_intensities:
+            # Get proper molecule name
+            mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
+            
             if peak_intensity > 0:  # Only plot if there's actual flux
                 try:
                     # Use the molecule's color if available, otherwise get from theme
                     color = getattr(mol, 'color', None)
                     if color is None:
-                        # Get color from theme like, or use default
-                        color = self.theme.get('molecule_colors', {}).get(getattr(mol, 'name', 'unknown'), 'blue')
+                        # Get color from theme, or use default
+                        color = self.theme.get('molecule_colors', {}).get(mol_name, 'blue')
                     
                     # Get proper label
-                    label = getattr(mol, 'displaylabel', getattr(mol, 'name', 'Unknown'))
-                    
+                    label = getattr(mol, 'displaylabel', mol_name)
+
                     # Plot with style 
                     line, = self.ax1.plot(
                         plot_lam,
@@ -174,7 +199,7 @@ class PlotRenderer:
                     )
                     self.model_lines.append(line)
                 except Exception as e:
-                    print(f"Error plotting {getattr(mol, 'name', 'unknown molecule')}: {e}")
+                    print(f"Error plotting {mol_name}: {e}")
                     continue
     
     def _plot_summed_spectrum(self, wave_data, summed_flux):
@@ -221,50 +246,143 @@ class PlotRenderer:
             if handles:
                 self.ax2.legend()
     
+    def _get_molecule_parameters_hash(self, molecule):
+        """Generate a hash of molecule parameters to detect changes"""
+        if molecule is None:
+            return None
+        
+        try:
+            # Collect key parameters that affect population diagram
+            params = []
+            
+            # Basic molecule properties
+            mol_name = getattr(molecule, 'name', getattr(molecule, 'displaylabel', 'unknown'))
+            params.append(mol_name)
+            
+            # Physical parameters from intensity calculation
+            if hasattr(molecule, 'intensity') and molecule.intensity is not None:
+                intensity_params = [
+                    getattr(molecule.intensity, 't_kin', None),
+                    getattr(molecule.intensity, 'n_mol', None), 
+                    getattr(molecule.intensity, 'dv', None)
+                ]
+                params.extend(intensity_params)
+                
+                # Also check if intensity has been calculated (tau and intensity arrays)
+                has_calculated_intensity = (
+                    hasattr(molecule.intensity, 'tau') and 
+                    molecule.intensity.tau is not None and
+                    hasattr(molecule.intensity, 'intensity') and 
+                    molecule.intensity.intensity is not None
+                )
+                params.append(has_calculated_intensity)
+            else:
+                params.extend([None, None, None, False])
+            
+            # Geometric parameters
+            params.extend([
+                getattr(molecule, 'radius', None),
+                getattr(molecule, 'distance', None)
+            ])
+            
+            # Convert to string and hash
+            param_str = str(tuple(params))
+            return hash(param_str)
+        except Exception as e:
+            print(f"Error generating parameter hash: {e}")
+            # If hashing fails, return None to force re-render
+            return None
+    
+    def invalidate_population_diagram_cache(self):
+        """Force the population diagram to re-render on next call"""
+        self._pop_diagram_cache = {
+            'molecule_id': None,
+            'parameters_hash': None, 
+            'wave_range': None
+        }
+    
     def render_population_diagram(self, molecule, wave_range=None):
         """Render the population diagram for the active molecule"""
+        # Check cache to avoid unnecessary re-rendering
+        molecule_id = getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
+        parameters_hash = self._get_molecule_parameters_hash(molecule)
+        
+        # Check if we can skip rendering
+        cache = self._pop_diagram_cache
+        if (cache['molecule_id'] == molecule_id and 
+            cache['parameters_hash'] == parameters_hash and 
+            cache['wave_range'] == wave_range and
+            molecule_id is not None):
+            # Same molecule and parameters, skip re-rendering
+            print(f"Population diagram cache hit for {molecule_id} - skipping render")
+            return
+        
+        # Update cache
+        cache['molecule_id'] = molecule_id
+        cache['parameters_hash'] = parameters_hash
+        cache['wave_range'] = wave_range
+        
         self.ax3.clear()
+        print(f"Actually rendering population diagram for {molecule_id}")
         
         if molecule is None:
             self.ax3.set_title("No molecule selected")
             return
             
         try:
+            # Check if molecule has intensity data
+            if not hasattr(molecule, 'intensity') or molecule.intensity is None:
+                self.ax3.set_title(f"{getattr(molecule, 'displaylabel', 'Molecule')} - No intensity data")
+                return
+                
             # Get the intensity table
             int_pars = molecule.intensity.get_table
             int_pars.index = range(len(int_pars.index))
 
             # Parsing the components of the lines in int_pars
-            wl = int_pars['lam']
+            wavelength = int_pars['lam']
             intens_mod = int_pars['intens']
             Astein_mod = int_pars['a_stein']
             gu = int_pars['g_up']
             eu = int_pars['e_up']
 
             # Calculating the y-axis for the population diagram
-            area = np.pi * (molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2  # In cm^2
-            dist = self.islat.active_molecule.distance * c.PARSEC_CM  # In cm
+            # Get molecule radius safely
+            radius = getattr(molecule, 'radius', 1.0)  # Default to 1.0 AU if not available
+            distance = getattr(molecule, 'distance', getattr(self.islat, 'global_dist', 140.0))  # Default distance
+            
+            area = np.pi * (radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2  # In cm^2
+            dist = distance * c.PARSEC_CM  # In cm
             beam_s = area / dist ** 2
             F = intens_mod * beam_s
-            freq = c.SPEED_OF_LIGHT_MICRONS / wl
-            rd_yax = np.log(4 * np.pi * F / (Astein_mod * c.PLANCK_CONSTANT * freq * gu))
+            frequency = c.SPEED_OF_LIGHT_MICRONS / wavelength
+            rd_yax = np.log(4 * np.pi * F / (Astein_mod * c.PLANCK_CONSTANT * frequency * gu))
             threshold = np.nanmax(F) / 100
 
-            # Set limits
-            self.ax3.set_ylim(np.nanmin(rd_yax[F > threshold]), np.nanmax(rd_yax) + 0.5)
-            self.ax3.set_xlim(np.nanmin(eu) - 50, np.nanmax(eu[F > threshold]))
+            # Set limits with bounds checking
+            valid_rd = rd_yax[F > threshold]
+            valid_eu = eu[F > threshold]
+            
+            if len(valid_rd) > 0 and len(valid_eu) > 0:
+                self.ax3.set_ylim(np.nanmin(valid_rd), np.nanmax(rd_yax) + 0.5)
+                self.ax3.set_xlim(np.nanmin(eu) - 50, np.nanmax(valid_eu))
 
-            # Populating the population diagram graph with the lines
-            self.ax3.scatter(eu, rd_yax, s=0.5, color=self.theme.get("scatter_main_color", '#838B8B'))
+                # Populating the population diagram graph with the lines
+                self.ax3.scatter(eu, rd_yax, s=0.5, color=self.theme.get("scatter_main_color", '#838B8B'))
 
-            # Set labels
-            self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
-            self.ax3.set_xlabel(r'$E_{u}$ (K)')
-            self.ax3.set_title(f'{molecule.displaylabel} Population diagram', fontsize='medium')
+                # Set labels
+                self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
+                self.ax3.set_xlabel(r'$E_{u}$ (K)')
+                mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+                self.ax3.set_title(f'{mol_label} Population diagram', fontsize='medium')
+            else:
+                mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+                self.ax3.set_title(f"{mol_label} - No valid data for population diagram")
             
         except Exception as e:
             print(f"Error rendering population diagram: {e}")
-            self.ax3.set_title(f"{molecule.displaylabel} - Error in calculation")
+            mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+            self.ax3.set_title(f"{mol_label} - Error in calculation")
     
     def plot_saved_lines(self, saved_lines):
         """Plot saved lines on the main spectrum"""
