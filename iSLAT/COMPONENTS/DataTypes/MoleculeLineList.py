@@ -54,6 +54,10 @@ class MoleculeLineList:
         self._lines_cache_valid = False  # Invalidate cache when lines change
         print("We loaded the lines!")
 
+        '''# Convert lines to MoleculeLine objects and then to numpy array
+        molecule_lines = [MoleculeLine(self.molecule_id, line_data) for line_data in lines_data]
+        self.lines = np.array([line.get_ndarray() for line in molecule_lines])'''
+
     def get_ndarray(self):
         """
         Convert the line data to a numpy ndarray.

@@ -266,23 +266,6 @@ class iSLATPlot:
         # Delegate to PlotRenderer
         self.plot_renderer.render_population_diagram(self.islat.active_molecule)
         self.canvas.draw_idle()
-
-    def plot_data_line(self, wave, flux, label=None, color=None):
-        """
-        Plots a data line on the main plot.
-        """
-        if label is None:
-            label = "Data Line"
-        if color is None:
-            color = self.theme["foreground"]
-        
-        print("Plotting data line with wavelength and flux:")
-        print("Wavelength:", wave)
-        print("Flux:", flux)
-        line, = self.ax1.plot(wave, flux, linestyle='-', color=color, alpha=0.7, label=label)
-        self.model_lines.append(line)
-        self.ax1.legend()
-        self.canvas.draw_idle()
     
     def plot_saved_lines(self, saved_lines):
         """

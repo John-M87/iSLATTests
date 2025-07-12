@@ -48,7 +48,6 @@ def read_molecular_data(molecule_name, filename):
     reader = MolecularDataReader()
     return reader.read_par_file(filename)
 
-
 class MolecularDataReader:
     """
     A utility class for reading molecular data files.
@@ -108,18 +107,29 @@ class MolecularDataReader:
         - g_low: Lower level statistical weight - float, 7 characters
         """
         with open(filename, "r") as f:
-            # Read all lines at once and process them in a single pass
-            data_clean = []
-            for line in f:
-                stripped = line.strip()
-                if stripped and not stripped.startswith("#"):
-                    data_clean.append(stripped)
+            data_raw = f.readlines()
+
+        # Remove comments and empty lines - use exact same logic as old MolData
+        data_clean = list(filter(lambda x: len(x.strip()) > 0 and x.strip()[0] != "#", data_raw))
+        
+        # Debug output
+        print(f"Debug: Reading {filename}")
+        print(f"Debug: Total raw lines: {len(data_raw)}")
+        print(f"Debug: Clean data lines: {len(data_clean)}")
+        print(f"Debug: First few clean lines: {data_clean[:5]}")
 
         # Split file into partition function and line section
         n_partition = int(data_clean[0])
+        print(f"Debug: Number of partition function entries: {n_partition}")
 
         data_q = data_clean[1:n_partition + 1]
         data_lines = data_clean[n_partition + 1:]
+        
+        print(f"Debug: Partition data lines: {len(data_q)}")
+        print(f"Debug: Line data sections: {len(data_lines)}")
+        if len(data_lines) > 2:
+            print(f"Debug: Line count from file: {data_lines[0]}")
+            print(f"Debug: First few line entries: {data_lines[1:4]}")
 
         # Read partition function
         partition_function = self._read_partition_function(data_q)
@@ -162,17 +172,41 @@ class MolecularDataReader:
             List of dictionaries containing line data
         """
         # Skip_header is to skip the number of lines printed in the file
+        print(f"Debug: Processing {len(data_lines)} line data entries")
+        print(f"Debug: Skip_header=2, so processing lines starting from index 2")
+        if len(data_lines) > 2:
+            print(f"Debug: Sample line data entries:")
+            for i, line in enumerate(data_lines[:5]):
+                print(f"  [{i}]: '{line}'")
+        
         M = np.genfromtxt(data_lines, dtype="i4,S30,S30,f8,f8,f8,f8,f8,f8,f8", skip_header=2,
                           delimiter=(6, 30, 30, 11, 15, 13, 15, 15, 7, 7))
 
+        print(f"Debug: genfromtxt returned array with shape: {M.shape if hasattr(M, 'shape') else 'scalar'}")
+        print(f"Debug: genfromtxt dtype: {M.dtype}")
+
         nr, lev_up, lev_low, lam, freq, a_stein, e_up, e_low, g_up, g_low = [M[field] for field in M.dtype.names]
 
-        # Decode and strip string fields more efficiently
-        lev_up = [x.decode().strip() for x in lev_up]
-        lev_low = [x.decode().strip() for x in lev_low]
+        print(f"Debug: Extracted arrays lengths:")
+        print(f"  nr: {len(nr)}, lam: {len(lam)}, freq: {len(freq)}")
+        print(f"  a_stein: {len(a_stein)}, e_up: {len(e_up)}, e_low: {len(e_low)}")
+        print(f"  g_up: {len(g_up)}, g_low: {len(g_low)}")
+        
+        # Check for any NaN values in the raw data
+        print(f"Debug: NaN check in raw arrays:")
+        print(f"  lam NaNs: {np.sum(np.isnan(lam))}, freq NaNs: {np.sum(np.isnan(freq))}")
+        print(f"  a_stein NaNs: {np.sum(np.isnan(a_stein))}, e_up NaNs: {np.sum(np.isnan(e_up))}")
+        print(f"  e_low NaNs: {np.sum(np.isnan(e_low))}, g_up NaNs: {np.sum(np.isnan(g_up))}")
+        print(f"  g_low NaNs: {np.sum(np.isnan(g_low))}")
 
-        # Convert frequency from GHz to Hz (vectorized operation)
-        freq = freq * 1e9
+        # Decode and strip string fields - use exact same logic as old MolData
+        lev_up = list(map(self._decode_strip, lev_up))
+        lev_low = list(map(self._decode_strip, lev_low))
+
+        # Convert frequency from GHz to Hz - use exact same logic as old MolData
+        freq = 1e9 * freq
+        
+        print(f"Debug: After frequency conversion, freq NaNs: {np.sum(np.isnan(freq))}")
 
         # Create list of line data dictionaries using list comprehension
         lines_data = [
@@ -190,11 +224,17 @@ class MolecularDataReader:
             }
             for i in range(len(nr))
         ]
+        
+        print(f"Debug: Created {len(lines_data)} line data dictionaries")
+        if len(lines_data) > 0:
+            print(f"Debug: Sample line data:")
+            sample_line = lines_data[0]
+            for key, value in sample_line.items():
+                print(f"  {key}: {value} (type: {type(value)})")
             
         return lines_data
 
-    @staticmethod
-    def _decode_strip(x):
+    def _decode_strip(self, x):
         """Decode and strip bytes to string"""
         return x.decode().strip()
     

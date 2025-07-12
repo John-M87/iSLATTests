@@ -67,6 +67,8 @@ PARSEC_CM = 3.086e18
 PARSEC_CM_ALT = 3.08567758128e18
 """Alternative parsec conversion from parsec to cm."""
 
+PI = np.pi
+"""Mathematical constant π."""
 
 # =============================================================================
 # NAMEDTUPLE FOR BACKWARD COMPATIBILITY

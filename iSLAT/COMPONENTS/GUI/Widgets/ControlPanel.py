@@ -417,6 +417,9 @@ class ControlPanel:
         """Trigger an explicit population diagram update"""
         plot_obj = self._get_plot_object()
         if plot_obj and hasattr(plot_obj, 'update_population_diagram'):
+            # Invalidate cache before updating to ensure re-render
+            if hasattr(plot_obj, 'plot_renderer') and hasattr(plot_obj.plot_renderer, 'invalidate_population_diagram_cache'):
+                plot_obj.plot_renderer.invalidate_population_diagram_cache()
             # Always call update_population_diagram - it will handle invalid cases internally
             plot_obj.update_population_diagram()
 
