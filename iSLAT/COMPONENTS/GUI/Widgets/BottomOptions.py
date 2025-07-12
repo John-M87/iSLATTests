@@ -286,7 +286,6 @@ class BottomOptions:
                 mol=self.islat.active_molecule,
                 molpath=self.islat.molecule_path
             )
-            
                 
         except Exception as e:
             self.data_field.insert_text(f"Error running single slab fit: {e}\n")

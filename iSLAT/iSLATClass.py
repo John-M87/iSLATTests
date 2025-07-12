@@ -502,8 +502,8 @@ class iSLAT:
             if hasattr(self, "GUI"):
                 if hasattr(self.GUI, "plot"):
                     self.GUI.plot.update_all_plots()
-                if hasattr(self.GUI, "file_label"):
-                    self.GUI.file_label.config(text=f"Loaded: {self.loaded_spectrum_name}")
+                if hasattr(self.GUI, "file_interaction_pane"):
+                    self.GUI.file_interaction_pane.update_file_label(self.loaded_spectrum_name)
             # If model spectrum or other calculations depend on spectrum, update them
             if hasattr(self, "update_model_spectrum"):
                 self.update_model_spectrum()
