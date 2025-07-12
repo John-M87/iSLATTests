@@ -122,7 +122,6 @@ class Molecule:
         self.model_line_width = kwargs.get('model_line_width', c.MODEL_LINE_WIDTH)
 
         self.intensity = Intensity(self.lines)
-        print("Self.intensity:", self.intensity)
         self.calculate_intensity()
 
         self.spectrum = Spectrum(
@@ -132,8 +131,6 @@ class Molecule:
             R=self.model_line_width,
             distance=self._distance
         )
-
-        print(" lets go Self.intensity:", self.intensity)
 
         self.spectrum.add_intensity(
             intensity=self.intensity,

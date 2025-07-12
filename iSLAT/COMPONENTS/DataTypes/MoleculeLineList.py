@@ -32,7 +32,6 @@ class MoleculeLineList:
         self._lines_cache_valid = False
         
         if filename:
-            print("HEEEEEEEEETTTT")
             self._load_from_file(filename)
         elif lines_data:
             self.lines = [MoleculeLine(molecule_id, line_data) for line_data in lines_data]
@@ -47,12 +46,12 @@ class MoleculeLineList:
             Path to the .par file
         """
         partition_function, lines_data = read_molecular_data(self.molecule_id, filename)
-        print("Partition function:", partition_function)
+        #print("Partition function:", partition_function)
         #print("Lines data:", lines_data)
         self.partition_function = partition_function
         self.lines = [MoleculeLine(self.molecule_id, line_data) for line_data in lines_data]
         self._lines_cache_valid = False  # Invalidate cache when lines change
-        print("We loaded the lines!")
+        #print("We loaded the lines!")
 
         '''# Convert lines to MoleculeLine objects and then to numpy array
         molecule_lines = [MoleculeLine(self.molecule_id, line_data) for line_data in lines_data]

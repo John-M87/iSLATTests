@@ -136,6 +136,15 @@ class iSLAT:
         self.GUI.start()
 
     def init_molecules(self, mole_save_data=None):
+        """
+        Initialize molecules from save data.
+        
+        Parameters
+        ----------
+        mole_save_data : dict, list, or None
+            Molecule data to load. If None, uses user_saved_molecules.
+        """
+        # Ensure molecules_dict exists
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
             # Initialize global parameters
@@ -144,50 +153,93 @@ class iSLAT:
             self.molecules_dict.global_fwhm = self._fwhm
             self.molecules_dict.global_intrinsic_line_width = self._intrinsic_line_width
             self.molecules_dict.global_wavelength_range = self.wavelength_range
+            
+        # Ensure user_saved_molecules exists
         if not hasattr(self, "user_saved_molecules"):
-                self.user_saved_molecules = read_from_user_csv()
+            self.user_saved_molecules = read_from_user_csv()
         
+        # Determine data source
         if mole_save_data is None:
             mole_save_data = self.user_saved_molecules
-        else:
-            mole_save_data = mole_save_data
+
+        # Validate input data
+        if not mole_save_data:
+            print("Warning: No molecule data provided to init_molecules")
+            return
 
         new_molecules = []
         
-        # Handle both dictionary format (old) and list format (new from load_parameters)
-        if isinstance(mole_save_data, dict):
-            # Old format: dictionary of dictionaries
-            for mol in mole_save_data.values():
-                mol_name = mol["Molecule Name"]
-                if mol_name not in self.molecules_dict:
-                    new_molecule = Molecule(
-                        user_save_data=mol,
-                        wavelength_range=self.wavelength_range,
-                        initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
-                    )
-                    new_molecules.append(new_molecule)
-        elif isinstance(mole_save_data, list):
-            # New format: list of dictionaries (from load_parameters)
-            for mol in mole_save_data:
-                mol_name = mol["Molecule Name"]
-                if mol_name not in self.molecules_dict:
-                    new_molecule = Molecule(
-                        user_save_data=mol,
-                        wavelength_range=self.wavelength_range,
-                        initial_molecule_parameters = self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
-                    )
-                    new_molecules.append(new_molecule)
+        try:
+            # Handle both dictionary format (old) and list format (new from load_parameters)
+            if isinstance(mole_save_data, dict):
+                # Old format: dictionary of dictionaries
+                for mol in mole_save_data.values():
+                    mol_name = mol.get("Molecule Name")
+                    if not mol_name:
+                        print("Warning: Molecule data missing 'Molecule Name' field")
+                        continue
+                        
+                    if mol_name not in self.molecules_dict:
+                        try:
+                            new_molecule = Molecule(
+                                user_save_data=mol,
+                                wavelength_range=self.wavelength_range,
+                                initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
+                            )
+                            new_molecules.append(new_molecule)
+                        except Exception as e:
+                            print(f"Error creating molecule '{mol_name}': {e}")
+                            continue
+                            
+            elif isinstance(mole_save_data, list):
+                # New format: list of dictionaries (from load_parameters)
+                for mol in mole_save_data:
+                    mol_name = mol.get("Molecule Name")
+                    if not mol_name:
+                        print("Warning: Molecule data missing 'Molecule Name' field")
+                        continue
+                        
+                    if mol_name not in self.molecules_dict:
+                        try:
+                            new_molecule = Molecule(
+                                user_save_data=mol,
+                                wavelength_range=self.wavelength_range,
+                                initial_molecule_parameters=self.initial_molecule_parameters.get(mol_name, self.molecules_parameters_default)
+                            )
+                            new_molecules.append(new_molecule)
+                        except Exception as e:
+                            print(f"Error creating molecule '{mol_name}': {e}")
+                            continue
+            else:
+                print(f"Warning: Unsupported molecule data format: {type(mole_save_data)}")
+                return
 
-        if new_molecules:
-            self.molecules_dict.add_molecules(new_molecules)
+            # Add successfully created molecules
+            if new_molecules:
+                self.molecules_dict.add_molecules(new_molecules)
+                print(f"Added {len(new_molecules)} molecules to dictionary")
 
-        # Initialize the active molecule based on user settings
-        active_molecule_name = self.user_settings.get("default_active_molecule", "H2O")
-        if active_molecule_name in self.molecules_dict:
-            self._active_molecule = self.molecules_dict[active_molecule_name]
-        else:
-            print(f"Active molecule '{active_molecule_name}' not found in the dictionary. Defaulting to 'H2O'.")
-            self._active_molecule = self.molecules_dict.get("H2O", None)
+            # Initialize the active molecule based on user settings
+            active_molecule_name = self.user_settings.get("default_active_molecule", "H2O")
+            if active_molecule_name in self.molecules_dict:
+                self._active_molecule = self.molecules_dict[active_molecule_name]
+            else:
+                # Try to fall back to H2O
+                if "H2O" in self.molecules_dict:
+                    print(f"Active molecule '{active_molecule_name}' not found. Defaulting to 'H2O'.")
+                    self._active_molecule = self.molecules_dict["H2O"]
+                elif len(self.molecules_dict) > 0:
+                    # Use the first available molecule
+                    first_molecule = next(iter(self.molecules_dict.values()))
+                    print(f"Neither '{active_molecule_name}' nor 'H2O' found. Using '{first_molecule.name}'.")
+                    self._active_molecule = first_molecule
+                else:
+                    print("No molecules available to set as active.")
+                    self._active_molecule = None
+                    
+        except Exception as e:
+            print(f"Error in init_molecules: {e}")
+            raise
 
     def run(self):
         """
@@ -317,8 +369,15 @@ class iSLAT:
     def load_default_molecules(self, reset=True):
         """
         Loads default molecules into the molecules_dict.
+        
+        Parameters
+        ----------
+        reset : bool, optional
+            If True, clears existing molecules before loading defaults. Default is True.
         """
         print("Loading default molecules...")
+        
+        # Ensure molecules_dict exists and is properly initialized
         if not hasattr(self, "molecules_dict"):
             self.molecules_dict = MoleculeDict()
             # Initialize global parameters
@@ -332,9 +391,58 @@ class iSLAT:
             # Clear existing molecules if reset is True
             self.molecules_dict.clear()
             print("Resetting molecules_dict to empty.")
-            self.GUI.molecule_table.update_table()
+            
+            '''# Only update GUI if it exists and has the required components
+            if (hasattr(self, "GUI") and self.GUI is not None and 
+                hasattr(self.GUI, "molecule_table") and self.GUI.molecule_table is not None):
+                try:
+                    self.GUI.molecule_table.build_table()
+                    self.GUI.molecule_table.update_table()
+                except Exception as e:
+                    print(f"Warning: Could not update molecule table during reset: {e}")'''
 
-        self.init_molecules(self.default_molecule_csv_data)
+        # Load default molecules using init_molecules
+        try:
+            # Ensure default molecule data is available
+            if not hasattr(self, 'default_molecule_csv_data') or not self.default_molecule_csv_data:
+                print("Warning: No default molecule CSV data available. Attempting to reload...")
+                self.default_molecule_csv_data = read_default_csv()
+                
+            if not self.default_molecule_csv_data:
+                print("Error: Could not load default molecule CSV data.")
+                return
+            
+            self.init_molecules(self.default_molecule_csv_data)
+            print(f"Successfully loaded {len(self.molecules_dict)} default molecules.")
+            
+            # Update GUI components if they exist
+            if (hasattr(self, "GUI") and self.GUI is not None):
+                self._update_gui_after_molecule_load()
+                
+        except Exception as e:
+            print(f"Error loading default molecules: {e}")
+            raise
+
+    def _update_gui_after_molecule_load(self):
+        """
+        Helper method to update GUI components after molecules are loaded.
+        """
+        try:
+            # Update molecule table if it exists
+            if (hasattr(self.GUI, "molecule_table") and self.GUI.molecule_table is not None):
+                self.GUI.molecule_table.update_table()
+            
+            # Update control panel dropdown if it exists
+            if (hasattr(self.GUI, "control_panel") and self.GUI.control_panel is not None and
+                hasattr(self.GUI.control_panel, "reload_molecule_dropdown")):
+                self.GUI.control_panel.reload_molecule_dropdown()
+            
+            # Update plots if they exist
+            if (hasattr(self.GUI, "plot") and self.GUI.plot is not None):
+                self.GUI.plot.update_all_plots()
+                
+        except Exception as e:
+            print(f"Warning: Error updating GUI after molecule load: {e}")
 
     def load_spectrum(self, file_path=None):
         #filetypes = [('CSV Files', '*.csv'), ('TXT Files', '*.txt'), ('DAT Files', '*.dat')]

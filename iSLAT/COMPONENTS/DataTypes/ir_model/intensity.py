@@ -130,7 +130,7 @@ class Intensity:
         # 2. line opacity
         lines = m.lines_as_namedtuple
         
-        # Debug: Check input data quality
+        '''# Debug: Check input data quality
         print(f"Lines data quality check:")
         print(f"  g_low - finite: {np.sum(np.isfinite(lines.g_low))}, NaN: {np.sum(np.isnan(lines.g_low))}, total: {len(lines.g_low)}")
         print(f"  g_up - finite: {np.sum(np.isfinite(lines.g_up))}, NaN: {np.sum(np.isnan(lines.g_up))}, total: {len(lines.g_up)}")
@@ -145,20 +145,20 @@ class Intensity:
             if not np.isfinite(line.g_low) or not np.isfinite(line.g_up) or not np.isfinite(line.e_low) or \
                not np.isfinite(line.e_up) or not np.isfinite(line.a_stein) or not np.isfinite(line.freq):
                 print(f"    Line {i}: g_low={line.g_low}, g_up={line.g_up}, e_low={line.e_low}, e_up={line.e_up}, "
-                      f"a_stein={line.a_stein}, freq={line.freq}")
+                      f"a_stein={line.a_stein}, freq={line.freq}")'''
 
         x_low = lines.g_low * np.exp(-lines.e_low / t_kin) / q_sum
         x_up = lines.g_up * np.exp(-lines.e_up / t_kin) / q_sum
 
         # Debug: Check intermediate calculations
-        print(f"  x_low - finite: {np.sum(np.isfinite(x_low))}, NaN: {np.sum(np.isnan(x_low))}")
-        print(f"  x_up - finite: {np.sum(np.isfinite(x_up))}, NaN: {np.sum(np.isnan(x_up))}")
+        #print(f"  x_low - finite: {np.sum(np.isfinite(x_low))}, NaN: {np.sum(np.isnan(x_low))}")
+        #print(f"  x_up - finite: {np.sum(np.isfinite(x_up))}, NaN: {np.sum(np.isnan(x_up))}")
 
         # Eq. A2 of Banzatti et al. 2012
         tau = lines.a_stein * c.SPEED_OF_LIGHT_CGS ** 3 / (8.0 * np.pi * lines.freq ** 3 * 1e5 * dv * c.FGAUSS_PREFACTOR) * n_mol \
             * (x_low * lines.g_up / lines.g_low - x_up)
         
-        print(f"  tau - finite: {np.sum(np.isfinite(tau))}, NaN: {np.sum(np.isnan(tau))}")
+        #print(f"  tau - finite: {np.sum(np.isfinite(tau))}, NaN: {np.sum(np.isnan(tau))}")
         
         # Check for division by zero in g_low
         zero_g_low = np.sum(lines.g_low == 0)
@@ -176,7 +176,7 @@ class Intensity:
         else:
             raise ValueError("Intensity calculation method not known")
 
-        print(f"  Final intensity - finite: {np.sum(np.isfinite(intensity))}, NaN: {np.sum(np.isnan(intensity))}")
+        #print(f"  Final intensity - finite: {np.sum(np.isfinite(intensity))}, NaN: {np.sum(np.isnan(intensity))}")
 
         self._tau = tau
         self._intensity = intensity
