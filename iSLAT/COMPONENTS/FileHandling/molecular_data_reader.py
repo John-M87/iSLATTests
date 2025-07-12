@@ -108,10 +108,12 @@ class MolecularDataReader:
         - g_low: Lower level statistical weight - float, 7 characters
         """
         with open(filename, "r") as f:
-            data_raw = f.readlines()
-
-        # Remove comments and empty lines
-        data_clean = list(filter(lambda x: len(x.strip()) > 0 and x.strip()[0] != "#", data_raw))
+            # Read all lines at once and process them in a single pass
+            data_clean = []
+            for line in f:
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#"):
+                    data_clean.append(stripped)
 
         # Split file into partition function and line section
         n_partition = int(data_clean[0])
@@ -165,17 +167,16 @@ class MolecularDataReader:
 
         nr, lev_up, lev_low, lam, freq, a_stein, e_up, e_low, g_up, g_low = [M[field] for field in M.dtype.names]
 
-        # Decode and strip string fields
-        lev_up = list(map(self._decode_strip, lev_up))
-        lev_low = list(map(self._decode_strip, lev_low))
+        # Decode and strip string fields more efficiently
+        lev_up = [x.decode().strip() for x in lev_up]
+        lev_low = [x.decode().strip() for x in lev_low]
 
-        # Convert frequency from GHz to Hz
-        freq = 1e9 * freq
+        # Convert frequency from GHz to Hz (vectorized operation)
+        freq = freq * 1e9
 
-        # Create list of line data dictionaries
-        lines_data = []
-        for i in range(len(nr)):
-            line_data = {
+        # Create list of line data dictionaries using list comprehension
+        lines_data = [
+            {
                 'nr': nr[i],
                 'lev_up': lev_up[i],
                 'lev_low': lev_low[i],
@@ -187,7 +188,8 @@ class MolecularDataReader:
                 'g_up': g_up[i],
                 'g_low': g_low[i]
             }
-            lines_data.append(line_data)
+            for i in range(len(nr))
+        ]
             
         return lines_data
 
