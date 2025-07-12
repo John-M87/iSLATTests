@@ -202,6 +202,48 @@ class Intensity:
 
         mask = (self.molecule.lines_as_namedtuple.lam >= lam_min) & (self.molecule.lines_as_namedtuple.lam <= lam_max)
         return self.get_table[mask]
+    
+    def get_lines_in_range_with_intensity(self, lam_min: float, lam_max: float):
+        """
+        Get MoleculeLine objects in the specified wavelength range with computed intensity and tau values.
+        
+        Parameters
+        ----------
+        lam_min : float
+            Minimum wavelength in microns
+        lam_max : float
+            Maximum wavelength in microns
+            
+        Returns
+        -------
+        list
+            List of tuples (MoleculeLine, intensity, tau) within the range
+        """
+        # Get lines in range from the molecule line list
+        lines_in_range = self.molecule.get_lines_in_range(lam_min, lam_max)
+        
+        # If no intensity calculated yet, return empty list
+        if self._intensity is None or self._tau is None:
+            return []
+        
+        # Create list of tuples with line, intensity, and tau
+        result = []
+        lines_array = self.molecule.lines_as_namedtuple
+        
+        for line in lines_in_range:
+            # Find the index of this line in the full array
+            line_idx = None
+            for i, (lam, lev_up, lev_low) in enumerate(zip(lines_array.lam, lines_array.lev_up, lines_array.lev_low)):
+                if (line.lam == lam and line.lev_up == lev_up and line.lev_low == lev_low):
+                    line_idx = i
+                    break
+            
+            if line_idx is not None:
+                intensity = self._intensity[line_idx]
+                tau = self._tau[line_idx]
+                result.append((line, intensity, tau))
+        
+        return result
 
     @property
     def tau(self) -> Optional[np.ndarray]:
@@ -244,6 +286,26 @@ class Intensity:
         if pd is None:
             raise ImportError("Pandas required to create table")
 
+        # Try using the new MoleculeLine approach first for better data access
+        try:
+            if hasattr(self.molecule, 'lines') and self.molecule.lines:
+                # Use individual MoleculeLine objects for better data type handling
+                data_dict = {
+                    'lev_up': [line.lev_up for line in self.molecule.lines],
+                    'lev_low': [line.lev_low for line in self.molecule.lines],
+                    'lam': [line.lam for line in self.molecule.lines],
+                    'tau': self.tau.tolist() if self.tau is not None else [None] * len(self.molecule.lines),
+                    'intens': self.intensity.tolist() if self.intensity is not None else [None] * len(self.molecule.lines),
+                    'a_stein': [line.a_stein for line in self.molecule.lines],
+                    'e_up': [line.e_up for line in self.molecule.lines],
+                    'g_up': [line.g_up for line in self.molecule.lines]
+                }
+                return pd.DataFrame(data_dict)
+        except Exception as e:
+            # Fallback to the original namedtuple approach
+            print(f"Warning: Could not use new MoleculeLine approach for get_table: {e}")
+
+        # Original approach using namedtuple
         lines = self.molecule.lines_as_namedtuple
         return pd.DataFrame({'lev_up': lines.lev_up,
                              'lev_low': lines.lev_low,

@@ -30,58 +30,77 @@ class BottomOptions:
         create_button(self.frame, self.theme, "Show Atomic Lines", self.show_atomic_lines, 0, 7)
     
     def save_line(self, save_type="selected"):
-        """Save the currently selected line to the line saves file."""
-        if not hasattr(self.main_plot, 'selected_wave') or self.main_plot.selected_wave is None:
-            self.data_field.insert_text("No line selected to save.\n")
+        """Save the currently selected line to the line saves file using the new MoleculeLine approach."""
+        if not hasattr(self.main_plot, 'current_selection') or self.main_plot.current_selection is None:
+            self.data_field.insert_text("No region selected for saving.\n")
             return
 
         if save_type == "strongest":
-            # Get the strongest line information from the current selection
-            selected_line = self.main_plot.find_strongest_line()
-            if selected_line is None:
+            # Get the strongest line information from the current selection using new approach
+            selected_line_info = self.main_plot.find_strongest_line_from_data()
+            if selected_line_info is None:
                 self.data_field.insert_text("No valid line found in selection.\n")
-                return  
-        elif save_type == "selected":
-            # Use the currently selected line from the main plot
-            if not hasattr(self.main_plot, 'current_selection') or self.main_plot.current_selection is None:
-                self.data_field.insert_text("No region selected for saving.\n")
                 return
-            
-            # Get the wavelength from the current selection
-            selected_wave = self.main_plot.current_selection[0]
-            selected_line = {
-                'wavelength': selected_wave,
-                'flux': self.main_plot.get_flux_at_wavelength(selected_wave),
-                'species': self.islat.active_molecule,
-                'lev_up': '',
-                'lev_low': '',
-                'tau': '',
-                'intensity': '',
-                'a_stein': '',
-                'e_up': '',
-                'g_up': ''
-            }
+        elif save_type == "selected":
+            # Use the currently selected region and find the strongest line in it
+            selected_line_info = self.main_plot.find_strongest_line_from_data()
+            if selected_line_info is None:
+                # Fallback: create basic line info from selection bounds
+                xmin, xmax = self.main_plot.current_selection
+                center_wave = (xmin + xmax) / 2.0
+                
+                # Calculate flux integral in the selected range
+                err_data = getattr(self.islat, 'err_data', None)
+                line_flux, line_err = self.main_plot.flux_integral(
+                    self.islat.wave_data, 
+                    self.islat.flux_data, 
+                    err_data, 
+                    xmin, 
+                    xmax
+                )
+                
+                selected_line_info = {
+                    'lam': center_wave,
+                    'wavelength': center_wave,
+                    'flux': line_flux,
+                    'intensity': line_flux,
+                    'e': 0.0,
+                    'a': 0.0,
+                    'g': 1.0,
+                    'inten': line_flux,
+                    'up_lev': 'Unknown',
+                    'low_lev': 'Unknown',
+                    'tau': 0.0
+                }
         else:
             self.data_field.insert_text("Invalid save type specified.\n")
             return
             
+        # Get selection bounds for xmin/xmax
+        if hasattr(self.main_plot, 'selected_wave') and self.main_plot.selected_wave is not None:
+            xmin = self.main_plot.selected_wave[0] if len(self.main_plot.selected_wave) > 0 else selected_line_info['lam'] - 0.01
+            xmax = self.main_plot.selected_wave[-1] if len(self.main_plot.selected_wave) > 1 else selected_line_info['lam'] + 0.01
+        else:
+            # Use current selection bounds
+            xmin, xmax = self.main_plot.current_selection
+            
         # Create line info dictionary with the format expected by the file handler
         line_info = {
-            'species': selected_line.get('species', self.islat.active_molecule),
-            'lev_up': selected_line.get('lev_up', ''),
-            'lev_low': selected_line.get('lev_low', ''),
-            'lam': selected_line['wavelength'],
-            'tau': selected_line.get('tau', selected_line['flux']),
-            'intens': selected_line.get('intensity', selected_line['flux']),
-            'a_stein': selected_line.get('a_stein', ''),
-            'e_up': selected_line.get('e_up', ''),
-            'g_up': selected_line.get('g_up', ''),
-            'xmin': self.main_plot.selected_wave[0] if len(self.main_plot.selected_wave) > 0 else selected_line['wavelength'] - 0.01,
-            'xmax': self.main_plot.selected_wave[-1] if len(self.main_plot.selected_wave) > 1 else selected_line['wavelength'] + 0.01,
+            'species': self.islat.active_molecule.name,
+            'lev_up': selected_line_info.get('up_lev', ''),
+            'lev_low': selected_line_info.get('low_lev', ''),
+            'lam': selected_line_info['lam'],
+            'tau': selected_line_info.get('tau', 0.0),
+            'intens': selected_line_info.get('inten', selected_line_info.get('intensity', 0.0)),
+            'a_stein': selected_line_info.get('a', 0.0),
+            'e_up': selected_line_info.get('e', 0.0),
+            'g_up': selected_line_info.get('g', 1.0),
+            'xmin': xmin,
+            'xmax': xmax,
         }
         
         try:
-            ifh.save_line(line_info, file_path=self.islat.output_line_measurements)
+            ifh.save_line(line_info, file_name=self.islat.output_line_measurements)
             self.data_field.insert_text(f"Saved line at {line_info['lam']:.4f} μm\n")
         except Exception as e:
             self.data_field.insert_text(f"Error saving line: {e}\n")
