@@ -29,35 +29,59 @@ class BottomOptions:
         create_button(self.frame, self.theme, "Single Slab Fit", self.single_slab_fit, 0, 6)
         create_button(self.frame, self.theme, "Show Atomic Lines", self.show_atomic_lines, 0, 7)
     
-    def save_line(self):
+    def save_line(self, save_type="selected"):
         """Save the currently selected line to the line saves file."""
         if not hasattr(self.main_plot, 'selected_wave') or self.main_plot.selected_wave is None:
             self.data_field.insert_text("No line selected to save.\n")
             return
+
+        if save_type == "strongest":
+            # Get the strongest line information from the current selection
+            selected_line = self.main_plot.find_strongest_line()
+            if selected_line is None:
+                self.data_field.insert_text("No valid line found in selection.\n")
+                return  
+        elif save_type == "selected":
+            # Use the currently selected line from the main plot
+            if not hasattr(self.main_plot, 'current_selection') or self.main_plot.current_selection is None:
+                self.data_field.insert_text("No region selected for saving.\n")
+                return
             
-        # Get the strongest line information from the current selection
-        strongest_line = self.main_plot.find_strongest_line()
-        if strongest_line is None:
-            self.data_field.insert_text("No valid line found in selection.\n")
+            # Get the wavelength from the current selection
+            selected_wave = self.main_plot.current_selection[0]
+            selected_line = {
+                'wavelength': selected_wave,
+                'flux': self.main_plot.get_flux_at_wavelength(selected_wave),
+                'species': self.islat.active_molecule,
+                'lev_up': '',
+                'lev_low': '',
+                'tau': '',
+                'intensity': '',
+                'a_stein': '',
+                'e_up': '',
+                'g_up': ''
+            }
+        else:
+            self.data_field.insert_text("Invalid save type specified.\n")
             return
             
         # Create line info dictionary with the format expected by the file handler
         line_info = {
-            'species': strongest_line.get('species', self.islat.active_molecule),
-            'lev_up': strongest_line.get('lev_up', ''),
-            'lev_low': strongest_line.get('lev_low', ''),
-            'lam': strongest_line['wavelength'],
-            'tau': strongest_line.get('tau', strongest_line['flux']),
-            'intens': strongest_line.get('intensity', strongest_line['flux']),
-            'a_stein': strongest_line.get('a_stein', ''),
-            'e_up': strongest_line.get('e_up', ''),
-            'g_up': strongest_line.get('g_up', ''),
-            'xmin': self.main_plot.selected_wave[0] if len(self.main_plot.selected_wave) > 0 else strongest_line['wavelength'] - 0.01,
-            'xmax': self.main_plot.selected_wave[-1] if len(self.main_plot.selected_wave) > 1 else strongest_line['wavelength'] + 0.01,
+            'species': selected_line.get('species', self.islat.active_molecule),
+            'lev_up': selected_line.get('lev_up', ''),
+            'lev_low': selected_line.get('lev_low', ''),
+            'lam': selected_line['wavelength'],
+            'tau': selected_line.get('tau', selected_line['flux']),
+            'intens': selected_line.get('intensity', selected_line['flux']),
+            'a_stein': selected_line.get('a_stein', ''),
+            'e_up': selected_line.get('e_up', ''),
+            'g_up': selected_line.get('g_up', ''),
+            'xmin': self.main_plot.selected_wave[0] if len(self.main_plot.selected_wave) > 0 else selected_line['wavelength'] - 0.01,
+            'xmax': self.main_plot.selected_wave[-1] if len(self.main_plot.selected_wave) > 1 else selected_line['wavelength'] + 0.01,
         }
         
         try:
-            ifh.save_line(line_info)
+            ifh.save_line(line_info, file_path=self.islat.output_line_measurements)
             self.data_field.insert_text(f"Saved line at {line_info['lam']:.4f} μm\n")
         except Exception as e:
             self.data_field.insert_text(f"Error saving line: {e}\n")

@@ -109,6 +109,10 @@ class iSLAT:
 
         self.xp1 = self.xp2 = None
 
+        # Initialize file paths for additional file types
+        self.input_line_list = None
+        self.output_line_measurements = None
+
         # Initialize the update coordinator
         self.update_coordinator = UpdateCoordinator(self)
 
