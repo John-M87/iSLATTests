@@ -139,39 +139,31 @@ def read_HITRAN_data(file_path):
 
 def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name):
     filename = os.path.join(file_path, file_name)
-    if os.path.exists(file_path):
+    if os.path.exists(filename):
         try:
-            with open(filename, 'r') as csvfile:
-                reader = csv.DictReader(csvfile)
-                return [row for row in reader]
-        except FileNotFoundError:
-            pass
-    return []
+            return pd.read_csv(filename)
+        except Exception as e:
+            print(f"Error reading line saves file: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_name):
     """Save a line to the line saves file."""
     filename = os.path.join(file_path, file_name)
     #print(f"Saving line to {filename}")
     df = pd.DataFrame([line_info])
-    
-    '''# Check if file exists and read existing data
-    if os.path.exists(filename):
-        existing_df = pd.read_csv(filename)
-        # Append new line to existing data
-        new_df = pd.concat([existing_df, pd.DataFrame([line_info])], ignore_index=True)
-        # Save the updated DataFrame
-        new_df.to_csv(filename, index=False)
-    else:
-        # Create new DataFrame with just the new line
-        new_df = pd.DataFrame([line_info])
-        # Save the new DataFrame
-        new_df.to_csv(filename, index=False)'''
 
     # Ensure the directory exists
     os.makedirs(file_path, exist_ok=True)
     
+    # check to see if the file is empty
+    if os.path.exists(filename) and os.path.getsize(filename) > 0:
+        do_header = False
+    else:
+        do_header = True
+
     # Save the line to the CSV file
-    df.to_csv(filename, mode='a', header=not os.path.exists(filename), index=False)
+    df.to_csv(filename, mode='a', header=do_header, index=False)
     print(f"Saved line at ~{line_info['lam']:.4f} μm to {filename}")
 
 def read_spectral_data(file_path : str):

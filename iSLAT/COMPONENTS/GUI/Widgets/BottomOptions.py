@@ -109,7 +109,7 @@ class BottomOptions:
         """Show saved lines as vertical dashed lines on the plot."""
         try:
             # Load saved lines from file
-            saved_lines = ifh.read_line_saves()
+            saved_lines = ifh.read_line_saves(file_name=self.islat.input_line_list)
             if not saved_lines:
                 self.data_field.insert_text("No saved lines found.\n")
                 return
