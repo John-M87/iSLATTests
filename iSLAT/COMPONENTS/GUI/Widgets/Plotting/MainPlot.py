@@ -273,11 +273,13 @@ class iSLATPlot:
         Expects saved_lines to be a list of dictionaries with 'wavelength', 'xmin', and 'xmax' keys.
         """
         for line in saved_lines:
-            wave = line['wavelength']
+            wave = float(line['lam'])
             self.ax1.vlines(wave, self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], linestyles='dashed', color='red', label=f"Saved Line at {wave:.4f} μm")
             if 'xmin' in line and 'xmax' in line:
-                self.ax1.vlines(line['xmin'], self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], color='coral', alpha=0.5, label=f"Range Start at {line['xmin']:.4f} μm")
-                self.ax1.vlines(line['xmax'], self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], color='coral', alpha=0.5, label=f"Range End at {line['xmax']:.4f} μm")
+                xmin = float(line['xmin'])
+                xmax = float(line['xmax'])
+                self.ax1.vlines(xmin, self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], color='coral', alpha=0.5, label=f"Range Start at {xmin:.4f} μm")
+                self.ax1.vlines(xmax, self.ax1.get_ylim()[0], self.ax1.get_ylim()[1], color='coral', alpha=0.5, label=f"Range End at {xmax:.4f} μm")
 
         self.ax1.legend()
         self.canvas.draw_idle()
