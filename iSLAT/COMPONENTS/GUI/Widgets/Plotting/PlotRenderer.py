@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 #from matplotlib.widgets import SpanSelector
 #from iSLAT.iSLATDefaultInputParms import dist, au, pc, ccum, hh
 import iSLAT.Constants as c
@@ -384,16 +385,18 @@ class PlotRenderer:
             mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
             self.ax3.set_title(f"{mol_label} - Error in calculation")
     
-    def plot_saved_lines(self, saved_lines):
+    def plot_saved_lines(self, saved_lines : pd.DataFrame):
         """Plot saved lines on the main spectrum"""
-        if not saved_lines:
+        if saved_lines.empty:
             return
-            
-        for line in saved_lines:
+
+        for index, line in saved_lines.iterrows():
+            #print("Line:", line)
+            #print("Index:", index)
             # Plot vertical lines at saved positions
-            if 'wavelength' in line:
+            if 'lam' in line:
                 self.ax1.axvline(
-                    line['wavelength'], 
+                    line['lam'], 
                     color=self.theme.get("saved_line_color", "orange"),
                     alpha=0.7, 
                     linestyle=':', 

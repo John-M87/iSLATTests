@@ -110,7 +110,7 @@ class BottomOptions:
         try:
             # Load saved lines from file
             saved_lines = ifh.read_line_saves(file_name=self.islat.input_line_list)
-            if not saved_lines:
+            if saved_lines.empty:
                 self.data_field.insert_text("No saved lines found.\n")
                 return
                 
@@ -118,7 +118,7 @@ class BottomOptions:
             self.main_plot.plot_saved_lines(saved_lines)
             
             # Update the main plot
-            self.main_plot.update_all_plots()
+            #self.main_plot.update_all_plots()
             
             self.data_field.insert_text(f"Displayed {len(saved_lines)} saved lines on plot.\n")
             
