@@ -11,12 +11,14 @@ This class handles all fitting operations including:
 
 import numpy as np
 from datetime import datetime
+import json
 from lmfit.models import GaussianModel, PseudoVoigtModel
 from lmfit import Parameters, minimize, fit_report
 from scipy.optimize import fmin
 from scipy.signal import find_peaks
 from iSLAT.COMPONENTS.DataTypes.ir_model import Chi2Spectrum, FluxMeasurement
 from iSLAT.COMPONENTS.DataProcessing.Slabfit import SlabFit
+import json
 
 class FittingEngine:
     """
@@ -737,6 +739,78 @@ class FittingEngine:
         
         return stats
     
+    def is_multi_component_fit(self):
+        """
+        Check if the last fit result contains multiple components.
+        
+        Returns
+        -------
+        bool
+            True if multi-component fit, False if single component
+        """
+        if self.last_fit_result is None or self.last_fit_params is None:
+            return False
+        
+        # Check for component prefixes (g0_, g1_, etc.)
+        component_prefixes = set()
+        for param_name in self.last_fit_params:
+            if '_' in param_name:
+                prefix = param_name.split('_')[0] + '_'
+                if prefix.startswith('g') and prefix[1:-1].isdigit():
+                    component_prefixes.add(prefix)
+        
+        return len(component_prefixes) > 1
+
+    def get_component_prefixes(self):
+        """
+        Get the component prefixes from the last fit result.
+        
+        Returns
+        -------
+        list
+            List of component prefixes (e.g., ['g0_', 'g1_'])
+        """
+        if self.last_fit_result is None or self.last_fit_params is None:
+            return []
+        
+        component_prefixes = set()
+        for param_name in self.last_fit_params:
+            if '_' in param_name:
+                prefix = param_name.split('_')[0] + '_'
+                if prefix.startswith('g') and prefix[1:-1].isdigit():
+                    component_prefixes.add(prefix)
+        
+        return sorted(list(component_prefixes))
+    
+    def evaluate_fit_components(self, x_data):
+        """
+        Evaluate individual components of a multi-component fit.
+        
+        Parameters
+        ----------
+        x_data : array_like
+            X values to evaluate at
+            
+        Returns
+        -------
+        dict
+            Dictionary mapping component names to flux arrays
+        """
+        if self.last_fit_result is None:
+            return {}
+        
+        if not self.is_multi_component_fit():
+            # Single component - return the full fit
+            return {'total': self.last_fit_result.eval(x=x_data)}
+        
+        # Multi-component fit
+        try:
+            components = self.last_fit_result.eval_components(x=x_data)
+            return components
+        except Exception as e:
+            print(f"Error evaluating fit components: {e}")
+            return {'total': self.last_fit_result.eval(x=x_data)}
+
     def extract_line_parameters(self):
         """
         Extract line parameters from the last fitting result.
@@ -848,206 +922,150 @@ class FittingEngine:
     
     def save_fit_results(self, filename=None):
         """
-        Save the last fitting results to a file.
+        Save fit results to a JSON file.
         
         Parameters
         ----------
         filename : str, optional
-            Output filename. If None, generates automatic filename.
+            Output filename. If None, generates timestamp-based name
+            
+        Returns
+        -------
+        str
+            Path to saved file
         """
         if self.last_fit_result is None:
-            print("No fitting results to save.")
-            return
-        
+            raise ValueError("No fit results available to save")
+            
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"fit_results_{timestamp}.txt"
-        
-        with open(filename, 'w') as f:
-            f.write("iSLAT Fitting Results\n")
-            f.write("=" * 50 + "\n\n")
-            f.write(self.get_fit_report())
-            f.write("\n\nLine Parameters:\n")
-            f.write("-" * 20 + "\n")
+            filename = f"fit_results_{timestamp}.json"
             
-            line_params = self.extract_line_parameters()
-            for key, value in line_params.items():
-                if isinstance(value, dict):
-                    f.write(f"\n{key}:\n")
-                    for subkey, subvalue in value.items():
-                        f.write(f"  {subkey}: {subvalue}\n")
-                else:
-                    f.write(f"{key}: {value}\n")
+        # Extract comprehensive fit information
+        fit_data = {
+            'timestamp': datetime.now().isoformat(),
+            'fit_method': 'gaussian_line_fitting',
+            'parameters': self.extract_line_parameters(),
+            'statistics': self.get_fit_statistics(),
+            'fit_report': self.get_fit_report()
+        }
         
-        print(f"Fit results saved to {filename}")
-    
-    def is_multi_component_fit(self):
+        # Save to JSON file
+        with open(filename, 'w') as f:
+            json.dump(fit_data, f, indent=2, default=str)
+            
+        return filename
+
+    def format_fit_results_for_csv(self, fit_result, wave_data, flux_data, error_data, 
+                                   xmin, xmax, rest_wavelength, line_info, sig_det_lim=2):
         """
-        Check if the last fit result contains multiple components.
-        
-        Returns
-        -------
-        bool
-            True if multi-component fit, False if single component
-        """
-        if self.last_fit_result is None or self.last_fit_params is None:
-            return False
-        
-        # Check for component prefixes (g0_, g1_, etc.)
-        component_prefixes = set()
-        for param_name in self.last_fit_params:
-            if '_' in param_name:
-                prefix = param_name.split('_')[0] + '_'
-                if prefix.startswith('g') and prefix[1:-1].isdigit():
-                    component_prefixes.add(prefix)
-        
-        return len(component_prefixes) > 1
-    
-    def get_component_prefixes(self):
-        """
-        Get the component prefixes from the last fit result.
-        
-        Returns
-        -------
-        list
-            List of component prefixes (e.g., ['g0_', 'g1_'])
-        """
-        if self.last_fit_result is None or self.last_fit_params is None:
-            return []
-        
-        component_prefixes = set()
-        for param_name in self.last_fit_params:
-            if '_' in param_name:
-                prefix = param_name.split('_')[0] + '_'
-                if prefix.startswith('g') and prefix[1:-1].isdigit():
-                    component_prefixes.add(prefix)
-        
-        return sorted(list(component_prefixes))
-    
-    def evaluate_fit_components(self, x_data):
-        """
-        Evaluate individual components of a multi-component fit.
+        Format fit results into a standardized dictionary for CSV output.
         
         Parameters
         ----------
-        x_data : array_like
-            X values to evaluate at
+        fit_result : lmfit.ModelResult
+            The fitting result object
+        wave_data, flux_data, error_data : array_like
+            Spectral data arrays
+        xmin, xmax : float
+            Fitting range boundaries
+        rest_wavelength : float
+            Rest wavelength of the line
+        line_info : dict
+            Molecular line information
+        sig_det_lim : float, optional
+            Detection significance limit (default: 2)
             
         Returns
         -------
         dict
-            Dictionary mapping component names to flux arrays
+            Formatted result dictionary
         """
-        if self.last_fit_result is None:
-            return {}
+        from scipy.integrate import trapezoid
         
-        if not self.is_multi_component_fit():
-            # Single component - return the full fit
-            return {'total': self.last_fit_result.eval(x=x_data)}
+        # Calculate line flux integral (direct calculation since we have the data)
+        flux_data_integral = trapezoid(flux_data, wave_data)
+        if error_data is not None:
+            err_data_integral = np.sqrt(trapezoid(error_data**2, wave_data))
+        else:
+            err_data_integral = abs(flux_data_integral) * 0.1
         
-        # Multi-component fit
-        try:
-            components = self.last_fit_result.eval_components(x=x_data)
-            return components
-        except Exception as e:
-            print(f"Error evaluating fit components: {e}")
-            return {'total': self.last_fit_result.eval(x=x_data)}
-    
-    def get_line_detection_info(self):
-        """
-        Get information about the current line detection strategy.
+        # Calculate signal-to-noise ratios for data
+        line_sn = flux_data_integral / err_data_integral if err_data_integral > 0 else 0.0
+        line_det = abs(flux_data_integral) > sig_det_lim * err_data_integral
         
-        Returns
-        -------
-        dict
-            Information about current strategy and available options
-        """
-        info = {
-            'current_strategy': self.line_detection_strategy,
-            'available_strategies': [
-                {
-                    'name': 'molecular_table',
-                    'description': 'Use molecular line tables to determine centers (like MainPlotOld)',
-                    'requirements': 'Active molecule with intensity data'
-                },
-                {
-                    'name': 'peak_detection', 
-                    'description': 'Use peak detection algorithms (default FittingEngine)',
-                    'requirements': 'None'
-                },
-                {
-                    'name': 'user_selection',
-                    'description': 'Use pre-selected line positions (like iSLATOld)',
-                    'requirements': 'User-selected centers via set_user_selected_centers()'
-                }
-            ],
-            'user_selected_centers': self.user_selected_centers
+        # Prepare base result dictionary with data measurements
+        result_entry = {
+            'species': line_info.get('species', 'Unknown'),
+            'lev_up': line_info.get('lev_up', ''),
+            'lev_low': line_info.get('lev_low', ''),
+            'lam': line_info.get('lam', rest_wavelength),
+            'tau': line_info.get('tau', 0.0),
+            'intens': line_info.get('intens', 0.0),
+            'a_stein': line_info.get('a_stein', 0.0),
+            'e_up': line_info.get('e_up', 0.0),
+            'g_up': line_info.get('g_up', 1.0),
+            'xmin': xmin,
+            'xmax': xmax,
+            'Flux_data': np.float64(f'{flux_data_integral:.{3}e}'),
+            'Err_data': np.float64(f'{err_data_integral:.{3}e}'),
+            'Line_SN': np.round(line_sn, decimals=1),
+            'Line_det': bool(line_det),
+            'Flux_islat': np.float64(f'{flux_data_integral:.{3}e}'),  # Default to data values
+            'Err_islat': np.float64(f'{err_data_integral:.{3}e}')     # Will be overwritten if fit succeeds
         }
-        return info
-    
-    def debug_line_detection(self, wave_data, flux_data, xmin=None, xmax=None):
-        """
-        Debug method to show what each line detection strategy finds.
         
-        Returns
-        -------
-        dict
-            Debug information for each strategy
-        """
-        debug_info = {}
+        # Process fit results if successful
+        if fit_result and hasattr(fit_result, 'params') and fit_result.success:
+            # Extract fit parameters
+            center = fit_result.params['center'].value
+            center_err = fit_result.params['center'].stderr if fit_result.params['center'].stderr else 0.0
+            amplitude = fit_result.params['amplitude'].value
+            sigma = fit_result.params['sigma'].value
+            
+            # Calculate derived quantities
+            fwhm = 2.355 * sigma  # Convert sigma to FWHM
+            area = amplitude * sigma * np.sqrt(2 * np.pi)  # Gaussian area
+            area_err = area * 0.1  # Approximate 10% error for area
+            
+            # Calculate fit signal-to-noise and detection
+            fit_sn = area / area_err if area_err > 0 else 0.0
+            fit_det = abs(area) > sig_det_lim * area_err
+            
+            # Calculate Doppler shift
+            doppler = (center - rest_wavelength) / rest_wavelength * 299792.458  # km/s
+            
+            # Update result with fit information
+            result_entry.update({
+                'Fit_SN': np.round(fit_sn, decimals=1),
+                'Fit_det': bool(fit_det),
+                'Flux_fit': np.float64(f'{area:.{3}e}'),
+                'Err_fit': np.float64(f'{area_err:.{3}e}'),
+                'FWHM_fit': np.round(fwhm, decimals=1) if fit_det else np.nan,
+                'FWHM_err': np.round(fwhm * 0.1, decimals=1) if fit_det else np.nan,
+                'Centr_fit': np.round(center, decimals=5) if fit_det else np.nan,
+                'Centr_err': np.round(center_err, decimals=5) if fit_det else np.nan,
+                'Doppler': np.round(doppler, decimals=1) if fit_det else np.nan,
+                'Red-chisq': np.round(fit_result.redchi, decimals=2)
+            })
+            
+            # Update iSLAT flux values if fit is good and detected
+            if fit_det:
+                result_entry['Flux_islat'] = np.float64(f'{area:.{3}e}')
+                result_entry['Err_islat'] = np.float64(f'{area_err:.{3}e}')
+        else:
+            # Fit failed - fill with NaN values but keep data measurements
+            result_entry.update({
+                'Fit_SN': np.round(flux_data_integral / err_data_integral if err_data_integral > 0 else 0.0, decimals=1),
+                'Fit_det': False,
+                'Flux_fit': np.float64(f'{flux_data_integral:.{3}e}'),  # Use data flux for failed fit
+                'Err_fit': np.float64(f'{err_data_integral:.{3}e}'),
+                'FWHM_fit': np.nan,
+                'FWHM_err': np.nan,
+                'Centr_fit': np.nan,
+                'Centr_err': np.nan,
+                'Doppler': np.nan,
+                'Red-chisq': np.nan
+            })
         
-        # Test molecular table strategy
-        try:
-            n_comp_mol, centers_mol = self._estimate_components_from_molecular_table(wave_data, flux_data, xmin, xmax)
-            debug_info['molecular_table'] = {
-                'n_components': n_comp_mol,
-                'centers': centers_mol,
-                'strategy': 'molecular_table'
-            }
-        except Exception as e:
-            debug_info['molecular_table'] = {'error': str(e)}
-        
-        # Test peak detection strategy
-        try:
-            n_comp_peak, centers_peak = self._estimate_components_from_peak_detection(wave_data, flux_data, xmin, xmax)
-            debug_info['peak_detection'] = {
-                'n_components': n_comp_peak,
-                'centers': centers_peak,
-                'strategy': 'peak_detection'
-            }
-        except Exception as e:
-            debug_info['peak_detection'] = {'error': str(e)}
-        
-        # Test user selection strategy
-        try:
-            n_comp_user, centers_user = self._estimate_components_from_user_selection(wave_data, flux_data, xmin, xmax)
-            debug_info['user_selection'] = {
-                'n_components': n_comp_user,
-                'centers': centers_user,
-                'strategy': 'user_selection'
-            }
-        except Exception as e:
-            debug_info['user_selection'] = {'error': str(e)}
-        
-        # Current strategy
-        debug_info['current_strategy'] = self.line_detection_strategy
-        debug_info['current_result'] = debug_info.get(self.line_detection_strategy, {'error': 'Unknown strategy'})
-        
-        return debug_info
-
-    def get_recommended_settings(self):
-        """
-        Get recommended UserSettings.json entries for line detection strategy.
-        
-        Returns
-        -------
-        dict
-            Recommended settings dictionary
-        """
-        return {
-            'line_detection_strategy': 'user_selection',  # Default to match original iSLATOld
-            'centrtolerance': 0.0001,  # From iSLATOld: centrtolerance = 0.0001
-            'fwhmtolerance': 5,        # From iSLATOld: fwhmtolerance = 5 (in km/s)
-            'line_threshold': 0.03,    # From iSLATOld: line_threshold = 0.03
-            'specsep': 0.01           # From iSLATOld: specsep = .01
-        }
+        return result_entry

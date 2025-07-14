@@ -4,6 +4,8 @@ import traceback
 import iSLAT.COMPONENTS.FileHandling.iSLATFileHandling as ifh
 from ..GUIFunctions import create_button
 from iSLAT.COMPONENTS.DataProcessing.Slabfit import SlabFit as SlabModel
+from iSLAT.COMPONENTS.DataProcessing.FittingEngine import FittingEngine
+from iSLAT.COMPONENTS.DataProcessing.LineAnalyzer import LineAnalyzer
 
 class BottomOptions:
     def __init__(self, master, islat, theme, main_plot, data_field, config):
@@ -244,56 +246,70 @@ class BottomOptions:
             self.data_field.insert_text(f"Error during fitting: {e}\n", clear_first=False)
             self.data_field.insert_text(f"Traceback: {traceback.format_exc()}\n", clear_first=False)
 
-    def fit_saved_lines(self):
-        """Fit all saved lines sequentially."""
-        self.data_field.clear()
+    def fit_saved_lines(self, print_output=False):
+        """
+        Fit all saved lines using LineAnalyzer for comprehensive analysis.
+        Simplified method that delegates all logic to appropriate classes.
+        """
+        #try:
+        # Get file paths from iSLAT instance
+        saved_lines_file = self.islat.input_line_list
+        output_file = self.islat.output_line_measurements if self.islat.output_line_measurements else "fit_results.csv"
         
-        try:
-            saved_lines = ifh.read_line_saves()
-            if not saved_lines:
-                self.data_field.insert_text("No saved lines to fit.\n")
-                return
-
-            self.data_field.insert_text(f"Fitting {len(saved_lines)} saved lines...\n")
+        # Validate that files are properly configured
+        if not saved_lines_file:
+            self.data_field.insert_text("No input line list file configured.\n")
+            return
             
-            fit_results = []
-            for i, line in enumerate(saved_lines):
-                try:
-                    # Set up the fitting range around each saved line
-                    if 'xmin' in line and 'xmax' in line:
-                        xmin, xmax = float(line['xmin']), float(line['xmax'])
-                    else:
-                        # Use default range around the line wavelength
-                        center_wave = float(line['lam'])
-                        xmin = center_wave - 0.01
-                        xmax = center_wave + 0.01
-                    
-                    # Plot spectrum around this line
-                    self.main_plot.plot_spectrum_around_line(xmin, xmax)
-                    
-                    # Perform the fit
-                    fit_result = self.main_plot.compute_fit_line(xmin=xmin, xmax=xmax)
-                    
-                    if fit_result and hasattr(fit_result, 'params'):
-                        fit_results.append(fit_result)
-                        center = fit_result.params['center'].value
-                        self.data_field.insert_text(f"Line {i+1} at {center:.4f} μm: Fit successful\n")
-                    else:
-                        self.data_field.insert_text(f"Line {i+1} at {line['lam']:.4f} μm: Fit failed\n")
-                        
-                except Exception as e:
-                    self.data_field.insert_text(f"Error fitting line {i+1}: {e}\n")
+        self.data_field.insert_text(f"Fitting saved lines from: {saved_lines_file}\n")
+        
+        # Initialize LineAnalyzer and FittingEngine
+        line_analyzer = LineAnalyzer(self.islat)
+        fitting_engine = FittingEngine(self.islat)
+        
+        # Perform comprehensive line analysis
+        fit_results = line_analyzer.analyze_saved_lines(
+            saved_lines_file,
+            fitting_engine,
+            output_file
+        )
+        
+        if fit_results:
+            successful_fits = sum(1 for result in fit_results if result.get('Fit_det', False))
+            total_lines = len(fit_results)
+            
+            # Save results using file handling module
+            '''output_path = ifh.save_fit_results_csv(
+                fit_results,
+                file_path=self.islat.output_line_measurements,
+                file_name=output_file
+            )'''
+            
+            #ifh.save_fit_results(fit_results, file_name=self.islat.output_line_measurements)
 
-            if fit_results:
-                self.data_field.insert_text(f"\nCompleted fitting {len(fit_results)} out of {len(saved_lines)} lines.\n")
-                # Update the line inspection plot if available
-                if hasattr(self.main_plot, 'update_line_inspection_plot'):
-                    self.main_plot.update_line_inspection_plot()
-            else:
-                self.data_field.insert_text("No successful fits completed.\n")
-                
-        except Exception as e:
-            self.data_field.insert_text(f"Error fitting saved lines: {e}\n")
+            self.data_field.insert_text(f"Completed fitting {successful_fits} out of {total_lines} lines.\n")
+            self.data_field.insert_text(f"Results saved to: {self.islat.output_line_measurements}\n")
+            
+            # Update progress for each successful fit
+            for i, result in enumerate(fit_results):
+                if result.get('Fit_det', False):
+                    center = result.get('Centr_fit', result.get('lam', 0))
+                    snr = result.get('Fit_SN', 0)
+                    self.data_field.insert_text(f"Line {i+1} at {center:.4f} μm: Fit successful (S/N={snr:.1f})\n")
+                else:
+                    wavelength = result.get('lam', 0)
+                    self.data_field.insert_text(f"Line {i+1} at {wavelength:.4f} μm: Fit failed\n")
+            
+            # Update the line inspection plot if available
+            #if hasattr(self.main_plot, 'update_line_inspection_plot'):
+            #    self.main_plot.update_line_inspection_plot()
+        else:
+            self.data_field.insert_text("No lines found or no fits completed successfully.\n")
+            
+        #except Exception as e:
+        #    self.data_field.insert_text(f"Error fitting saved lines: {e}\n")
+        #    if print_output:
+        #        traceback.print_exc()
 
     def find_single_lines(self):
         """Find isolated molecular lines (similar to single_finder function in original iSLAT)."""
