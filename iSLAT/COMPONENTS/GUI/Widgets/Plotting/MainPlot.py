@@ -16,13 +16,31 @@ from iSLAT.COMPONENTS.DataProcessing.FittingEngine import FittingEngine
 from iSLAT.COMPONENTS.DataProcessing.LineAnalyzer import LineAnalyzer
 
 class iSLATPlot:
+    """
+    Modern plotting class for iSLAT spectroscopy tool.
+    
+    This class coordinates between specialized modules to provide comprehensive
+    plotting functionality including spectrum visualization, line analysis,
+    population diagrams, and interactive features. Uses optimized data structures
+    and APIs from the refactored molecular data model.
+    
+    Architecture:
+    - PlotRenderer: Handles matplotlib rendering and visual updates
+    - DataProcessor: Manages data processing and caching operations  
+    - InteractionHandler: Processes mouse/keyboard interactions
+    - FittingEngine: Handles line fitting operations
+    - LineAnalyzer: Provides line detection and analysis capabilities
+    
+    Data Sources:
+    - Uses MoleculeLine objects for line data access
+    - Leverages Spectrum and Intensity classes for efficient computation
+    - Integrates with modern MoleculeDict for parameter management
+    """
     def __init__(self, parent_frame, wave_data, flux_data, theme, islat_class_ref):
-        #self.wave_data = wave_data
-        #self.flux_data = flux_data
         self.theme = theme
         self.islat = islat_class_ref
 
-        self.active_lines = []  # List of (line, scatter) tuples for green lines/scatter
+        self.active_lines = []  # List of (line, scatter) tuples for active molecular lines
 
         self.fig = plt.Figure(figsize=(10, 7))
         gs = GridSpec(2, 2, height_ratios=[2, 3], figure=self.fig)
@@ -40,7 +58,7 @@ class iSLATPlot:
         # Apply theme to matplotlib figure and toolbar
         self._apply_plot_theming()
 
-        # Initialize the new modular classes
+        # Initialize the modular classes
         self.plot_renderer = PlotRenderer(self)
         self.data_processor = DataProcessor(self)
         self.interaction_handler = InteractionHandler(self)
@@ -51,7 +69,6 @@ class iSLATPlot:
         self.interaction_handler.set_span_select_callback(self.onselect)
         self.interaction_handler.set_click_callback(self.on_click)
         
-        #self.make_span_selector()
         self.toolbar.pack(side="top", fill="x")
         self.canvas.get_tk_widget().pack(fill="both", expand=True)
         self.canvas.draw()
@@ -62,18 +79,29 @@ class iSLATPlot:
 
         self.model_lines = []
 
-        # Initial setup without redundant calculations
+        # Initial data and model computation using new data structures
         self.summed_flux = np.array([])
         
         # Register callbacks for parameter and molecule changes
         self._register_update_callbacks()
         
-        # Use coordinator if available, otherwise fallback to direct calls
+        # Use modern update coordination if available
         if hasattr(self.islat, '_update_coordinator') and self.islat._update_coordinator:
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
         else:
-            self.compute_sum_flux_visible()
+            # Direct updates using optimized molecular data structures
+            if hasattr(self.islat.molecules_dict, 'get_summed_flux_optimized'):
+                # Use the new optimized flux calculation if available
+                self.islat.molecules_dict.update_molecule_fluxes(self.islat.wave_data)
+            else:
+                # Standard approach for compatibility
+                visible_molecules = [mol for mol in self.islat.molecules_dict.values() if mol.is_visible]
+                self.data_processor.compute_summed_flux(
+                    self.islat.wave_data, 
+                    visible_molecules, 
+                    visible_only=True
+                )
             self.islat.update_model_spectrum()
             self.update_all_plots()
         
@@ -139,7 +167,7 @@ class iSLATPlot:
         # Register for global parameter changes if molecules_dict exists
         if hasattr(self.islat, 'molecules_dict'):
             self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_changed)
-        
+
         # Register for active molecule changes
         self.islat.add_active_molecule_change_callback(self._on_active_molecule_changed)
     
@@ -194,7 +222,6 @@ class iSLATPlot:
 
     def _set_initial_zoom_range(self):
         """Set the initial zoom range based on display_range or data range"""
-        #try:
         # Use display_range if available
         if hasattr(self.islat, 'display_range') and self.islat.display_range:
             xmin, xmax = self.islat.display_range
@@ -206,50 +233,81 @@ class iSLATPlot:
         # Update display to match and set optimal y-limits
         self.match_display_range()
         self.canvas.draw_idle()
-            
-        #except Exception as e:
-        #    print(f"Warning: Could not set initial zoom range: {e}")
 
     def make_span_selector(self):
-        """
-        Creates a SpanSelector for the main plot to select a region for line inspection.
-        Delegated to InteractionHandler for cleaner separation of concerns.
-        """
+        """Creates a SpanSelector for the main plot to select a region for line inspection."""
         self.span = self.interaction_handler.create_span_selector(self.ax1, self.theme["selection_color"])
-
-    def clear_model_lines(self):
-        """
-        Remove previously plotted model lines.
-        Delegated to PlotRenderer for cleaner separation of concerns.
-        """
-        self.plot_renderer.clear_model_lines()
-        self.canvas.draw_idle()
 
     def update_all_plots(self):
         """
-        Updates all plots in the GUI.
-        This function is called when the user changes parameters or loads new data.
+        Updates all plots in the GUI using modern data structures.
+        This method leverages the new molecular data model for efficient updates.
         """
         self.update_model_plot()
-        self.update_population_diagram()
+        self.plot_renderer.render_population_diagram(self.islat.active_molecule)
         self.plot_spectrum_around_line()
 
     def update_model_plot(self):
         """
         Updates the main spectrum plot with observed data, model spectra, and summed flux.
-        Delegated to PlotRenderer for cleaner separation of concerns.
+        Uses optimized data processing through the new molecular data structures.
         """
-        # Calculate summed flux for visible molecules
-        summed_flux = self.compute_sum_flux_visible()
+        #print("Debug: Updating model plot...")
         
-        # Get all molecules (let PlotRenderer handle visibility filtering)
-        #all_molecules = list(self.islat.molecules_dict.values())
+        # Calculate summed flux using optimized MoleculeDict methods if available
+        if hasattr(self.islat.molecules_dict, 'get_summed_flux_optimized'):
+            summed_flux = self.islat.molecules_dict.get_summed_flux_optimized(
+                self.islat.wave_data, visible_only=True
+            )
+            # Fix: get_visible_molecules_fast might be returning keys, not objects
+            try:
+                visible_molecules_raw = list(self.islat.molecules_dict.get_visible_molecules_fast())
+                # Check if we got strings (keys) instead of molecule objects
+                if visible_molecules_raw and isinstance(visible_molecules_raw[0], str):
+                    #print("Debug: get_visible_molecules_fast returned keys, converting to objects")
+                    visible_molecules = [self.islat.molecules_dict[key] for key in visible_molecules_raw if key in self.islat.molecules_dict]
+                else:
+                    visible_molecules = visible_molecules_raw
+            except Exception as e:
+                #print(f"Debug: Error with get_visible_molecules_fast: {e}, falling back to standard method")
+                visible_molecules = [mol for mol in self.islat.molecules_dict.values() if mol.is_visible]
+        else:
+            # Fallback to standard data processor
+            visible_molecules = [mol for mol in self.islat.molecules_dict.values() if mol.is_visible]
+            summed_flux = self.data_processor.compute_summed_flux(
+                self.islat.wave_data, 
+                visible_molecules, 
+                visible_only=True
+            )
         
-        # Delegate to PlotRenderer
+        '''#print(f"Debug: Found {len(visible_molecules)} visible molecules")
+        for mol in visible_molecules:
+            # Better molecule name detection
+            mol_name = 'unknown'
+            mol_type = type(mol).__name__
+            if isinstance(mol, str):
+                mol_name = mol
+                #print(f"Warning: Got string instead of molecule object: {mol}")
+                continue
+            elif hasattr(mol, 'name') and mol.name:
+                mol_name = mol.name
+            elif hasattr(mol, 'displaylabel') and mol.displaylabel:
+                mol_name = mol.displaylabel
+            
+            is_visible = getattr(mol, 'is_visible', 'unknown')
+            #print(f"Debug: Visible molecule: {mol_name}, is_visible={is_visible}, type={mol_type}")'''
+        
+        # Filter out any string objects that might have slipped through
+        actual_molecules = [mol for mol in visible_molecules if not isinstance(mol, str)]
+        if len(actual_molecules) != len(visible_molecules):
+            #print(f"Warning: Filtered out {len(visible_molecules) - len(actual_molecules)} string objects")
+            visible_molecules = actual_molecules
+        
+        # Delegate rendering to PlotRenderer for clean separation of concerns
         self.plot_renderer.render_main_spectrum_plot(
             self.islat.wave_data,
             self.islat.flux_data,
-            molecules = list(self.islat.molecules_dict.values()),  # Pass all molecules, PlotRenderer will filter by visibility
+            molecules=visible_molecules,
             summed_flux=summed_flux,
             error_data=getattr(self.islat, 'err_data', None)
         )
@@ -257,38 +315,6 @@ class iSLATPlot:
         # Recreate span selector and redraw
         self.make_span_selector()
         self.canvas.draw_idle()
-
-    def update_population_diagram(self):
-        """
-        Updates the population diagram plot.
-        Delegated to PlotRenderer for cleaner separation of concerns.
-        """
-        # Delegate to PlotRenderer
-        self.plot_renderer.render_population_diagram(self.islat.active_molecule)
-        self.canvas.draw_idle()
-    
-    def plot_saved_lines(self, saved_lines):
-        self.plot_renderer.plot_saved_lines(saved_lines)
-
-    def compute_sum_flux_all(self):
-        """
-        Computes the sum of all model fluxes using DataProcessor.
-        """
-        return self.data_processor.compute_summed_flux(
-            self.islat.wave_data, 
-            self.islat.molecules_dict.values(), 
-            visible_only=False
-        )
-
-    def compute_sum_flux_visible(self):
-        """
-        Optimized method to compute sum of visible molecule fluxes using DataProcessor.
-        """
-        return self.data_processor.compute_summed_flux(
-            self.islat.wave_data, 
-            self.islat.molecules_dict.values(), 
-            visible_only=True
-        )
 
     def onselect(self, xmin, xmax):
         self.current_selection = (xmin, xmax)
@@ -318,36 +344,28 @@ class iSLATPlot:
 
         if xmin is None or xmax is None:
             # If no selection but we need to update population diagram due to molecule/parameter changes
-            self.update_population_diagram()
+            self.plot_renderer.render_population_diagram(self.islat.active_molecule)
             self.canvas.draw_idle()
             return
 
-        # Try the new MoleculeLine approach first
-        line_data = None
+        # Get lines in range using the new MoleculeLine API
         try:
             line_data = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
-        except Exception as e:
-            print(f"Warning: Could not use new MoleculeLine approach: {e}")
-        
-        # Fallback to pandas DataFrame approach if new approach failed or returned no data
-        if not line_data:
-            try:
-                line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-                if hasattr(line_data, 'empty') and line_data.empty:
-                    # Clear active lines and update population diagram even if no lines in range
-                    self.active_lines.clear()
-                    self.update_population_diagram()
-                    self.canvas.draw_idle()
-                    return
-            except Exception as e:
-                print(f"Warning: Could not get line data: {e}")
+            if not line_data:
                 # Clear active lines and update population diagram even if no lines in range
                 self.active_lines.clear()
-                self.update_population_diagram()
+                self.plot_renderer.render_population_diagram(self.islat.active_molecule)
                 self.canvas.draw_idle()
                 return
+        except Exception as e:
+            print(f"Warning: Could not get line data: {e}")
+            # Clear active lines and update population diagram even if no lines in range
+            self.active_lines.clear()
+            self.plot_renderer.render_population_diagram(self.islat.active_molecule)
+            self.canvas.draw_idle()
+            return
 
-        # Clear previous active_lines before plotting new ones
+        # Clear previous active_lines before plotting
         self.active_lines.clear()
         self.plot_line_inspection(xmin, xmax, line_data, highlight_strongest=highlight_strongest)
         self.plot_population_diagram(line_data)
@@ -386,13 +404,12 @@ class iSLATPlot:
     def get_active_line_values(self, line_data, max_y=None):
         """
         Prepares a list of dictionaries with line properties for plotting.
-        Does not create or store matplotlib objects.
+        Uses only the new MoleculeLine-based data structure.
         
         Parameters
         ----------
-        line_data : list or pd.DataFrame
-            Either a list of (MoleculeLine, intensity, tau) tuples from the new approach,
-            or a pandas DataFrame from the old approach (for backward compatibility)
+        line_data : list
+            List of (MoleculeLine, intensity, tau) tuples from the new approach
         max_y : float, optional
             Maximum y value for scaling line heights
             
@@ -403,85 +420,43 @@ class iSLATPlot:
         """
         values = []
         
-        # Check if we're using the new MoleculeLine-based approach
-        if isinstance(line_data, list) and line_data and isinstance(line_data[0], tuple):
-            # New approach: list of (MoleculeLine, intensity, tau) tuples
-            intensities = [intensity for _, intensity, _ in line_data]
-            max_intensity = max(intensities) if intensities else 1.0
+        # Verify we have the correct data format
+        if not isinstance(line_data, list) or not line_data or not isinstance(line_data[0], tuple):
+            print("Warning: get_active_line_values expects list of (MoleculeLine, intensity, tau) tuples")
+            return values
+        
+        # Extract intensities for normalization
+        intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(intensities) if intensities else 1.0
+        
+        for line, intensity, tau_val in line_data:
+            # Compute lineheight for later plotting
+            lineheight = None
+            if max_y is not None and max_intensity != 0:
+                lineheight = (intensity / max_intensity) * max_y
             
-            for line, intensity, tau_val in line_data:
-                # Compute lineheight for later plotting
-                lineheight = None
-                if max_y is not None and max_intensity != 0:
-                    lineheight = (intensity / max_intensity) * max_y
-                
-                # Compute rd_yax for population diagram
-                rd_yax = None
-                if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
-                    area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
-                    dist = self.islat.active_molecule.distance * c.PARSEC_CM
-                    beam_s = area / dist ** 2
-                    F = intensity * beam_s
-                    freq = c.SPEED_OF_LIGHT_MICRONS / line.lam
-                    rd_yax = np.log(4 * np.pi * F / (line.a_stein * c.PLANCK_CONSTANT * freq * line.g_up))
-                
-                values.append({
-                    'lam': line.lam,
-                    'lineheight': lineheight,
-                    'e': line.e_up,
-                    'a': line.a_stein,
-                    'g': line.g_up,
-                    'rd_yax': rd_yax,
-                    'inten': intensity,
-                    'up_lev': line.lev_up if line.lev_up else 'N/A',
-                    'low_lev': line.lev_low if line.lev_low else 'N/A',
-                    'tau': tau_val if tau_val is not None else 'N/A'
-                })
-        else:
-            # Backward compatibility: pandas DataFrame approach
-            lam = line_data['lam']
-            intensities = line_data['intens']
-            e_up = line_data['e_up']
-            a_stein = line_data['a_stein']
-            g_up = line_data['g_up']
-            lev_up = line_data['lev_up'] if 'lev_up' in line_data else None
-            lev_low = line_data['lev_low'] if 'lev_low' in line_data else None
-            tau = line_data['tau'] if 'tau' in line_data else None
-            max_intensity = intensities.max()
+            # Compute rd_yax for population diagram
+            rd_yax = None
+            if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
+                area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+                dist = self.islat.active_molecule.distance * c.PARSEC_CM
+                beam_s = area / dist ** 2
+                F = intensity * beam_s
+                freq = c.SPEED_OF_LIGHT_MICRONS / line.lam
+                rd_yax = np.log(4 * np.pi * F / (line.a_stein * c.PLANCK_CONSTANT * freq * line.g_up))
             
-            for i, (lam_val, inten, e, a, g) in enumerate(zip(lam, intensities, e_up, a_stein, g_up)):
-                # Compute lineheight for later plotting
-                lineheight = None
-                if max_y is not None and max_intensity != 0:
-                    lineheight = (inten / max_intensity) * max_y
-                
-                # Compute rd_yax for population diagram
-                rd_yax = None
-                if all(x is not None for x in [inten, a, g, lam_val]):
-                    area = np.pi * (self.islat.active_molecule.radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
-                    dist = self.islat.active_molecule.distance * c.PARSEC_CM
-                    beam_s = area / dist ** 2
-                    F = inten * beam_s
-                    freq = c.SPEED_OF_LIGHT_MICRONS / lam_val
-                    rd_yax = np.log(4 * np.pi * F / (a * c.PLANCK_CONSTANT * freq * g))
-                
-                # Get additional fields with safe indexing
-                up_lev = lev_up.iloc[i] if lev_up is not None else 'N/A'
-                low_lev = lev_low.iloc[i] if lev_low is not None else 'N/A'
-                tau_val = tau.iloc[i] if tau is not None else 'N/A'
-                
-                values.append({
-                    'lam': lam_val, 
-                    'lineheight': lineheight, 
-                    'e': e, 
-                    'a': a, 
-                    'g': g, 
-                    'rd_yax': rd_yax, 
-                    'inten': inten,
-                    'up_lev': up_lev,
-                    'low_lev': low_lev,
-                    'tau': tau_val
-                })
+            values.append({
+                'lam': line.lam,
+                'lineheight': lineheight,
+                'e': line.e_up,
+                'a': line.a_stein,
+                'g': line.g_up,
+                'rd_yax': rd_yax,
+                'inten': intensity,
+                'up_lev': line.lev_up if line.lev_up else 'N/A',
+                'low_lev': line.lev_low if line.lev_low else 'N/A',
+                'tau': tau_val if tau_val is not None else 'N/A'
+            })
         
         return values
 
@@ -510,64 +485,36 @@ class iSLATPlot:
 
     def find_strongest_line_from_data(self):
         """
-        Alternative method to find strongest line directly from line data,
-        which returns a dictionary with line information ready for display.
-        Uses the new MoleculeLine approach when available.
+        Find strongest line directly from line data using the new MoleculeLine API.
+        Returns a dictionary with line information ready for display.
         """
         if not hasattr(self, 'current_selection') or self.current_selection is None:
             return None
             
         xmin, xmax = self.current_selection
         
-        # Try the new MoleculeLine approach first
+        # Use the new MoleculeLine approach
         try:
             lines_with_intensity = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
-            if lines_with_intensity:
-                # Find the line with maximum intensity
-                strongest_line, strongest_intensity, strongest_tau = max(lines_with_intensity, key=lambda x: x[1])
-                
-                # Create a dictionary with the line information
-                line_info = {
-                    'lam': strongest_line.lam,
-                    'e': strongest_line.e_up, 
-                    'a': strongest_line.a_stein,
-                    'g': strongest_line.g_up,
-                    'inten': strongest_intensity,
-                    'up_lev': strongest_line.lev_up if strongest_line.lev_up else 'N/A',
-                    'low_lev': strongest_line.lev_low if strongest_line.lev_low else 'N/A',
-                    'tau': strongest_tau if strongest_tau is not None else 'N/A',
-                    'wavelength': strongest_line.lam,  # For compatibility
-                    'intensity': strongest_intensity,  # For compatibility
-                    'flux': strongest_intensity  # For compatibility
-                }
-                
-                return line_info
-        except Exception as e:
-            print(f"Warning: Could not use new MoleculeLine approach: {e}")
-        
-        # Fallback to the old pandas DataFrame approach
-        try:
-            line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-            if line_data.empty:
+            if not lines_with_intensity:
                 return None
                 
             # Find the line with maximum intensity
-            max_idx = line_data['intens'].idxmax()
-            strongest_line_data = line_data.loc[max_idx]
+            strongest_line, strongest_intensity, strongest_tau = max(lines_with_intensity, key=lambda x: x[1])
             
             # Create a dictionary with the line information
             line_info = {
-                'lam': strongest_line_data['lam'],
-                'e': strongest_line_data['e_up'], 
-                'a': strongest_line_data['a_stein'],
-                'g': strongest_line_data['g_up'],
-                'inten': strongest_line_data['intens'],
-                'up_lev': strongest_line_data.get('lev_up', 'N/A'),
-                'low_lev': strongest_line_data.get('lev_low', 'N/A'),
-                'tau': strongest_line_data.get('tau', 'N/A'),
-                'wavelength': strongest_line_data['lam'],  # For compatibility
-                'intensity': strongest_line_data['intens'],  # For compatibility
-                'flux': strongest_line_data['intens']  # For compatibility
+                'lam': strongest_line.lam,
+                'e': strongest_line.e_up, 
+                'a': strongest_line.a_stein,
+                'g': strongest_line.g_up,
+                'inten': strongest_intensity,
+                'up_lev': strongest_line.lev_up if strongest_line.lev_up else 'N/A',
+                'low_lev': strongest_line.lev_low if strongest_line.lev_low else 'N/A',
+                'tau': strongest_tau if strongest_tau is not None else 'N/A',
+                'wavelength': strongest_line.lam,
+                'intensity': strongest_intensity,
+                'flux': strongest_intensity
             }
             
             return line_info
@@ -575,7 +522,7 @@ class iSLATPlot:
             print(f"Warning: Could not find strongest line: {e}")
             return None
 
-    def flux_integral(self, wave_data, flux_data, err_data, xmin, xmax):
+    def flux_integral_basic(self, wave_data, flux_data, err_data, xmin, xmax):
         """
         Calculate the flux integral in a given wavelength range.
         
@@ -622,7 +569,7 @@ class iSLATPlot:
 
     def highlight_strongest_line(self):
         """
-        Highlights the strongest line (by height) in orange by default, others in green.
+        Highlights the strongest line (by height) in orange, others in green.
         Also automatically displays the strongest line information in the data field.
         """
         strongest = self.find_strongest_line()
@@ -657,7 +604,7 @@ class iSLATPlot:
             xmin, xmax = self.current_selection
             # Calculate flux integral
             err_data = getattr(self.islat, 'err_data', None)
-            line_flux, line_err = self.flux_integral(
+            line_flux, line_err = self.flux_integral_basic(
                 self.islat.wave_data, 
                 self.islat.flux_data, 
                 err_data, 
@@ -711,18 +658,14 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
         
-        # Get line data using the new approach
+        # Get line data using the new molecular line API
         if line_data is None:
             try:
-                # Try the new MoleculeLine approach first
                 line_data = self.islat.active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
                 if not line_data:
-                    # Fallback to pandas DataFrame approach
-                    line_data = self.islat.active_molecule.intensity.get_table_in_range(xmin, xmax)
-                    if line_data.empty:
-                        self.ax2.clear()
-                        self.canvas.draw_idle()
-                        return
+                    self.ax2.clear()
+                    self.canvas.draw_idle()
+                    return
             except Exception as e:
                 print(f"Warning: Could not get line data: {e}")
                 self.ax2.clear()
@@ -741,7 +684,7 @@ class iSLATPlot:
         self.active_lines.clear()
         values = self.get_active_line_values(line_data, max_y=max_y)
         
-        # Plot vertical lines for each molecular line - match original style
+        # Plot vertical lines for each molecular line
         for v in values:
             if v['lineheight'] is not None and v['lineheight'] > 0:
                 vline = self.ax2.vlines(v['lam'], 0, v['lineheight'],
@@ -755,25 +698,26 @@ class iSLATPlot:
 
         self.canvas.draw_idle()
 
-        # Highlight the strongest line by default
+        # Highlight the strongest line
         if highlight_strongest:
             self.highlight_strongest_line()
 
     def plot_population_diagram(self, line_data):
+        """
+        Plot population diagram for the currently active lines in the selected region.
+        Uses only the new MoleculeLine-based data structure.
+        
+        Parameters
+        ----------
+        line_data : list
+            List of (MoleculeLine, intensity, tau) tuples
+        """
         # First update the base population diagram with current molecule parameters
-        self.update_population_diagram()
+        self.plot_renderer.render_population_diagram(self.islat.active_molecule)
         
         # Ensure we have valid line data
-        if line_data is None:
+        if not line_data or not isinstance(line_data, list):
             return
-        
-        # Handle both new and old data formats
-        if (isinstance(line_data, list) and line_data and isinstance(line_data[0], tuple)) or \
-           (hasattr(line_data, 'empty') and line_data.empty):
-            # For new list format, check if empty; for DataFrame format, check .empty
-            if (isinstance(line_data, list) and not line_data) or \
-               (hasattr(line_data, 'empty') and line_data.empty):
-                return
         
         # Recalculate values using current molecule parameters
         values = self.get_active_line_values(line_data)
@@ -788,7 +732,7 @@ class iSLATPlot:
         while len(self.active_lines) < len(values):
             self.active_lines.append([None, None, values[len(self.active_lines)]])
         
-        # Add new scatter points with updated parameters
+        # Add scatter points with updated parameters
         for idx, v in enumerate(values):
             if idx < len(self.active_lines) and v['rd_yax'] is not None:
                 sc = self.ax3.scatter(v['e'], v['rd_yax'], s=30, color=self.theme.get("scatter_main_color", 'green'), edgecolors='black', picker=True)
@@ -800,6 +744,10 @@ class iSLATPlot:
         self.highlight_strongest_line()
 
     def update_line_inspection_plot(self, xmin=None, xmax=None):
+        """
+        Update the line inspection plot showing data and active molecule model in the selected range.
+        Uses modern data access patterns for efficiency.
+        """
         self.ax2.clear()
 
         if xmin is None:
@@ -811,51 +759,39 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
 
-        # Plot data in selected range - match original style
-        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        self.ax2.plot(self.islat.wave_data[mask], self.islat.flux_data[mask], color=self.theme["foreground"], linewidth=1, label="Observed")
+        # Plot observed data in selected range
+        data_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        observed_wave = self.islat.wave_data[data_mask]
+        observed_flux = self.islat.flux_data[data_mask]
+        
+        self.ax2.plot(observed_wave, observed_flux, 
+                     color=self.theme["foreground"], linewidth=1, label="Observed")
 
-        # Plot the active molecule in the line inspection plot - match original style
+        # Plot the active molecule model using modern spectrum API
         active_molecule = self.islat.active_molecule
-        if active_molecule is not None:
-            wavegrid = active_molecule.spectrum.lamgrid
-            mol_mask = (wavegrid >= xmin) & (wavegrid <= xmax)
-            data = wavegrid[mol_mask]
-            flux = active_molecule.spectrum.flux_jy[mol_mask]
-            if len(data) > 0 and len(flux) > 0:
-                label = getattr(active_molecule, 'displaylabel', active_molecule.name)
-                self.ax2.plot(data, flux, color=active_molecule.color, linestyle="--", linewidth=1, label=label)
-            max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0
-        else:
-            max_y = np.nanmax(self.islat.flux_data[mask]) if np.any(mask) else 1.0
-
-        # Plot the fit line using the compute_fit_line function
-        if self.fit_result is not None:
-            gauss_fit, fitted_wave, fitted_flux = self.fit_result
-            if gauss_fit is not None:
-                # Create x_fit array for plotting (use intersection of fitted_wave and current range)
-                x_fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
-                x_fit = fitted_wave[x_fit_mask]
+        if active_molecule is not None and hasattr(active_molecule, 'spectrum'):
+            # Use the spectrum object's optimized data access
+            model_wave = active_molecule.spectrum.lamgrid
+            model_mask = (model_wave >= xmin) & (model_wave <= xmax)
+            
+            if np.any(model_mask):
+                model_wave_range = model_wave[model_mask]
+                model_flux_range = active_molecule.spectrum.flux_jy[model_mask]
                 
-                if len(x_fit) > 0:
-                    # Plot the total fit line
-                    total_flux = gauss_fit.eval(x=x_fit)
-                    self.ax2.plot(x_fit, total_flux, color=self.theme.get("total_fit_line_color", "red"), linestyle='-', linewidth=1, label="Total Fit Line")
-                    max_y = max(max_y, np.nanmax(total_flux))
+                if len(model_wave_range) > 0 and len(model_flux_range) > 0:
+                    label = getattr(active_molecule, 'displaylabel', active_molecule.name)
+                    self.ax2.plot(model_wave_range, model_flux_range, 
+                                 color=active_molecule.color, linestyle="--", 
+                                 linewidth=1, label=label)
 
-                    # Plot individual component lines if it's a multi-component fit
-                    if self.fitting_engine.is_multi_component_fit():
-                        components = self.fitting_engine.evaluate_fit_components(x_fit)
-                        component_prefixes = self.fitting_engine.get_component_prefixes()
-                        
-                        for i, prefix in enumerate(component_prefixes):
-                            if prefix in components:
-                                component_flux = components[prefix]
-                                self.ax2.plot(x_fit, component_flux, linestyle='--', linewidth=1, label=f"Component {i+1}")
+        # Calculate max_y for plot scaling
+        max_y = np.nanmax(observed_flux) if len(observed_flux) > 0 else 1.0
 
-            self.fit_result = None
+        # Plot fit results if available
+        if self.fit_result is not None:
+            self._plot_fit_results_in_range(xmin, xmax, max_y)
 
-        # Set limits and labels to match original
+        # Set plot properties
         self.ax2.set_xlim(xmin, xmax)
         self.ax2.set_ylim(0, max_y * 1.1)
         self.ax2.legend()
@@ -864,120 +800,36 @@ class iSLATPlot:
         self.ax2.set_ylabel("Flux (Jy)")
 
         self.canvas.draw_idle()
-
-    def compute_fit_line(self, xmin=None, xmax=None, deblend=False):
-        """
-        Computes a fit line (or lines) for the selected region using FittingEngine.
-        Delegates fitting operations to the modular FittingEngine class.
-        """
-        # Use selected region if not provided
-        if xmin is None or xmax is None:
-            if hasattr(self, 'current_selection') and self.current_selection:
-                xmin, xmax = self.current_selection
-            else:
-                print("No selection made for fitting.")
-                return None
-
-        # Get data in selected range
-        fit_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        x_fit = self.islat.wave_data[fit_mask]
-        y_fit = self.islat.flux_data[fit_mask]
-
-        if len(x_fit) < 5:
-            print("Not enough data points for fitting.")
-            return None
-
-        try:
-            # Use FittingEngine for fitting operations
-            fit_result, fitted_wave, fitted_flux = self.fitting_engine.fit_gaussian_line(
-                x_fit, y_fit, xmin=xmin, xmax=xmax, deblend=deblend
-            )
+    
+    def _plot_fit_results_in_range(self, xmin, xmax, max_y):
+        """Helper method to plot fit results in the line inspection plot."""
+        gauss_fit, fitted_wave, fitted_flux = self.fit_result
+        if gauss_fit is not None:
+            # Create x_fit array for plotting (use intersection of fitted_wave and current range)
+            x_fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
+            x_fit = fitted_wave[x_fit_mask]
             
-            # Store results for compatibility with existing code
-            self.fit_result = fit_result, fitted_wave, fitted_flux
-            return self.fit_result
-            
-        except Exception as e:
-            print(f"Error in fitting: {str(e)}")
-            return None
+            if len(x_fit) > 0:
+                # Plot the total fit line
+                total_flux = gauss_fit.eval(x=x_fit)
+                self.ax2.plot(x_fit, total_flux, 
+                             color=self.theme.get("total_fit_line_color", "red"), 
+                             linestyle='-', linewidth=1, label="Total Fit Line")
 
-    def find_single_lines(self, xmin=None, xmax=None):
-        """
-        Finds isolated (single) molecular lines using LineAnalyzer.
-        Delegates line detection to the LineAnalyzer class.
-        """
-        # Use current selection if not provided
-        if xmin is None or xmax is None:
-            if hasattr(self, 'current_selection') and self.current_selection:
-                xmin, xmax = self.current_selection
-            else:
-                print("No selection made for finding single lines.")
-                return
+                # Plot individual component lines if it's a multi-component fit
+                if self.fitting_engine.is_multi_component_fit():
+                    components = self.fitting_engine.evaluate_fit_components(x_fit)
+                    component_prefixes = self.fitting_engine.get_component_prefixes()
+                    
+                    for i, prefix in enumerate(component_prefixes):
+                        if prefix in components:
+                            component_flux = components[prefix]
+                            self.ax2.plot(x_fit, component_flux, 
+                                         linestyle='--', linewidth=1, 
+                                         label=f"Component {i+1}")
 
-        # Get data in selected range
-        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        range_wave = self.islat.wave_data[mask]
-        range_flux = self.islat.flux_data[mask]
-
-        if len(range_wave) < 10:
-            print("Not enough data points for line detection.")
-            return
-
-        try:
-            # Use LineAnalyzer for automatic line detection
-            detected_lines = self.line_analyzer.detect_lines_automatic(
-                range_wave, range_flux, detection_type='both'
-            )
-            
-            # Convert to format expected by plotting functions
-            self.single_lines_list = []
-            for line in detected_lines:
-                vline = {
-                    "wavelength": line['wavelength'], 
-                    "ylim": self.ax1.get_ylim(),
-                    "strength": line['line_strength'],
-                    "type": line['type']
-                }
-                self.single_lines_list.append(vline)
-
-            # Feedback to user via GUI data field if available
-            counter = len(detected_lines)
-            if hasattr(self.islat, "GUI") and hasattr(self.islat.GUI, "data_field"):
-                if counter == 0:
-                    self.islat.GUI.data_field.insert_text('No lines detected in the current wavelength range.')
-                else:
-                    emission_count = len([l for l in detected_lines if l['type'] == 'emission'])
-                    absorption_count = len([l for l in detected_lines if l['type'] == 'absorption'])
-                    self.islat.GUI.data_field.insert_text(
-                        f'Detected {counter} lines ({emission_count} emission, {absorption_count} absorption) '
-                        f'in the current wavelength range.'
-                    )
-
-        except Exception as e:
-            print(f"Error in line detection: {str(e)}")
-            self.single_lines_list = []
-
-        self.canvas.draw_idle()
-        return self.single_lines_list
-
-    def plot_single_lines(self):
-        """
-        Plots single (isolated) lines on the main plot.
-        This function is called after find_single_lines.
-        """
-        self.update_model_plot()
-        if not hasattr(self, 'single_lines_list') or not self.single_lines_list:
-            print("No single lines to plot.")
-            return
-        for vline in self.single_lines_list:
-            self.ax1.vlines(
-                vline['wavelength'],
-                vline['ylim'][0],
-                vline['ylim'][1],
-                linestyles='dashed',
-                color=self.theme.get("single_line_color", "blue"),
-            )
-        self.canvas.draw_idle()
+        # Reset fit_result after plotting
+        self.fit_result = None
 
     def toggle_legend(self):
         ax1_leg = self.ax1.get_legend()
@@ -992,48 +844,60 @@ class iSLATPlot:
 
     def flux_integral(self, lam, flux, err, lam_min, lam_max):
         """
-        Calculate flux integral in the selected wavelength range.
+        Calculate flux integral in the selected wavelength range using modern approach.
         
         Parameters
         ----------
-
         lam : array
-            Wavelength array
-        flux : array
-            Flux array
+            Wavelength array in microns
+        flux : array  
+            Flux array in Jy
         err : array
-            Error array
+            Error array in Jy
         lam_min : float
-            Minimum wavelength
+            Minimum wavelength in microns
         lam_max : float
-            Maximum wavelength
+            Maximum wavelength in microns
             
         Returns
         -------
         tuple
             (line_flux_meas, line_err_meas) in erg/s/cm^2
         """
-        # Calculate flux integral
-        integral_range = np.where(np.logical_and(lam > lam_min, lam < lam_max))
-        line_flux_meas = np.trapz(flux[integral_range[::-1]], x=c.SPEED_OF_LIGHT_KMS / lam[integral_range[::-1]])
-        line_flux_meas = -line_flux_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
+        # Use vectorized operations for efficiency
+        wavelength_mask = (lam >= lam_min) & (lam <= lam_max)
         
+        if not np.any(wavelength_mask):
+            return 0.0, 0.0
+            
+        lam_range = lam[wavelength_mask]
+        flux_range = flux[wavelength_mask]
+        
+        if len(lam_range) < 2:
+            return 0.0, 0.0
+        
+        # Convert to frequency space for proper integration
+        freq_range = c.SPEED_OF_LIGHT_KMS / lam_range
+        
+        # Integrate in frequency space (reverse order for proper frequency ordering)
+        line_flux_meas = np.trapz(flux_range[::-1], x=freq_range[::-1])
+        line_flux_meas = -line_flux_meas * 1e-23  # Convert Jy*Hz to erg/s/cm^2
+        
+        # Calculate error propagation if error data provided
         if err is not None:
-            line_err_meas = np.trapz(err[integral_range[::-1]], x=c.SPEED_OF_LIGHT_MICRONS / lam[integral_range[::-1]])
-            line_err_meas = -line_err_meas * 1e-23  # to get (erg s-1 cm-2); it's using frequency array, so need the - in front of it
+            err_range = err[wavelength_mask]
+            line_err_meas = np.trapz(err_range[::-1], x=freq_range[::-1])
+            line_err_meas = -line_err_meas * 1e-23
         else:
             line_err_meas = 0.0
             
         return line_flux_meas, line_err_meas
 
     def on_click(self, event):
-        """
-        Handle mouse click events on the plot.
-        Delegated to InteractionHandler for processing.
-        """
+        """Handle mouse click events on the plot."""
         self.interaction_handler.handle_click_event(event)
     
-    def on_active_molecule_changed(self): # a lot of this should be moved to the plot renderer
+    def on_active_molecule_changed(self):
         """
         Called when the active molecule changes.
         Updates plot titles and refreshes displays with current selection if available.
@@ -1054,7 +918,7 @@ class iSLATPlot:
             self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
         else:
             # Just update the population diagram without active lines
-            self.update_population_diagram()
+            self.plot_renderer.render_population_diagram(self.islat.active_molecule)
             self.canvas.draw_idle()
 
     def on_molecule_parameter_changed(self, molecule_name, parameter_name, old_value, new_value):
@@ -1074,224 +938,139 @@ class iSLATPlot:
                 self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
             else:
                 # Just update the population diagram without active lines
-                self.update_population_diagram()
+                self.plot_renderer.render_population_diagram(self.islat.active_molecule)
                 self.canvas.draw_idle()
 
-    # Convenience methods to expose new modular functionality
+    # Convenience methods that delegate to specialized modules
     
-    def perform_line_analysis(self, xmin=None, xmax=None):
+    def compute_fit_line(self, xmin=None, xmax=None, deblend=False):
         """
-        Perform comprehensive line analysis on selected region.
+        Compute fit line using FittingEngine with optimized data access.
         
         Parameters
         ----------
         xmin, xmax : float, optional
-            Wavelength range for analysis. If None, uses current selection.
+            Wavelength range. Uses current_selection if not provided.
+        deblend : bool
+            Whether to perform multi-component deblending
             
         Returns
         -------
-        analysis_results : dict
-            Comprehensive analysis results
+        tuple or None
+            (fit_result, fitted_wave, fitted_flux) or None if fitting fails
         """
         if xmin is None or xmax is None:
             if hasattr(self, 'current_selection') and self.current_selection:
                 xmin, xmax = self.current_selection
             else:
-                print("No selection made for line analysis.")
-                return {}
-        
-        # Get data in range
-        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        range_wave = self.islat.wave_data[mask]
-        range_flux = self.islat.flux_data[mask]
-        
-        if len(range_wave) < 10:
-            print("Not enough data points for analysis.")
-            return {}
-        
-        # Detect lines
-        detected_lines = self.line_analyzer.detect_lines_automatic(range_wave, range_flux)
-        
-        # Measure line properties for each detected line
-        analysis_results = {
-            'detected_lines': detected_lines,
-            'line_measurements': {},
-            'summary': self.line_analyzer.get_analysis_summary()
-        }
-        
-        for line in detected_lines:
-            measurements = self.line_analyzer.measure_line_properties(
-                range_wave, range_flux, line['wavelength']
-            )
-            analysis_results['line_measurements'][line['wavelength']] = measurements
-        
-        return analysis_results
-    
-    def fit_voigt_profile(self, xmin=None, xmax=None):
-        """
-        Fit a Voigt profile to the selected spectral region.
-        
-        Parameters
-        ----------
-        xmin, xmax : float, optional
-            Wavelength range for fitting
-            
-        Returns
-        -------
-        fit_result : tuple
-            Voigt fit result, fitted wavelength, fitted flux
-        """
-        if xmin is None or xmax is None:
-            if hasattr(self, 'current_selection') and self.current_selection:
-                xmin, xmax = self.current_selection
-            else:
-                print("No selection made for Voigt fitting.")
                 return None
         
-        # Get data in range
-        mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
-        range_wave = self.islat.wave_data[mask]
-        range_flux = self.islat.flux_data[mask]
+        # Use vectorized mask for efficient data selection
+        fit_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        x_fit = self.islat.wave_data[fit_mask]
+        y_fit = self.islat.flux_data[fit_mask]
         
-        if len(range_wave) < 5:
-            print("Not enough data points for Voigt fitting.")
+        if len(x_fit) < 5:
             return None
         
         try:
-            return self.fitting_engine.fit_voigt_profile(range_wave, range_flux)
+            fit_result, fitted_wave, fitted_flux = self.fitting_engine.fit_gaussian_line(
+                x_fit, y_fit, xmin=xmin, xmax=xmax, deblend=deblend
+            )
+            self.fit_result = fit_result, fitted_wave, fitted_flux
+            return self.fit_result
         except Exception as e:
-            print(f"Error in Voigt fitting: {str(e)}")
+            print(f"Error in fitting: {str(e)}")
             return None
     
-    def calculate_equivalent_widths(self, line_centers):
+    def find_single_lines(self, xmin=None, xmax=None):
         """
-        Calculate equivalent widths for a list of line centers.
+        Find single lines using LineAnalyzer with optimized data processing.
         
         Parameters
         ----------
-        line_centers : list
-            List of wavelengths to calculate equivalent widths for
+        xmin, xmax : float, optional
+            Wavelength range. Uses current_selection if not provided.
             
         Returns
         -------
-        ew_results : dict
-            Dictionary mapping line centers to equivalent width measurements
+        list
+            List of detected lines with properties
         """
-        ew_results = {}
+        if xmin is None or xmax is None:
+            if hasattr(self, 'current_selection') and self.current_selection:
+                xmin, xmax = self.current_selection
+            else:
+                return []
         
-        for center in line_centers:
-            ew, continuum = self.line_analyzer.calculate_equivalent_width(
-                self.islat.wave_data, self.islat.flux_data, center
+        # Efficient data selection using vectorized operations
+        range_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        range_wave = self.islat.wave_data[range_mask]
+        range_flux = self.islat.flux_data[range_mask]
+        
+        if len(range_wave) < 10:
+            return []
+        
+        try:
+            detected_lines = self.line_analyzer.detect_lines_automatic(
+                range_wave, range_flux, detection_type='both'
             )
-            ew_results[center] = {
-                'equivalent_width': ew,
-                'continuum_flux': continuum
-            }
-        
-        return ew_results
-    
-    def export_analysis_results(self, filename=None):
-        """
-        Export current analysis results to file.
-        
-        Parameters
-        ----------
-        filename : str, optional
-            Output filename. If None, auto-generated.
-        """
-        self.line_analyzer.export_line_analysis(filename)
-        
-        # Also export fitting results if available
-        if hasattr(self, 'fit_result') and self.fit_result:
-            self.fitting_engine.save_fit_results(filename)
-    
-    def get_fit_statistics(self):
-        """
-        Get statistics from the last fitting operation.
-        
-        Returns
-        -------
-        stats : dict
-            Fitting statistics
-        """
-        return self.fitting_engine.get_fit_statistics()
-    
-    def get_line_parameters(self):
-        """
-        Extract line parameters from the last fit.
-        
-        Returns
-        -------
-        params : dict
-            Line parameters (center, width, amplitude, etc.)
-        """
-        return self.fitting_engine.extract_line_parameters()
-    
-    def identify_detected_lines(self, tolerance=0.01):
-        """
-        Identify detected lines using available databases.
-        
-        Parameters
-        ----------
-        tolerance : float, optional
-            Wavelength tolerance for line matching (microns)
             
-        Returns
-        -------
-        identified_lines : list
-            List of identified lines with species information
-        """
-        return self.line_analyzer.identify_lines(tolerance)
-    
-    def set_line_detection_parameters(self, min_snr=None, min_width=None, max_width=None):
-        """
-        Configure line detection parameters.
-        
-        Parameters
-        ----------
-        min_snr : float, optional
-            Minimum signal-to-noise ratio
-        min_width : float, optional
-            Minimum line width (microns)
-        max_width : float, optional
-            Maximum line width (microns)
-        """
-        self.line_analyzer.set_detection_parameters(min_snr, min_width, max_width)
-    
-    def process_spectrum_data(self, molecules=None, visible_only=True):
-        """
-        Process spectrum data using DataProcessor.
-        
-        Parameters
-        ----------
-        molecules : list, optional
-            List of molecules to process. If None, uses all molecules.
-        visible_only : bool, optional
-            Only process visible molecules
+            # Create optimized line data structure
+            self.single_lines_list = []
+            ylim = self.ax1.get_ylim()
             
-        Returns
-        -------
-        processed_data : dict
-            Processed spectrum data
-        """
-        if molecules is None:
-            molecules = self.islat.molecules_dict.values()
+            for line in detected_lines:
+                line_info = {
+                    "wavelength": line['wavelength'], 
+                    "ylim": ylim,
+                    "strength": line['line_strength'],
+                    "type": line['type']
+                }
+                self.single_lines_list.append(line_info)
+            
+            return self.single_lines_list
+        except Exception as e:
+            print(f"Error in line detection: {str(e)}")
+            return []
+    
+    def plot_single_lines(self):
+        """Plot single lines on main plot with efficient rendering."""
+        self.update_model_plot()
+        if not hasattr(self, 'single_lines_list') or not self.single_lines_list:
+            return
+            
+        # Batch plot all vertical lines for efficiency
+        wavelengths = [line['wavelength'] for line in self.single_lines_list]
+        ylims = [line['ylim'] for line in self.single_lines_list]
         
-        return self.data_processor.process_molecule_spectra(molecules, visible_only)
+        if wavelengths:
+            # Use vectorized vlines for better performance
+            for wavelength, ylim in zip(wavelengths, ylims):
+                self.ax1.vlines(
+                    wavelength, ylim[0], ylim[1],
+                    linestyles='dashed',
+                    color=self.theme.get("single_line_color", "blue"),
+                )
+        self.canvas.draw_idle()
+    
+    def plot_saved_lines(self, saved_lines):
+        """Plot saved lines using PlotRenderer with optimized delegation."""
+        self.plot_renderer.plot_saved_lines(saved_lines)
 
     def apply_theme(self, theme=None):
-        """Public method to apply theme to the plot and update colors"""
+        """Apply theme to the plot and update colors"""
         if theme:
             self.theme = theme
         self._apply_plot_theming()
-        # Refresh the plots to apply new colors
+        # Refresh the plots to apply colors
         if hasattr(self, 'canvas'):
             self.canvas.draw()
-        # Also update any existing plots to use new colors
+        # Also update any existing plots to use colors
         self._refresh_existing_plots()
     
     def _refresh_existing_plots(self):
-        """Refresh existing plots to use new theme colors"""
+        """Refresh existing plots to use theme colors"""
         try:
             # This method can be called to refresh plots after theme changes
             if hasattr(self, 'update_all_plots'):
