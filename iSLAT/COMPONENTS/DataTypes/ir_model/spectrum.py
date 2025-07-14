@@ -17,20 +17,33 @@ This class Spectrum creates a spectrum from intensity instances
 """
 
 import numpy as np
+from typing import Optional, List, Dict, Any, Union
 
-try:
-    import pandas as pd
-except ImportError:
-    pd = None
-    pass
+# Lazy imports
+pd = None
 
 import iSLAT.Constants as c
 #from .constants import constants as c
-from .intensity import Intensity
+
+def _get_pandas():
+    """Lazy import of pandas"""
+    global pd
+    if pd is None:
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("Pandas is required for table functionality")
+    return pd
 
 class Spectrum:
-    #debug_printed = False
-    def __init__(self, lam_min=None, lam_max=None, dlambda=None, R=None, distance=None):
+    """
+    Spectrum class for creating and managing spectral data from intensity instances.
+    
+    Implements lazy evaluation for convolution and caching for performance optimization.
+    """
+    
+    def __init__(self, lam_min: float = None, lam_max: float = None, 
+                 dlambda: float = None, R: float = None, distance: float = None):
         """Initialize a spectrum class and prepare it to add intensity components
 
         Parameters
@@ -61,8 +74,9 @@ class Spectrum:
         # create wavelength grid
         self._lamgrid = np.linspace(lam_min, lam_max, int(1 + (lam_max - lam_min) / dlambda))
 
-        # flux array
+        # flux array (cached result)
         self._flux = None
+        self._flux_jy = None
 
         # list with area scaled intensities and wavelengths to add to the spectrum
         self._I_list = np.array([])
@@ -70,8 +84,11 @@ class Spectrum:
 
         # list with the different intensity components building up the spectrum
         self._components = []
+        
+        # Cache invalidation flag
+        self._flux_valid = False
 
-    def add_intensity(self, intensity, dA):
+    def add_intensity(self, intensity, dA: float):
         """Adds an intensity component to the spectrum
 
         Parameters
@@ -82,10 +99,8 @@ class Spectrum:
             Area of the component in au**2
         """
 
-        #debug_printed = Spectrum.debug_printed
-
-        # 0. make sure to invalidate the flux field, so that the intensity list and returned spectrum are consistent
-        self._flux = None
+        # Invalidate cached flux when adding new intensity
+        self._invalidate_flux_cache()
 
         # 1. get intensity and wavelength of the lines
         I_all = intensity.intensity
@@ -101,18 +116,9 @@ class Spectrum:
         select_border = 100 * self._lam_max / self._R
         lines_selected = np.where(np.logical_and(lam_all > self._lam_min - select_border,
                                                  lam_all < self._lam_max + select_border))[0]
-        '''if not debug_printed:
-            print("Hey pookie, here are the lines that were selected:")
-            print(lines_selected)
-            print("And here are the intensities that were selected:")
-            print(I_all[lines_selected])'''
-
 
         # 3. scale for area in au**2
         I_scaled = dA * I_all[lines_selected]
-        '''if not debug_printed:
-            print("And here are the scaled intensities that were calculated:")
-            print(I_scaled)'''
 
         # 4. append to list
         self._I_list = np.hstack((self._I_list, I_scaled))
@@ -122,6 +128,12 @@ class Spectrum:
         self._components.append({'name': intensity.molecule.name, 'fname': getattr(intensity.molecule, 'fname', ''),
                                 't_kin': intensity.t_kin, 'n_mol': intensity.n_mol, 'dv': intensity.dv,
                                  'area': dA})
+    
+    def _invalidate_flux_cache(self):
+        """Invalidate cached flux values"""
+        self._flux = None
+        self._flux_jy = None
+        self._flux_valid = False
 
     def _convol_flux(self):
         """Internal procedure to carry out the convolution, should never be called directly
@@ -129,81 +141,30 @@ class Spectrum:
         Returns
         -------
         np.ndarray:
-            List with fluxes, convolved to the spectra resolution
+            List with fluxes, convolved to the spectral resolution
         """
-
-        #debug_printed = Spectrum.debug_printed
         
         # Check if we have any intensities to process
         if len(self._I_list) == 0 or len(self._lam_list) == 0:
             # Return a zero flux array if no intensities were added
             return np.zeros_like(self._lamgrid)
 
-        '''if not debug_printed:
-            I_all = intensity.intensity
-            lines_selected = np.where(np.logical_and(lam_all > self._lam_min - select_border,
-                                                 lam_all < self._lam_max + select_border))[0]
-            print("Before we get to the flux calculation, lets check some parameters my dude:")
-            print("Hey pookie, here are the lines that were selected:")
-            print(lines_selected)
-            print("And here are the intensities that were selected:")
-            print(I_all[lines_selected])
-        
-        if not debug_printed:
-            print("And here are the scaled intensities that were calculated:")
-            print(I_scaled)'''
-
-        '''if not debug_printed:
-            print("Hey man! Here are the parameters of the spectrum right now:")
-            print(f"  - lam_min: {self._lam_min}")
-            print(f"  - lam_max: {self._lam_max}")
-            print(f"  - dlambda: {self._dlambda}")
-            print(f"  - R: {self._R}")
-            print(f"  - distance: {self._distance}")
-            print("And here are the components that were added:")
-            for comp in self._components:
-                print(f"  - {comp['name']} (t_kin: {comp['t_kin']}, n_mol: {comp['n_mol']}, dv: {comp['dv']}, area: {comp['area']})")
-            print("And here are the intensities and wavelengths that were added:")
-            print(f"  - self._I_list: {self._I_list}")
-            print(f"  - self._lam_list: {self._lam_list}")
-            print("Now let's calculate the flux...")'''
-
         # 1. summarize intensities at the (exactly) same wavelength, this improves performance, as only
         #    one convolution kernel needs to be evaluated per line of a molecule (independent of intensity components)
-        '''if not debug_printed:
-            print("Here is the lam list my guy:")
-            print(f"  - self._lam_list: {self._lam_list}")'''
         lam, index_wavelength = np.unique(self._lam_list, return_inverse=True)
-        '''if not debug_printed:
-            print("Here is lam and index_wavelength:")
-            print(f"  - lam: {lam}")
-            print(f"  - index_wavelength: {index_wavelength}")'''
 
         intens = np.zeros(lam.shape[0])
         np.add.at(intens, index_wavelength, self._I_list)
-        '''if not debug_printed:
-            print("Here is the intensity that was calculated:")
-            print(f"  - intens: {intens}")'''
 
         # 2. calculate width and normalization of convolution kernel
         fwhm = lam / self._R
         sigma = fwhm / (2.0 * np.sqrt(2.0 * np.log(2.0)))
         norm = 1.0 / (sigma * np.sqrt(2.0 * np.pi))
-        '''if not debug_printed:
-            print("Here is the fwhm, sigma, and norm that were calculated:")
-            print(f"  - fwhm: {fwhm}")
-            print(f"  - sigma: {sigma}")
-            print(f"  - norm: {norm}")'''
 
         # 3. calculation mask (=range around the lines, where the kernel needs to be evaluated)
         #    * index_lam contains the points of the wavelength grid that should be calculated
         #    * index_line contains the index of the line
-        '''if not debug_printed:
-            print("But real quick bro heres what sigma is man:")
-            print(f"  - sigma: {sigma}")
-            print("And here is the maximum sigma value:")'''
         max_sigma = np.nanmax(sigma)
-        '''if not debug_printed: print(f"  - max_sigma: {np.nanmax(sigma)}")'''
         kernel_range = np.arange(-15 * max_sigma / self._dlambda, 15 * max_sigma / self._dlambda, dtype=np.int64)
         lam_grid_position = (self._lamgrid.shape[0] * (lam - self._lam_min) /
                              (self._lam_max - self._lam_min)).astype(np.int64)
@@ -224,50 +185,42 @@ class Spectrum:
         flux = np.zeros_like(self._lamgrid)
         np.add.at(flux, index_lam, kernel)
 
-        '''if not debug_printed:
-            print("Flux calculation done!")
-            print("Here is everything that was changed in the spectrum:")
-            print(f"  - flux: {flux}")
-            print("And here is the final output that this function returns:")
-            print(flux * (c.aucm / c.pccm) ** 2 * (1.0 / self._distance ** 2))'''
-
         # 6. scale for distance and correct units for the area
         #    note that area scaling is already performed in add_intensity
-        #Spectrum.debug_printed = debug_printed = True
         return flux * (c.ASTRONOMICAL_UNIT_CM / c.PARSEC_CM) ** 2 * (1.0 / self._distance ** 2)
 
     @property
-    def flux(self):
-        """np.ndarray: Fluxdensity in erg/s/cm^2/micron"""
+    def flux(self) -> np.ndarray:
+        """np.ndarray: Flux density in erg/s/cm^2/micron"""
         if self._flux is None:
             self._flux = self._convol_flux()
+            self._flux_valid = True
         return self._flux
 
     @property
-    def flux_jy(self):
-        """np.ndarray: Fluxdensity in Jy/micron"""
-        if self._flux is None:
-            self._flux = self._convol_flux()
-        flux_jy = self._flux * (1e19 / c.SPEED_OF_LIGHT_CGS) * self._lamgrid ** 2
-        return flux_jy
+    def flux_jy(self) -> np.ndarray:
+        """np.ndarray: Flux density in Jy/micron"""
+        if self._flux_jy is None:
+            if self._flux is None:
+                self._flux = self._convol_flux()
+                self._flux_valid = True
+            self._flux_jy = self._flux * (1e19 / c.SPEED_OF_LIGHT_CGS) * self._lamgrid ** 2
+        return self._flux_jy
 
     @property
-    def lamgrid(self):
+    def lamgrid(self) -> np.ndarray:
         """np.ndarray: Wavelength grid in micron"""
         return self._lamgrid
 
     @property
-    def components(self):
+    def components(self) -> List[Dict[str, Any]]:
         """list of dict: Intensity components added to the spectrum"""
         return self._components
 
     @property
     def get_table(self):
-        """pd.Dataframe: Pandas dataframe"""
-
-        if pd is None:
-            raise ImportError("Pandas required to create table")
-
+        """pd.DataFrame: Pandas dataframe"""
+        pd = _get_pandas()
         return pd.DataFrame({'lam': self.lamgrid,
                              'flux': self.flux,
                              'flux_jy': self.flux_jy})
