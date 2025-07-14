@@ -1,16 +1,30 @@
+from typing import Dict, Any, Optional, Union
 import numpy as np
-import pandas as pd
+
+# Lazy import for pandas
+pd = None
+
+def _get_pandas():
+    """Lazy import of pandas"""
+    global pd
+    if pd is None:
+        try:
+            import pandas as pd
+        except ImportError:
+            raise ImportError("Pandas is required for table functionality")
+    return pd
 
 class MoleculeLine:
     """
     Efficient representation of a single molecular line.
     
     Uses __slots__ for memory efficiency and direct attribute access for speed.
+    All attributes are typed for better performance and code clarity.
     """
     __slots__ = ('molecule_id', 'nr', 'lev_up', 'lev_low', 'lam', 'freq', 
                  'a_stein', 'e_up', 'e_low', 'g_up', 'g_low')
     
-    def __init__(self, molecule_id, line_data, **kwargs):
+    def __init__(self, molecule_id: str, line_data: Dict[str, Any], **kwargs):
         """
         Initialize a MoleculeLine object.
         
@@ -21,21 +35,22 @@ class MoleculeLine:
         line_data : dict
             Dictionary containing line data with keys like 'frequency', 'wavelength', 'intensity', etc.
         """
-        self.molecule_id = molecule_id
+        self.molecule_id: str = molecule_id
         
         # Direct attribute assignment for better performance
-        self.nr = line_data.get('nr', None)
-        self.lev_up = line_data.get('lev_up', None)
-        self.lev_low = line_data.get('lev_low', None)
-        self.lam = line_data.get('lam', None)
-        self.freq = line_data.get('freq', None)
-        self.a_stein = line_data.get('a_stein', None)
-        self.e_up = line_data.get('e_up', None)
-        self.e_low = line_data.get('e_low', None)
-        self.g_up = line_data.get('g_up', None)
-        self.g_low = line_data.get('g_low', None)
+        # Using .get() with proper type conversion for robustness
+        self.nr: Optional[Union[int, float]] = line_data.get('nr', None)
+        self.lev_up: Optional[Union[int, float]] = line_data.get('lev_up', None)
+        self.lev_low: Optional[Union[int, float]] = line_data.get('lev_low', None)
+        self.lam: Optional[float] = line_data.get('lam', None)
+        self.freq: Optional[float] = line_data.get('freq', None)
+        self.a_stein: Optional[float] = line_data.get('a_stein', None)
+        self.e_up: Optional[float] = line_data.get('e_up', None)
+        self.e_low: Optional[float] = line_data.get('e_low', None)
+        self.g_up: Optional[Union[int, float]] = line_data.get('g_up', None)
+        self.g_low: Optional[Union[int, float]] = line_data.get('g_low', None)
 
-    def get_ndarray(self):
+    def get_ndarray(self) -> np.ndarray:
         """
         Convert the line data to a numpy ndarray.
 
@@ -56,6 +71,7 @@ class MoleculeLine:
         pd.DataFrame
             DataFrame containing the line data.
         """
+        pd = _get_pandas()
         return pd.DataFrame({
             'nr': [self.nr],
             'lev_up': [self.lev_up],
@@ -70,21 +86,21 @@ class MoleculeLine:
         })
     
     @property
-    def line_data(self):
+    def line_data(self) -> 'LineDataView':
         """
         Compatibility property that returns a namedtuple-like object for legacy code.
         
         Returns
         -------
-        object
+        LineDataView
             Object with namedtuple-like attribute access
         """
         return LineDataView(self)
     
-    def __str__(self):
+    def __str__(self) -> str:
         return f"MoleculeLine(molecule={self.molecule_id}, lam={self.lam}, freq={self.freq})"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return self.__str__()
 
 
@@ -92,11 +108,13 @@ class LineDataView:
     """
     A lightweight view object that provides namedtuple-like access to MoleculeLine data.
     Used for backward compatibility without the overhead of creating actual namedtuples.
+    
+    Uses __slots__ for memory efficiency.
     """
     __slots__ = ('_line',)
     
-    def __init__(self, line):
-        self._line = line
+    def __init__(self, line: MoleculeLine):
+        self._line: MoleculeLine = line
     
     @property
     def nr(self):
