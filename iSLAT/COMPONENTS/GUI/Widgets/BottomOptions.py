@@ -336,18 +336,30 @@ class BottomOptions:
         self.data_field.insert_text("Running single slab fit analysis...\n")
         
         try:
+            output_folder = self.islat.output_line_measurements
             # Use the SlabModel class to perform the fit
             slab_model = SlabModel(
-                min_lamb=self.config.model_lam_min,
-                max_lamb=self.config.model_lam_max,
-                intrinsic_line_width=self.config.intrins_line_broad,
-                cc=self.config.cc,
-                mol=self.islat.active_molecule,
-                molpath=self.islat.molecule_path
+                mol_object=self.islat.active_molecule,
+                output_folder=output_folder,
+                data_field=self.data_field,
+                input_file=self.islat.input_line_list,
             )
                 
         except Exception as e:
-            self.data_field.insert_text(f"Error running single slab fit: {e}\n")
+            self.data_field.insert_text(f"Error loading single slab fit: {e}\n")
+            return
+        
+        #try:
+        slab_model.fit_parameters()
+        '''except Exception as e:
+            self.data_field.insert_text(f"Error fitting slab model: {e}\n")
+            return'''
+        
+        try:
+            slab_model.save_results()
+        except Exception as e:
+            self.data_field.insert_text(f"Error saving slab model results: {e}\n")
+            return
 
     def export_models(self):
         """Export current models and data."""

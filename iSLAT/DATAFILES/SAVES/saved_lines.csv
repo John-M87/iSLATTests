@@ -75,3 +75,117 @@ plot_lam=[ 4.89997239  4.90077399  4.90157557 ... 28.70282581 28.70892298
  28.7150204 ]
 plot_flux=[0.04759678 0.0135645  0.00397753 ... 0.         0.         0.        ]
 )",deblend_comp_2,,24.101408426710748,0.00043167403659927217,4.801404956850117e-06,,,,24.06668556234651,24.12671104381705,4.801404956850117e-06,0.010449930097485807,24.101408426710748
+"Molecule(
+_flux_cache={5528214786010738180: (array([ 4.89997239,  4.90077399,  4.90157557, ..., 28.70282581,
+       28.70892298, 28.7150204 ]), array([0.04759678, 0.0135645 , 0.00397753, ..., 0.        , 0.        ,
+       0.        ]))}
+_spectrum_valid=True
+_intensity_valid=True
+_interpolated_flux_cache={}
+user_save_data={'Molecule Name': 'H2O', 'File Path': 'DATAFILES/HITRANdata/data_Hitran_2020_H2O.par', 'Molecule Label': 'H$_2$O', 'Temp': '850', 'Rad': '0.5', 'N_Mol': '1e+18', 'Color': 'dodgerblue', 'Vis': 'True', 'Dist': '160.0', 'StellarRV': '0.0', 'FWHM': '130.0', 'Broad': '1.0'}
+initial_molecule_parameters={'scale_exponent': 18, 'scale_number': 1, 't_kin': 850, 'radius_init': 0.5}
+name=H2O
+filepath=DATAFILES/HITRANdata/data_Hitran_2020_H2O.par
+displaylabel=H$_2$O
+color=dodgerblue
+is_visible=True
+stellar_rv=0.0
+lines=<iSLAT.COMPONENTS.DataTypes.MoleculeLineList.MoleculeLineList object at 0x000001EDAD8C4890>
+t_kin=850
+scale_exponent=18
+scale_number=1
+radius_init=0.5
+n_mol_init=1e+18
+_temp=850.0
+_radius=0.5
+_n_mol=1e+18
+_distance=160.0
+_fwhm=130.0
+broad=1.0
+wavelength_range=(4.5, 28.0)
+model_pixel_res=0.0007046541511060961
+model_line_width=2306.095830769231
+intensity=Intensity(Mol-Name=H2O, t_kin=850.0 n_mol=1e+18 dv=130.0, tau=[2.03977411e-03 1.38004243e-05 1.27624404e-05 ... 3.15082388e-13
+ 4.90770622e-14 8.31608256e-13], intensity=[8.07023528e-06 5.55341401e-08 5.16191400e-08 ... 6.71059865e-28
+ 1.04409798e-28 1.76910483e-27])
+spectrum=<iSLAT.COMPONENTS.DataTypes.ir_model.spectrum.Spectrum object at 0x000001EDAB58B980>
+plot_lam=[ 4.89997239  4.90077399  4.90157557 ... 28.70282581 28.70892298
+ 28.7150204 ]
+plot_flux=[0.04759678 0.0135645  0.00397753 ... 0.         0.         0.        ]
+)",deblend_comp_1,,24.083398020978844,0.00014621834039196813,1.6271517494731639e-06,,,,24.063893679487418,24.153233930978452,1.6271517494731639e-06,0.010455075767925724,24.083398020978844
+"Molecule(
+_flux_cache={5528214786010738180: (array([ 4.89997239,  4.90077399,  4.90157557, ..., 28.70282581,
+       28.70892298, 28.7150204 ]), array([0.04759678, 0.0135645 , 0.00397753, ..., 0.        , 0.        ,
+       0.        ]))}
+_spectrum_valid=True
+_intensity_valid=True
+_interpolated_flux_cache={}
+user_save_data={'Molecule Name': 'H2O', 'File Path': 'DATAFILES/HITRANdata/data_Hitran_2020_H2O.par', 'Molecule Label': 'H$_2$O', 'Temp': '850', 'Rad': '0.5', 'N_Mol': '1e+18', 'Color': 'dodgerblue', 'Vis': 'True', 'Dist': '160.0', 'StellarRV': '0.0', 'FWHM': '130.0', 'Broad': '1.0'}
+initial_molecule_parameters={'scale_exponent': 18, 'scale_number': 1, 't_kin': 850, 'radius_init': 0.5}
+name=H2O
+filepath=DATAFILES/HITRANdata/data_Hitran_2020_H2O.par
+displaylabel=H$_2$O
+color=dodgerblue
+is_visible=True
+stellar_rv=0.0
+lines=<iSLAT.COMPONENTS.DataTypes.MoleculeLineList.MoleculeLineList object at 0x000001EDAD8C4890>
+t_kin=850
+scale_exponent=18
+scale_number=1
+radius_init=0.5
+n_mol_init=1e+18
+_temp=850.0
+_radius=0.5
+_n_mol=1e+18
+_distance=160.0
+_fwhm=130.0
+broad=1.0
+wavelength_range=(4.5, 28.0)
+model_pixel_res=0.0007046541511060961
+model_line_width=2306.095830769231
+intensity=Intensity(Mol-Name=H2O, t_kin=850.0 n_mol=1e+18 dv=130.0, tau=[2.03977411e-03 1.38004243e-05 1.27624404e-05 ... 3.15082388e-13
+ 4.90770622e-14 8.31608256e-13], intensity=[8.07023528e-06 5.55341401e-08 5.16191400e-08 ... 6.71059865e-28
+ 1.04409798e-28 1.76910483e-27])
+spectrum=<iSLAT.COMPONENTS.DataTypes.ir_model.spectrum.Spectrum object at 0x000001EDAB58B980>
+plot_lam=[ 4.89997239  4.90077399  4.90157557 ... 28.70282581 28.70892298
+ 28.7150204 ]
+plot_flux=[0.04759678 0.0135645  0.00397753 ... 0.         0.         0.        ]
+)",deblend_comp_2,,24.101408426710616,0.0004321706255594471,4.809295383659371e-06,,,,24.063893679487418,24.153233930978452,4.809295383659371e-06,0.010455075767977181,24.101408426710616
+"Molecule(
+_flux_cache={5528214786010738180: (array([ 4.89997239,  4.90077399,  4.90157557, ..., 28.70282581,
+       28.70892298, 28.7150204 ]), array([0.04759678, 0.0135645 , 0.00397753, ..., 0.        , 0.        ,
+       0.        ]))}
+_spectrum_valid=True
+_intensity_valid=True
+_interpolated_flux_cache={}
+user_save_data={'Molecule Name': 'H2O', 'File Path': 'DATAFILES/HITRANdata/data_Hitran_2020_H2O.par', 'Molecule Label': 'H$_2$O', 'Temp': '850', 'Rad': '0.5', 'N_Mol': '1e+18', 'Color': 'dodgerblue', 'Vis': 'True', 'Dist': '160.0', 'StellarRV': '0.0', 'FWHM': '130.0', 'Broad': '1.0'}
+initial_molecule_parameters={'scale_exponent': 18, 'scale_number': 1, 't_kin': 850, 'radius_init': 0.5}
+name=H2O
+filepath=DATAFILES/HITRANdata/data_Hitran_2020_H2O.par
+displaylabel=H$_2$O
+color=dodgerblue
+is_visible=True
+stellar_rv=0.0
+lines=<iSLAT.COMPONENTS.DataTypes.MoleculeLineList.MoleculeLineList object at 0x000001EDAD8C4890>
+t_kin=850
+scale_exponent=18
+scale_number=1
+radius_init=0.5
+n_mol_init=1e+18
+_temp=850.0
+_radius=0.5
+_n_mol=1e+18
+_distance=160.0
+_fwhm=130.0
+broad=1.0
+wavelength_range=(4.5, 28.0)
+model_pixel_res=0.0007046541511060961
+model_line_width=2306.095830769231
+intensity=Intensity(Mol-Name=H2O, t_kin=850.0 n_mol=1e+18 dv=130.0, tau=[2.03977411e-03 1.38004243e-05 1.27624404e-05 ... 3.15082388e-13
+ 4.90770622e-14 8.31608256e-13], intensity=[8.07023528e-06 5.55341401e-08 5.16191400e-08 ... 6.71059865e-28
+ 1.04409798e-28 1.76910483e-27])
+spectrum=<iSLAT.COMPONENTS.DataTypes.ir_model.spectrum.Spectrum object at 0x000001EDAB58B980>
+plot_lam=[ 4.89997239  4.90077399  4.90157557 ... 28.70282581 28.70892298
+ 28.7150204 ]
+plot_flux=[0.04759678 0.0135645  0.00397753 ... 0.         0.         0.        ]
+)",deblend_comp_3,,24.125425477744173,0.00011647288069815964,1.296137345603148e-06,,,,24.063893679487418,24.153233930978452,1.296137345603148e-06,0.010455075767923164,24.125425477744173
