@@ -15,10 +15,11 @@ class GUI:
     def __init__(self, master, molecule_data, wave_data, flux_data, config, islat_class_ref):
         if master is None:
             self.master = tk.Tk()
-            self.master.title("iSLAT - Infrared Spectral Line Analysis Tool")
+            self.master.title("iSLAT - Interactive Spectral-Line Analysis Tool")
             self.master.resizable(True, True)
             # Set minimum size to maintain usability
             self.master.minsize(800, 600)
+            #self.master.attributes('-topmost', config.get("start_on_top", True))
             # Configure initial window size based on screen dimensions
             self._configure_initial_size()
         else:
@@ -664,4 +665,13 @@ class GUI:
             self.window.destroy()
         
         self.window.protocol("WM_DELETE_WINDOW", on_closing)
+
+        # Check config for start-on-top behavior
+        if self.config.get("start_on_top", True):
+            self.master.attributes('-topmost', True)
+            self.master.after(100, lambda: self.master.attributes('-topmost', False))
+        
+        self.master.lift()
+        #self.master.focus_force()
+
         self.window.mainloop()

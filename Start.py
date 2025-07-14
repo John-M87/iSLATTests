@@ -21,7 +21,7 @@ if __name__ == "__main__":
     # for better stability and compatibility across different systems
     islat_instance = iSLAT()
     
-    # Optional: Enable parallel processing for better performance with large datasets
+    # Optional: Enable parallel processing for better performance with large datasets **Expierimental**
     #islat_instance.enable_parallel_processing()
     
     # Run the iSLAT application
