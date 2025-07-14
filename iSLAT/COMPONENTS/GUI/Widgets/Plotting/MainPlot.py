@@ -865,6 +865,42 @@ class iSLATPlot:
 
         self.canvas.draw_idle()
 
+    def compute_fit_line(self, xmin=None, xmax=None, deblend=False):
+        """
+        Computes a fit line (or lines) for the selected region using FittingEngine.
+        Delegates fitting operations to the modular FittingEngine class.
+        """
+        # Use selected region if not provided
+        if xmin is None or xmax is None:
+            if hasattr(self, 'current_selection') and self.current_selection:
+                xmin, xmax = self.current_selection
+            else:
+                print("No selection made for fitting.")
+                return None
+
+        # Get data in selected range
+        fit_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
+        x_fit = self.islat.wave_data[fit_mask]
+        y_fit = self.islat.flux_data[fit_mask]
+
+        if len(x_fit) < 5:
+            print("Not enough data points for fitting.")
+            return None
+
+        try:
+            # Use FittingEngine for fitting operations
+            fit_result, fitted_wave, fitted_flux = self.fitting_engine.fit_gaussian_line(
+                x_fit, y_fit, xmin=xmin, xmax=xmax, deblend=deblend
+            )
+            
+            # Store results for compatibility with existing code
+            self.fit_result = fit_result, fitted_wave, fitted_flux
+            return self.fit_result
+            
+        except Exception as e:
+            print(f"Error in fitting: {str(e)}")
+            return None
+
     def find_single_lines(self, xmin=None, xmax=None):
         """
         Finds isolated (single) molecular lines using LineAnalyzer.

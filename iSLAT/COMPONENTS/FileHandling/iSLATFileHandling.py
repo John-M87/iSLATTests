@@ -19,6 +19,7 @@ default_molecule_parameters_file_name = "DefaultMoleculeParameters.json"
 default_initial_parameters_file_name = "DefaultMoleculeParameters.json"
 
 line_saves_file_name = "saved_lines.csv"
+fit_save_lines_file_name = "fit_save_lines.csv"
 atomic_lines_file_name = "DATAFILES/LINELISTS/Atomic_lines.csv"
 models_folder_path = "DATAFILES/MODELS"
 
@@ -137,7 +138,7 @@ def read_HITRAN_data(file_path):
         #print(f"Failed to read HITRAN file '{file_path}': {e}")
         return []
 
-def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name):
+def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name) -> pd.DataFrame:
     filename = os.path.join(file_path, file_name)
     if os.path.exists(filename):
         try:
@@ -165,6 +166,36 @@ def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_n
     # Save the line to the CSV file
     df.to_csv(filename, mode='a', header=do_header, index=False)
     print(f"Saved line at ~{line_info['lam']:.4f} μm to {filename}")
+
+def save_fit_results(fit_results_data, file_path = save_folder_path, file_name= fit_save_lines_file_name):
+    """
+    Save fit results data to CSV file.
+    
+    Parameters
+    ----------
+    fit_results_data : list of dict
+        List of dictionaries containing fit results
+    file_path : str
+        Directory path to save the file
+    file_name : str
+        Name of the CSV file
+        
+    Returns
+    -------
+    str
+        Full path to the saved file
+    """
+    '''# Ensure .csv extension
+    if not file_name.endswith('.csv'):
+        file_name += '.csv'''
+    
+    full_path = os.path.join(file_path, file_name)
+    
+    # Save each fit result using the existing save_line function
+    for fit_result in fit_results_data:
+        save_line(fit_result, file_path=file_path, file_name=file_name)
+    
+    return full_path
 
 def read_spectral_data(file_path : str):
     """
