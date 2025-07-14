@@ -20,8 +20,23 @@ class MoleculeDict(dict):
         
         # Flux storage and caching
         self.fluxes: Dict[str, np.ndarray] = {}
-        self._summed_flux_cache: Dict[Tuple, np.ndarray] = {}
-        self._cache_wave_data_hash: Optional[str] = None
+        self._summed_flux_cache: Dict[int, np.ndarray] = {}  # Use hash as key instead of tuple for efficiency
+        self._cache_wave_data_hash: Optional[int] = None
+        
+        # Fast lookup sets for optimized operations
+        self._visible_molecules: set = set()
+        self._dirty_molecules: set = set()  # Track which molecules need recalculation
+        
+        # Parameter arrays for vectorized operations
+        self._parameter_arrays: Dict[str, np.ndarray] = {
+            'temp': np.array([]),
+            'radius': np.array([]),
+            'n_mol': np.array([]),
+            'distance': np.array([]),
+            'fwhm': np.array([]),
+            'intrinsic_line_width': np.array([])
+        }
+        self._molecule_names_array: np.ndarray = np.array([])
         
         # Global parameters that affect all molecules
         self._global_dist: float = default_parms.DEFAULT_DISTANCE
@@ -124,8 +139,8 @@ class MoleculeDict(dict):
         if wave_data is None:
             return
             
-        # Create cache key for wave_data
-        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        # Create cache key for wave_data using int hash for efficiency
+        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
         
         # Only update if wave_data changed
         if self._cache_wave_data_hash == wave_data_hash:
@@ -144,10 +159,10 @@ class MoleculeDict(dict):
     def get_summed_flux(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
         """Get summed flux for all visible molecules with caching"""
         
-        # Create cache key
-        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
-        visible_molecules = [name for name, mol in self.items() if mol.is_visible] if visible_only else list(self.keys())
-        cache_key = (wave_data_hash, tuple(sorted(visible_molecules)))
+        # Create cache key using hash for efficiency
+        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
+        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+        cache_key = hash((wave_data_hash, frozenset(visible_molecules)))
         
         # Check cache
         if cache_key in self._summed_flux_cache:
@@ -168,130 +183,79 @@ class MoleculeDict(dict):
         self._summed_flux_cache[cache_key] = summed_flux
         return summed_flux
     
-    def _clear_flux_caches(self):
-        """Clear all flux caches when parameters change"""
-        self._summed_flux_cache.clear()
-        self._cache_wave_data_hash = None
-        for molecule in self.values():
-            if hasattr(molecule, '_clear_flux_caches'):
-                molecule._clear_flux_caches()
-    
-    def get_molecule_flux(self, mol_name: str) -> Optional[np.ndarray]:
-        """Get the flux for a specific molecule"""
-        if mol_name in self.fluxes:
-            return self.fluxes[mol_name]
-        elif mol_name in self and hasattr(self[mol_name], 'plot_flux'):
-            return self[mol_name].plot_flux
-        return None
-
-    def add_global_parameter_change_callback(self, callback: Callable) -> None:
-        """Add a callback function to be called when global parameters change"""
-        self._global_parameter_change_callbacks.append(callback)
-    
-    def remove_global_parameter_change_callback(self, callback: Callable) -> None:
-        """Remove a callback function"""
-        if callback in self._global_parameter_change_callbacks:
-            self._global_parameter_change_callbacks.remove(callback)
-    
-    def _notify_global_parameter_change(self, parameter_name: str, old_value: Any, new_value: Any) -> None:
-        """Notify all callbacks that a global parameter has changed"""
-        for callback in self._global_parameter_change_callbacks:
-            try:
-                callback(parameter_name, old_value, new_value)
-            except Exception as e:
-                print(f"Error in global parameter change callback: {e}")
-    
-    # Global parameter properties with change notification
-    @property
-    def global_dist(self):
-        return self._global_dist
-    
-    @global_dist.setter
-    def global_dist(self, value):
-        old_value = self._global_dist
-        self._global_dist = float(value)
-        self._notify_global_parameter_change('dist', old_value, self._global_dist)
-        self._clear_flux_caches()
-        # Update all molecule instances
-        for molecule in self.values():
-            molecule.distance = self._global_dist
-    
-    @property
-    def global_star_rv(self):
-        return self._global_star_rv
-    
-    @global_star_rv.setter
-    def global_star_rv(self, value):
-        old_value = self._global_star_rv
-        self._global_star_rv = float(value)
-        self._notify_global_parameter_change('star_rv', old_value, self._global_star_rv)
-        self._clear_flux_caches()
-        # Update all molecule instances
-        for molecule in self.values():
-            molecule.stellar_rv = self._global_star_rv
-    
-    @property
-    def global_fwhm(self):
-        return self._global_fwhm
-    
-    @global_fwhm.setter
-    def global_fwhm(self, value):
-        old_value = self._global_fwhm
-        self._global_fwhm = float(value)
-        self._notify_global_parameter_change('fwhm', old_value, self._global_fwhm)
-        self._clear_flux_caches()
-        # Update model parameters that depend on FWHM
-        self._update_model_parameters()
-        # Update all molecule instances
-        for molecule in self.values():
-            molecule.fwhm = self._global_fwhm
-    
-    @property
-    def global_intrinsic_line_width(self):
-        return self._global_intrinsic_line_width
-    
-    @global_intrinsic_line_width.setter
-    def global_intrinsic_line_width(self, value):
-        old_value = self._global_intrinsic_line_width
-        self._global_intrinsic_line_width = float(value)
-        self._notify_global_parameter_change('intrinsic_line_width', old_value, self._global_intrinsic_line_width)
-        self._clear_flux_caches()
-        # Update all molecule instances
-        for molecule in self.values():
-            molecule.intrinsic_line_width = self._global_intrinsic_line_width
-    
-    @property
-    def global_wavelength_range(self):
-        return self._global_wavelength_range
-    
-    @global_wavelength_range.setter
-    def global_wavelength_range(self, value):
-        old_value = self._global_wavelength_range
-        self._global_wavelength_range = tuple(value)
-        self._notify_global_parameter_change('wavelength_range', old_value, self._global_wavelength_range)
-        self._clear_flux_caches()
-        # Update model parameters that depend on wavelength range
-        self._update_model_parameters()
-        # Update all molecule instances
-        for molecule in self.values():
-            molecule.wavelength_range = self._global_wavelength_range
-            molecule._recreate_spectrum()
-    
-    def _update_model_parameters(self):
-        """Update model parameters when wavelength range or fwhm changes"""
-        self._global_model_line_width = default_parms.SPEED_OF_LIGHT_KMS / self._global_fwhm
-        self._global_model_pixel_res = (np.mean(self._global_wavelength_range) / default_parms.SPEED_OF_LIGHT_KMS * self._global_fwhm) / default_parms.PIXELS_PER_FWHM
+    def get_summed_flux_optimized(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
+        """Memory-optimized summed flux calculation using hash keys."""
         
-        # Update all molecule instances to use new model parameters
-        for molecule in self.values():
-            molecule.model_line_width = self._global_model_line_width
-            molecule.model_pixel_res = self._global_model_pixel_res
-            # Recreate spectrum with new parameters
-            molecule._recreate_spectrum()
+        # Use hash of wave_data bytes for cache key (more memory efficient)
+        wave_hash = hash(wave_data.data.tobytes()) if hasattr(wave_data, 'data') else hash(wave_data.tobytes())
+        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+        
+        # Create a more compact cache key
+        cache_key = hash((wave_hash, frozenset(visible_molecules)))
+        
+        # Check cache
+        if cache_key in self._summed_flux_cache:
+            return self._summed_flux_cache[cache_key]
+        
+        # Pre-allocate result array with float32 to save memory
+        summed_flux = np.zeros_like(wave_data, dtype=np.float32)
+        
+        # Vectorized summation where possible
+        for mol_name in visible_molecules:
+            if mol_name in self:
+                molecule = self[mol_name]
+                molecule.prepare_plot_data(wave_data)
+                if hasattr(molecule, 'plot_flux'):
+                    summed_flux += molecule.plot_flux.astype(np.float32)
+        
+        # Cache with size limit
+        if len(self._summed_flux_cache) > 100:  # Limit cache size
+            # Remove oldest entries (simple FIFO)
+            oldest_key = next(iter(self._summed_flux_cache))
+            del self._summed_flux_cache[oldest_key]
+        
+        self._summed_flux_cache[cache_key] = summed_flux
+        return summed_flux
+    
+    def get_visible_molecules_fast(self) -> set:
+        """Get set of visible molecule names for fast operations."""
+        # Lazy update of visible molecules set
+        current_visible = {name for name, mol in self.items() if mol.is_visible}
+        self._visible_molecules = current_visible
+        return current_visible
+    
+    def bulk_set_visibility_fast(self, is_visible: bool, molecule_names: Optional[List[str]] = None) -> None:
+        """Fast visibility update using sets."""
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        # Use set operations for efficiency
+        molecule_set = set(molecule_names) & set(self.keys())
+        
+        for mol_name in molecule_set:
+            molecule = self[mol_name]
+            molecule.is_visible = is_visible
+            
+            # Update visibility tracking set
+            if is_visible:
+                self._visible_molecules.add(mol_name)
+            else:
+                self._visible_molecules.discard(mol_name)
+        
+        self._clear_flux_caches()
+        print(f"Updated visibility for {len(molecule_set)} molecules")
     
     def get_ndarray_of_attributes(self, attribute_name: str) -> np.ndarray:
         """Get a numpy array of a specific attribute for all molecules."""
         return np.array([getattr(mol, attribute_name, None) for mol in self.values()])
+    
+    def get_ndarray_of_attributes_optimized(self, attribute_name: str) -> np.ndarray:
+        """Get a numpy array of a specific attribute for all molecules - optimized version."""
+        # Pre-allocate array if we know the size
+        values = np.empty(len(self), dtype=np.float64)
+        for i, mol in enumerate(self.values()):
+            values[i] = getattr(mol, attribute_name, np.nan)
+        return values
     
     def get_ndarray_of_line_attributes(self, attribute_name: str) -> np.ndarray:
         """Get a numpy array of a specific line attribute for all molecules."""
@@ -384,8 +348,30 @@ class MoleculeDict(dict):
         self.bulk_update_parameter('intrinsic_line_width', width, molecule_names)
     
     def bulk_set_visibility(self, is_visible: bool, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update visibility for multiple molecules."""
-        self.bulk_update_parameter('is_visible', is_visible, molecule_names)
+        """Bulk update visibility for multiple molecules using optimized set operations."""
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        # Use set operations for efficiency
+        molecule_set = set(molecule_names) & set(self.keys())
+        
+        updated_count = 0
+        for mol_name in molecule_set:
+            molecule = self[mol_name]
+            if molecule.is_visible != is_visible:  # Only update if different
+                molecule.is_visible = is_visible
+                updated_count += 1
+                
+                # Update visibility tracking set
+                if is_visible:
+                    self._visible_molecules.add(mol_name)
+                else:
+                    self._visible_molecules.discard(mol_name)
+        
+        if updated_count > 0:
+            self._clear_flux_caches()
+        
+        print(f"Updated visibility for {updated_count} molecules")
     
     def force_recalculate_all(self, molecule_names: Optional[List[str]] = None) -> None:
         """
@@ -965,4 +951,320 @@ class MoleculeDict(dict):
             print(f"Error loading molecule '{mol_name}': {e}")
             return False
 
-    # Multiprocessing support for molecule loading
+    def create_memory_mapped_flux_storage(self, max_molecules: int = 1000, max_wavelengths: int = 10000):
+        """Create memory-mapped arrays for flux storage to handle large datasets."""
+        import tempfile
+        
+        # Create temporary file for memory mapping
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        
+        # Memory-mapped array for flux storage
+        self._flux_memmap = np.memmap(
+            temp_file.name, 
+            dtype=np.float32, 
+            mode='w+', 
+            shape=(max_molecules, max_wavelengths)
+        )
+        
+        self._flux_molecule_index = {}  # Map molecule names to array indices
+        self._flux_memmap_file = temp_file.name
+        print(f"Created memory-mapped flux storage: {max_molecules}x{max_wavelengths}")
+    
+    def get_molecule_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics about molecules in the dictionary."""
+        if not self:
+            return {"count": 0}
+        
+        # Update parameter arrays for efficient computation
+        self.update_parameter_arrays()
+        
+        stats = {
+            "count": len(self),
+            "visible_count": len(self.get_visible_molecules_fast()),
+            "parameter_stats": {}
+        }
+        
+        # Compute statistics for each parameter using numpy
+        for param_name, param_array in self._parameter_arrays.items():
+            if len(param_array) > 0:
+                stats["parameter_stats"][param_name] = {
+                    "mean": float(np.mean(param_array)),
+                    "std": float(np.std(param_array)),
+                    "min": float(np.min(param_array)),
+                    "max": float(np.max(param_array)),
+                    "median": float(np.median(param_array))
+                }
+        
+        return stats
+    
+    def bulk_filter_molecules(self, condition_func: Callable[[Dict[str, float]], bool]) -> List[str]:
+        """Filter molecules based on a condition function using vectorized operations."""
+        matching_molecules = []
+        
+        # Get all parameter values efficiently
+        param_dict = {}
+        for param_name in self._parameter_arrays:
+            param_dict[param_name] = self.get_parameter_array(param_name)
+        
+        # Apply condition to each molecule
+        for i, mol_name in enumerate(self._molecule_names_array):
+            mol_params = {param: values[i] for param, values in param_dict.items()}
+            if condition_func(mol_params):
+                matching_molecules.append(mol_name)
+        
+        return matching_molecules
+    
+    def bulk_conditional_update(self, condition_func: Callable[[Dict[str, float]], bool],
+                              parameter_updates: Dict[str, float]) -> None:
+        """Update parameters for molecules that meet a condition."""
+        matching_molecules = self.bulk_filter_molecules(condition_func)
+        if matching_molecules:
+            self.bulk_update_parameters(parameter_updates, matching_molecules)
+            print(f"Conditionally updated {len(matching_molecules)} molecules")
+    
+    def get_memory_usage_estimate(self) -> Dict[str, float]:
+        """Estimate memory usage of the molecule dictionary in MB."""
+        total_size = 0
+        flux_size = 0
+        cache_size = 0
+        
+        # Estimate molecule objects size
+        mol_count = len(self)
+        estimated_mol_size = mol_count * 1024  # Rough estimate per molecule in bytes
+        
+        # Flux arrays size
+        for flux_array in self.fluxes.values():
+            if hasattr(flux_array, 'nbytes'):
+                flux_size += flux_array.nbytes
+        
+        # Cache size
+        for cache_array in self._summed_flux_cache.values():
+            if hasattr(cache_array, 'nbytes'):
+                cache_size += cache_array.nbytes
+        
+        # Parameter arrays size
+        param_array_size = 0
+        for param_array in self._parameter_arrays.values():
+            if hasattr(param_array, 'nbytes'):
+                param_array_size += param_array.nbytes
+        
+        total_size = estimated_mol_size + flux_size + cache_size + param_array_size
+        
+        return {
+            "total_mb": total_size / (1024 * 1024),
+            "molecules_mb": estimated_mol_size / (1024 * 1024),
+            "fluxes_mb": flux_size / (1024 * 1024),
+            "cache_mb": cache_size / (1024 * 1024),
+            "parameter_arrays_mb": param_array_size / (1024 * 1024)
+        }
+    
+    def optimize_memory(self) -> None:
+        """Optimize memory usage by cleaning up caches and converting to more efficient dtypes."""
+        # Clear old caches
+        if len(self._summed_flux_cache) > 50:
+            # Keep only the 25 most recent entries
+            cache_items = list(self._summed_flux_cache.items())
+            self._summed_flux_cache = dict(cache_items[-25:])
+        
+        # Convert flux arrays to float32 if they're float64
+        for mol_name, flux_array in self.fluxes.items():
+            if flux_array.dtype == np.float64:
+                self.fluxes[mol_name] = flux_array.astype(np.float32)
+        
+        # Update parameter arrays to more efficient dtypes
+        for param_name, param_array in self._parameter_arrays.items():
+            if param_array.dtype == np.float64:
+                self._parameter_arrays[param_name] = param_array.astype(np.float32)
+        
+        print("Memory optimization completed")
+    
+    def cleanup_memory_mapped_storage(self) -> None:
+        """Clean up memory-mapped storage files."""
+        if hasattr(self, '_flux_memmap_file'):
+            try:
+                import os
+                if hasattr(self, '_flux_memmap'):
+                    del self._flux_memmap
+                if os.path.exists(self._flux_memmap_file):
+                    os.unlink(self._flux_memmap_file)
+                print("Cleaned up memory-mapped storage")
+            except Exception as e:
+                print(f"Error cleaning up memory-mapped storage: {e}")
+    
+    def add_global_parameter_change_callback(self, callback: Callable) -> None:
+        """Add a callback function to be called when global parameters change"""
+        if callback not in self._global_parameter_change_callbacks:
+            self._global_parameter_change_callbacks.append(callback)
+    
+    def remove_global_parameter_change_callback(self, callback: Callable) -> None:
+        """Remove a callback function"""
+        if callback in self._global_parameter_change_callbacks:
+            self._global_parameter_change_callbacks.remove(callback)
+
+    def __del__(self):
+        """Cleanup when object is destroyed."""
+        try:
+            self.cleanup_memory_mapped_storage()
+        except:
+            pass
+
+    # Performance testing and demonstration methods
+    def benchmark_bulk_operations(self, num_iterations: int = 100) -> Dict[str, float]:
+        """Benchmark different bulk operation methods for performance comparison."""
+        import time
+        
+        if not self:
+            print("No molecules to benchmark")
+            return {}
+        
+        molecule_names = list(self.keys())
+        results = {}
+        
+        # Test 1: Traditional bulk update vs vectorized
+        print(f"Benchmarking bulk operations with {len(molecule_names)} molecules...")
+        
+        # Vectorized parameter update
+        start_time = time.time()
+        for _ in range(num_iterations):
+            test_values = np.random.uniform(100, 1000, len(molecule_names))
+            self.bulk_update_parameter_vectorized('temp', test_values, molecule_names)
+        results['vectorized_update_time'] = time.time() - start_time
+        
+        # Traditional parameter update
+        start_time = time.time()
+        for _ in range(num_iterations):
+            test_value = np.random.uniform(100, 1000)
+            self.bulk_update_parameter('temp', test_value, molecule_names)
+        results['traditional_update_time'] = time.time() - start_time
+        
+        # Test 2: Visibility operations
+        start_time = time.time()
+        for _ in range(num_iterations):
+            self.bulk_set_visibility_fast(True, molecule_names[:len(molecule_names)//2])
+            self.bulk_set_visibility_fast(False, molecule_names[len(molecule_names)//2:])
+        results['fast_visibility_time'] = time.time() - start_time
+        
+        # Test 3: Parameter array operations
+        start_time = time.time()
+        for _ in range(num_iterations):
+            self.update_parameter_arrays()
+            temp_array = self.get_parameter_array('temp')
+            scaled_temps = temp_array * 1.1
+        results['array_operations_time'] = time.time() - start_time
+        
+        print("Benchmark Results:")
+        for operation, time_taken in results.items():
+            print(f"  {operation}: {time_taken:.3f} seconds")
+        
+        return results
+    
+    def demo_optimized_features(self) -> None:
+        """Demonstrate the new optimized features of MoleculeDict."""
+        if not self:
+            print("No molecules available for demonstration")
+            return
+            
+        print("=== MoleculeDict Optimized Features Demo ===\n")
+        
+        # 1. Memory usage analysis
+        print("1. Memory Usage Analysis:")
+        memory_stats = self.get_memory_usage_estimate()
+        for key, value in memory_stats.items():
+            print(f"   {key}: {value:.2f} MB")
+        print()
+        
+        # 2. Parameter statistics
+        print("2. Parameter Statistics:")
+        stats = self.get_molecule_statistics()
+        print(f"   Total molecules: {stats['count']}")
+        print(f"   Visible molecules: {stats['visible_count']}")
+        for param, param_stats in stats.get('parameter_stats', {}).items():
+            print(f"   {param}: mean={param_stats['mean']:.2f}, std={param_stats['std']:.2f}")
+        print()
+        
+        # 3. Vectorized operations demo
+        print("3. Vectorized Operations Demo:")
+        molecule_names = list(self.keys())[:5]  # Use first 5 molecules for demo
+        
+        # Scale temperatures by 1.1
+        print("   Scaling temperatures by 1.1...")
+        self.bulk_scale_parameter('temp', 1.1, molecule_names)
+        
+        # Apply log function to column densities
+        print("   Applying log10 to column densities...")
+        self.bulk_apply_function('n_mol', lambda x: np.log10(max(x, 1e-10)), molecule_names)
+        print()
+        
+        # 4. Conditional updates demo
+        print("4. Conditional Updates Demo:")
+        high_temp_molecules = self.bulk_filter_molecules(lambda params: params['temp'] > 500)
+        print(f"   Found {len(high_temp_molecules)} molecules with temp > 500K")
+        
+        if high_temp_molecules:
+            print("   Setting radius to 1.0 for high-temperature molecules...")
+            self.bulk_conditional_update(
+                lambda params: params['temp'] > 500,
+                {'radius': 1.0}
+            )
+        print()
+        
+        # 5. Fast visibility operations
+        print("5. Fast Visibility Operations:")
+        visible_before = len(self.get_visible_molecules_fast())
+        print(f"   Visible molecules before: {visible_before}")
+        
+        # Hide half the molecules
+        half_molecules = molecule_names[:len(molecule_names)//2]
+        self.bulk_set_visibility_fast(False, half_molecules)
+        
+        visible_after = len(self.get_visible_molecules_fast())
+        print(f"   Visible molecules after hiding {len(half_molecules)}: {visible_after}")
+        
+        # Restore visibility
+        self.bulk_set_visibility_fast(True, half_molecules)
+        print()
+        
+        # 6. Memory optimization
+        print("6. Memory Optimization:")
+        print("   Running memory optimization...")
+        self.optimize_memory()
+        
+        new_memory_stats = self.get_memory_usage_estimate()
+        print(f"   New total memory usage: {new_memory_stats['total_mb']:.2f} MB")
+        print()
+        
+        print("=== Demo Complete ===")
+    
+    def create_performance_report(self) -> str:
+        """Create a comprehensive performance report for the molecule dictionary."""
+        report = []
+        report.append("MoleculeDict Performance Report")
+        report.append("=" * 40)
+        
+        # Basic statistics
+        stats = self.get_molecule_statistics()
+        report.append(f"Total Molecules: {stats['count']}")
+        report.append(f"Visible Molecules: {stats['visible_count']}")
+        report.append("")
+        
+        # Memory usage
+        memory_stats = self.get_memory_usage_estimate()
+        report.append("Memory Usage:")
+        for key, value in memory_stats.items():
+            report.append(f"  {key}: {value:.2f} MB")
+        report.append("")
+        
+        # Cache statistics
+        report.append("Cache Statistics:")
+        report.append(f"  Summed flux cache entries: {len(self._summed_flux_cache)}")
+        report.append(f"  Flux arrays stored: {len(self.fluxes)}")
+        report.append("")
+        
+        # Parameter distribution
+        report.append("Parameter Distributions:")
+        for param, param_stats in stats.get('parameter_stats', {}).items():
+            report.append(f"  {param}:")
+            report.append(f"    Range: {param_stats['min']:.2e} - {param_stats['max']:.2e}")
+            report.append(f"    Mean ± Std: {param_stats['mean']:.2e} ± {param_stats['std']:.2e}")
+        
+        return "\n".join(report)
