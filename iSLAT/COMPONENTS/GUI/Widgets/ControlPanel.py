@@ -1,9 +1,44 @@
 import tkinter as tk
 from tkinter import ttk
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
-from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 
 class ControlPanel:
+    # Class-level dictionary defining editable molecule fields
+    MOLECULE_FIELDS = {
+        'distance': {
+            'label': 'Distance:',
+            'attribute': 'distance',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 140.0,
+            'width': 12
+        },
+        'stellar_rv': {
+            'label': 'Stellar RV:',
+            'attribute': 'stellar_rv',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 0.0,
+            'width': 12
+        },
+        'fwhm': {
+            'label': 'FWHM:',
+            'attribute': 'fwhm',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 0.1,
+            'width': 12
+        },
+        'broad': {
+            'label': 'Broadening:',
+            'attribute': 'broad',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 0.1,
+            'width': 12
+        }
+    }
+    
     def __init__(self, master, islat):
         self.master = master
         self.islat = islat
@@ -65,6 +100,9 @@ class ControlPanel:
             # Update dropdown without triggering callback
             self.molecule_var.set(display_label)
         
+        # Update molecule-specific parameter fields
+        self._update_molecule_parameter_fields()
+        
         # Trigger population diagram update for the new molecule
         self._trigger_population_diagram_update()
 
@@ -96,8 +134,9 @@ class ControlPanel:
         """Create all control panel components in order"""
         self._create_display_controls(0, 0)
         self._create_wavelength_controls(1, 0)  
-        self._create_global_parameter_controls(2, 0)
-        self._create_molecule_selector(5, 0)
+        # Note: Global parameter controls removed - these are now per-molecule
+        self._create_molecule_specific_controls(3, 0)  # Move up since global params removed
+        self._create_molecule_selector(9, 0)  # Move down to accommodate more molecule params
         self.reload_molecule_dropdown()
 
     def _debounced_update(self, callback):
@@ -204,13 +243,9 @@ class ControlPanel:
             )
             return
 
-        # Define parameters with their labels - all info comes from MoleculeDict
-        parameters = [
-            ("Distance:", "global_dist", start_row, start_col),
-            ("Stellar RV:", "global_star_rv", start_row, start_col + 2),
-            ("FWHM:", "global_fwhm", start_row + 1, start_col),
-            ("Broadening:", "global_intrinsic_line_width", start_row + 1, start_col + 2)
-        ]
+        # Note: Removed global Distance, Stellar RV, FWHM, and Broadening
+        # These are now handled as per-molecule parameters
+        parameters = []
         
         # Store references for later updates
         self._parameter_entries = {}
@@ -219,6 +254,145 @@ class ControlPanel:
             entry, var = self._create_bound_parameter_entry(label, param_name, row, col)
             if entry and var:
                 self._parameter_entries[param_name] = (entry, var)
+
+    def _create_molecule_specific_controls(self, start_row, start_col):
+        """Create controls for molecule-specific parameters that update with active molecule"""
+        # Add a separator/label for molecule-specific section
+        separator_label = tk.Label(self.frame, text="--- Active Molecule Parameters ---", font=('TkDefaultFont', 8, 'italic'))
+        separator_label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+        separator_label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
+        
+        # Store references for later updates
+        self._molecule_parameter_entries = {}
+        
+        # Create fields based on the class-level dictionary
+        row_offset = 1
+        col_offset = 0
+        
+        for field_key, field_config in self.MOLECULE_FIELDS.items():
+            # Calculate grid position (2 fields per row)
+            row = start_row + row_offset + (col_offset // 2)
+            col = start_col + (col_offset % 2) * 2
+            
+            entry, var = self._create_molecule_parameter_entry(
+                field_config['label'], 
+                field_config['attribute'], 
+                row, 
+                col, 
+                field_config['width']
+            )
+            
+            if entry and var:
+                self._molecule_parameter_entries[field_config['attribute']] = (entry, var)
+            
+            col_offset += 1
+
+    def _create_molecule_parameter_entry(self, label_text, param_name, row, col, width=12):
+        """Create an entry bound to the active molecule's parameter"""
+        
+        def update_active_molecule_parameter(value_str):
+            # Skip updates for special cases
+            if value_str in ["N/A", ""]:
+                return
+                
+            if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+                return
+                
+            # Get the active molecule object
+            active_mol = None
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in self.islat.molecules_dict:
+                    active_mol = self.islat.molecules_dict[self.islat.active_molecule]
+                elif hasattr(self.islat.active_molecule, 'name'):
+                    active_mol = self.islat.active_molecule
+            
+            if not active_mol:
+                return
+                
+            try:
+                # Get field configuration for proper data type handling
+                field_config = None
+                for field_key, config in self.MOLECULE_FIELDS.items():
+                    if config['attribute'] == param_name:
+                        field_config = config
+                        break
+                
+                # Convert value based on field configuration
+                if field_config:
+                    value = field_config['datatype'](value_str)
+                else:
+                    # Fallback for unknown parameters
+                    value = float(value_str) if param_name in ["distance", "stellar_rv", "fwhm", "broad"] else str(value_str)
+                    
+                # Get old value for comparison
+                old_value = getattr(active_mol, param_name, None)
+                
+                # Only update if the value actually changed
+                if field_config and field_config['datatype'] == float:
+                    # Convert old_value to float for proper comparison
+                    try:
+                        old_float_value = float(old_value) if old_value is not None else None
+                    except (ValueError, TypeError):
+                        old_float_value = None
+                    
+                    if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        setattr(active_mol, param_name, value)
+                        # Note: Hash change will automatically trigger plot updates
+                else:
+                    if old_value != value:
+                        setattr(active_mol, param_name, value)
+                            
+            except (ValueError, AttributeError) as e:
+                print(f"Error updating {param_name}: {e}")
+        
+        # Get initial value from active molecule
+        initial_value = self._get_active_molecule_parameter_value(param_name)
+        
+        return self._create_simple_entry(label_text, initial_value, row, col, update_active_molecule_parameter, width)
+
+    def _get_active_molecule_parameter_value(self, param_name):
+        """Get the current value of a parameter from the active molecule"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return ""
+        
+        # For special cases like SUM/ALL, return N/A
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            return "N/A"
+            
+        # Get the active molecule object
+        active_mol = None
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in self.islat.molecules_dict:
+                active_mol = self.islat.molecules_dict[self.islat.active_molecule]
+            elif hasattr(self.islat.active_molecule, 'name'):
+                active_mol = self.islat.active_molecule
+        
+        if not active_mol:
+            return ""
+            
+        try:
+            value = getattr(active_mol, param_name, "")
+            
+            # Get field configuration for proper formatting
+            field_config = None
+            for field_key, config in self.MOLECULE_FIELDS.items():
+                if config['attribute'] == param_name:
+                    field_config = config
+                    break
+            
+            # Format value based on field configuration
+            if field_config and isinstance(value, (int, float)):
+                return field_config['format'].format(value)
+            # Fallback formatting for backward compatibility
+            elif param_name in ["distance", "stellar_rv", "fwhm", "broad"] and isinstance(value, (int, float)):
+                return f"{value:.2f}"
+            
+            return str(value)
+        except:
+            return ""
 
     def _create_molecule_selector(self, row, column):
         """Create molecule dropdown selector"""
@@ -354,6 +528,31 @@ class ControlPanel:
         except (ValueError, AttributeError):
             pass
 
+    def _update_molecule_parameter(self, value_str=None):
+        """Update molecule-specific parameters for the active molecule"""
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+            
+        try:
+            # Get the active molecule name
+            active_molecule_name = getattr(self.islat, 'active_molecule', None)
+            if not active_molecule_name:
+                return
+            
+            molecules_dict = self.islat.molecules_dict
+            molecule_obj = molecules_dict.get(active_molecule_name, None)
+            if not molecule_obj:
+                return
+            
+            # Update each molecule-specific parameter
+            for param_name, (entry, var) in self._molecule_parameter_entries.items():
+                if hasattr(molecule_obj, param_name):
+                    value = getattr(molecule_obj, param_name)
+                    var.set(str(value))
+        
+        except Exception as e:
+            print(f"Error updating molecule parameters: {e}")
+
     def _on_molecule_selected(self, event=None):
         """Handle molecule selection - uses iSLAT's active_molecule property"""
         selected_label = self.molecule_var.get()
@@ -363,6 +562,8 @@ class ControlPanel:
             if selected_label in ["SUM", "ALL"]:
                 # For special cases, set directly (iSLAT handles these)
                 self.islat.active_molecule = selected_label
+                # Clear molecule-specific fields for special cases
+                self._clear_molecule_parameter_fields()
             elif hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
                 # Find molecule by display label
                 for mol_name, mol_obj in self.islat.molecules_dict.items():
@@ -436,11 +637,7 @@ class ControlPanel:
         except:
             pass  # Callback might already be registered
         
-        # Update parameter entries stored in the dictionary
-        if hasattr(self, '_parameter_entries'):
-            for param_name, (entry, var) in self._parameter_entries.items():
-                if hasattr(molecules_dict, param_name):
-                    var.set(str(getattr(molecules_dict, param_name)))
+        # Note: Global parameter entries removed - these are now per-molecule parameters
         
         # Update wavelength range fields
         if (hasattr(self, 'min_wavelength_var') and hasattr(self, 'max_wavelength_var') 
@@ -448,6 +645,9 @@ class ControlPanel:
             min_val, max_val = molecules_dict.global_wavelength_range
             self.min_wavelength_var.set(str(min_val))
             self.max_wavelength_var.set(str(max_val))
+        
+        # Update molecule-specific parameter fields
+        self._update_molecule_parameter_fields()
         
         self._reload_molecule_dropdown()
         
@@ -458,6 +658,8 @@ class ControlPanel:
     def reload_molecule_dropdown(self):
         """Public method for reloading molecule dropdown"""
         self._reload_molecule_dropdown()
+        # Update molecule parameter fields after reloading
+        self._update_molecule_parameter_fields()
         # Ensure theming is applied after reload
         self.apply_theme()
 
@@ -513,3 +715,23 @@ class ControlPanel:
         
         # Apply theme to regular tk widgets recursively
         self._apply_theme_to_widget(self.frame, self.theme)
+
+    def _update_molecule_parameter_fields(self):
+        """Update all molecule-specific parameter fields with values from the active molecule"""
+        if not hasattr(self, '_molecule_parameter_entries'):
+            return
+            
+        for param_name, (entry, var) in self._molecule_parameter_entries.items():
+            new_value = self._get_active_molecule_parameter_value(param_name)
+            # Only update if the value actually changed to avoid triggering callbacks
+            current_value = var.get()
+            if current_value != new_value:
+                var.set(new_value)
+
+    def _clear_molecule_parameter_fields(self):
+        """Clear molecule-specific parameter fields for special cases like SUM/ALL"""
+        if not hasattr(self, '_molecule_parameter_entries'):
+            return
+            
+        for param_name, (entry, var) in self._molecule_parameter_entries.items():
+            var.set("N/A")
