@@ -49,7 +49,7 @@ class FileInteractionPane:
             text="Input Line List: None", 
             wraplength=180, 
             anchor="w",
-            font=("TkDefaultFont", 8)
+            #font=("TkDefaultFont", 8)
         )
         self.input_line_list_label.grid(row=1, column=0, sticky="ew", padx=(5, 5), pady=2)
         
@@ -66,7 +66,7 @@ class FileInteractionPane:
             text="Output Measurements: None", 
             wraplength=180, 
             anchor="w",
-            font=("TkDefaultFont", 8)
+            #font=("TkDefaultFont", 8)
         )
         self.output_measurements_label.grid(row=2, column=0, sticky="ew", padx=(5, 5), pady=2)
         
@@ -324,33 +324,8 @@ class FileInteractionPane:
             print("No input line list file selected.")
     
     def _load_output_line_measurements(self):
-        """
-        Open file dialog to select output line measurements file and store in islat_class.
-        """
-        from tkinter import filedialog
-        
-        # Define appropriate file types for measurements
-        filetypes = [
-            #('Text Files', '*.txt'),
-            #('CSV Files', '*.csv'),
-            #('DAT Files', '*.dat'),
-            ('All Files', '*.*')
-        ]
-        
-        # Open file dialog
-        file_path = filedialog.askopenfilename(
-            title="Select Output Line Measurements File",
-            filetypes=filetypes,
-            initialdir=os.getcwd()
-        )
-        
-        if file_path:
-            # Store the file path in the islat_class
-            self.islat_class.output_line_measurements = file_path
-            filename = os.path.basename(file_path)
-            print(f"Output line measurements loaded: {filename}")
-            
-            # Update the status label
-            self.output_measurements_label.configure(text=f"Output Measurements: {filename}")
-        else:
-            print("No output line measurements file selected.")
+        """Calls the ifh class to save output line measurements."""
+        from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import save_output_line_measurements
+        filename = save_output_line_measurements(self.islat_class.output_line_measurements)
+        self.islat_class.output_line_measurements = filename
+        self.output_measurements_label.configure(text=f"Output Measurements: {filename}")
