@@ -99,10 +99,14 @@ class FittingEngine:
         
         Parameters
         ----------
-        centers : list
+        centers : list or array_like
             List of wavelength centers manually selected by user
         """
-        self.user_selected_centers = list(centers)
+        if centers is None:
+            self.user_selected_centers = []
+        else:
+            # Convert to list to ensure hashable types (avoid numpy array issues)
+            self.user_selected_centers = list(np.atleast_1d(centers))
         
     def set_fit_uncertainty(self, uncertainty):
         """Set the uncertainty factor for fitting operations."""
@@ -198,8 +202,15 @@ class FittingEngine:
             if xmin is not None and xmax is not None:
                 err_mask = (self.islat.wave_data >= xmin) & (self.islat.wave_data <= xmax)
                 err_fit = self.islat.err_data[err_mask]
-                if len(err_fit) == len(flux_data):
-                    weights = 1.0 / err_fit
+                if len(err_fit) == len(flux_data) and len(err_fit) > 0:
+                    # Avoid division by zero - replace zero or negative errors with a small value
+                    max_err = np.max(err_fit)
+                    if max_err <= 0:
+                        # If all errors are zero or negative, don't use weights
+                        weights = np.ones_like(flux_data)
+                    else:
+                        err_fit_safe = np.where(err_fit <= 0, max_err * 0.01, err_fit)
+                        weights = 1.0 / err_fit_safe
         
         if weights is None:
             weights = np.ones_like(flux_data)
@@ -473,12 +484,14 @@ class FittingEngine:
                     intensities = np.array(line_data['intens'])
                     max_intensity = intensities.max()
                     threshold_intensity = max_intensity * line_threshold
-                    strong_lines = line_data[line_data['intens'] >= threshold_intensity]
                     
-                    if not strong_lines.empty:
-                        line_centers = strong_lines['lam'].values.tolist()
-                        n_components = len(line_centers)
-                        return n_components, line_centers
+                    # Create boolean mask for filtering instead of treating dict as DataFrame
+                    strong_mask = intensities >= threshold_intensity
+                    
+                    if np.any(strong_mask):
+                        filtered_centers = line_centers[strong_mask]
+                        n_components = len(filtered_centers)
+                        return n_components, filtered_centers.tolist()
         except Exception as e:
             print(f"Warning: Could not use user selection detection: {e}")
         
