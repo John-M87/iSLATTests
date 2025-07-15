@@ -151,8 +151,23 @@ def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name) 
 def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_name):
     """Save a line to the line saves file."""
     filename = os.path.join(file_path, file_name)
+    
+    # Sanitize line_info to ensure no objects get saved as strings
+    clean_line_info = {}
+    for key, value in line_info.items():
+        if key == 'species' and hasattr(value, 'name'):
+            # If species is a Molecule object, extract the name
+            clean_line_info[key] = str(value.name)
+        elif isinstance(value, (int, float, str, bool)) or value is None:
+            # Only save basic types
+            clean_line_info[key] = value
+        else:
+            # Convert other types to string but warn
+            print(f"Warning: Converting {key}={type(value)} to string in saved line")
+            clean_line_info[key] = str(value)
+    
     #print(f"Saving line to {filename}")
-    df = pd.DataFrame([line_info])
+    df = pd.DataFrame([clean_line_info])
 
     # Ensure the directory exists
     os.makedirs(file_path, exist_ok=True)
@@ -165,7 +180,7 @@ def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_n
 
     # Save the line to the CSV file
     df.to_csv(filename, mode='a', header=do_header, index=False)
-    print(f"Saved line at ~{line_info['lam']:.4f} μm to {filename}")
+    print(f"Saved line at ~{clean_line_info['lam']:.4f} μm to {filename}")
 
 def save_fit_results(fit_results_data, file_path = save_folder_path, file_name= fit_save_lines_file_name):
     """
