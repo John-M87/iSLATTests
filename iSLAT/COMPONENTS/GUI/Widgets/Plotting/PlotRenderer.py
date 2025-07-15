@@ -227,6 +227,7 @@ class PlotRenderer:
             
             # Geometric parameters using property access
             params.extend([
+                getattr(molecule, 'temp', None),
                 getattr(molecule, 'radius', None),
                 getattr(molecule, 'distance', None)
             ])
