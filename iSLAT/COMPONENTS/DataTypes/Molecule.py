@@ -43,7 +43,7 @@ class Molecule:
         'lines', 'intensity', 'spectrum',
         
         # Physical parameters (private)
-        '_temp', '_radius', '_n_mol', '_distance', '_fwhm', 'broad',
+        '_temp', '_radius', '_n_mol', '_distance', '_fwhm', '_broad',
         
         # Temporary attributes for initialization
         '_temp_val', '_radius_val', '_n_mol_val', '_distance_val', '_fwhm_val', '_broad_val',
@@ -153,7 +153,7 @@ class Molecule:
         self._n_mol = float(self._n_mol_val if self._n_mol_val is not None else self.n_mol_init)
         self._distance = float(self._distance_val if self._distance_val is not None else c.DEFAULT_DISTANCE)
         self._fwhm = float(self._fwhm_val if self._fwhm_val is not None else c.DEFAULT_FWHM)
-        self.broad = float(self._broad_val if self._broad_val is not None else c.INTRINSIC_LINE_WIDTH)
+        self._broad = float(self._broad_val if self._broad_val is not None else c.INTRINSIC_LINE_WIDTH)
 
         self.wavelength_range = kwargs.get('wavelength_range', c.WAVELENGTH_RANGE)
         self.model_pixel_res = kwargs.get('model_pixel_res', c.MODEL_PIXEL_RESOLUTION)
@@ -181,7 +181,7 @@ class Molecule:
         # Get instance values from user save data or kwargs
         self._distance_val = usd.get('Dist', kwargs.get('distance', c.DEFAULT_DISTANCE))
         self._fwhm_val = usd.get('FWHM', kwargs.get('fwhm', c.DEFAULT_FWHM))
-        self._broad_val = usd.get('Broad', kwargs.get('broad', c.INTRINSIC_LINE_WIDTH))
+        self._broad_val = usd.get('Broad', kwargs.get('_broad', c.INTRINSIC_LINE_WIDTH))
         self.stellar_rv = kwargs.get('stellar_rv', c.DEFAULT_STELLAR_RV)
         
         # Set kinetic temperature and molecule-specific parameters
@@ -204,7 +204,7 @@ class Molecule:
         # Get instance values from kwargs or defaults
         self._distance_val = kwargs.get('distance', c.DEFAULT_DISTANCE)
         self._fwhm_val = kwargs.get('fwhm', c.DEFAULT_FWHM)
-        self._broad_val = kwargs.get('broad', c.INTRINSIC_LINE_WIDTH)
+        self._broad_val = kwargs.get('_broad', c.INTRINSIC_LINE_WIDTH)
         self.stellar_rv = kwargs.get('stellar_rv', c.DEFAULT_STELLAR_RV)
         
         # Set kinetic temperature and molecule-specific parameters
@@ -249,7 +249,7 @@ class Molecule:
         """Calculate a hash of current parameters for cache validation"""
         param_tuple = (
             self._temp, self._radius, self._n_mol, self._distance, 
-            self._fwhm, self.broad, self.wavelength_range, 
+            self._fwhm, self._broad, self.wavelength_range, 
             self.model_pixel_res, self.model_line_width
         )
         self._parameter_hash = hash(param_tuple)
@@ -541,8 +541,8 @@ class Molecule:
                 old_values[param_name] = getattr(self, f'_{param_name}')
                 setattr(self, f'_{param_name}', float(value))
             elif param_name == 'intrinsic_line_width':
-                old_values[param_name] = self.broad
-                self.broad = float(value)
+                old_values[param_name] = self._broad
+                self._broad = float(value)
             elif hasattr(self, param_name):
                 old_values[param_name] = getattr(self, param_name)
                 setattr(self, param_name, value)
@@ -573,14 +573,33 @@ class Molecule:
         self._notify_my_parameter_change('stellar_rv', old_value, self.stellar_rv)
     
     @property
+    def broad(self):
+        """Intrinsic line width getter"""
+        return self._broad_val
+    
+    @broad.setter
+    def broad(self, value):
+        """Intrinsic line width setter"""
+        old_value = self._broad_val
+        self._broad_val = float(value)
+
+        # Invalidate caches
+        self._intensity_valid = False
+        self._spectrum_valid = False
+        self._clear_flux_caches()
+
+        self._notify_my_parameter_change('broad', old_value, self._broad_val)
+
+    @property
     def intrinsic_line_width(self):
         """Intrinsic line width getter"""
-        return self.broad
-    
+        return self._broad
+
     @intrinsic_line_width.setter
     def intrinsic_line_width(self, value):
         """Intrinsic line width setter"""
-        old_value = self.broad
+        self.broad = value  # Reuse the broad setter to handle caching and notifications
+        '''old_value = self.broad
         self.broad = float(value)
         
         # Invalidate caches
@@ -588,7 +607,7 @@ class Molecule:
         self._spectrum_valid = False
         self._clear_flux_caches()
         
-        self._notify_my_parameter_change('intrinsic_line_width', old_value, self.broad)
+        self._notify_my_parameter_change('intrinsic_line_width', old_value, self.broad)'''
     
     def _update_spectrum(self):
         """Update the spectrum with current intensity and area"""

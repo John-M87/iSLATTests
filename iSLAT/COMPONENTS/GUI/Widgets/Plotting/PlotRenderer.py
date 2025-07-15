@@ -229,7 +229,9 @@ class PlotRenderer:
             params.extend([
                 getattr(molecule, 'temp', None),
                 getattr(molecule, 'radius', None),
-                getattr(molecule, 'distance', None)
+                getattr(molecule, 'distance', None),
+                getattr(molecule, 'stellar_rv', None),
+                getattr(molecule, 'broad', None)
             ])
             
             # Convert to string and hash
