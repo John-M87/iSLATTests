@@ -1,4 +1,4 @@
-from typing import Optional, List, Dict, Any, Tuple, Union
+from typing import Optional, List, Dict, Any, Tuple, Union, TYPE_CHECKING
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -6,34 +6,33 @@ from matplotlib.lines import Line2D
 from matplotlib.collections import PolyCollection
 import iSLAT.Constants as c
 
-# Type hints for the classes we'll be working with
-if False:  # TYPE_CHECKING equivalent for runtime
+# Import actual data types for proper type hinting
+if TYPE_CHECKING:
     from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
     from iSLAT.COMPONENTS.DataTypes.MoleculeDict import MoleculeDict
     from iSLAT.COMPONENTS.DataTypes.MoleculeLineList import MoleculeLineList
+    from iSLAT.COMPONENTS.DataTypes.MoleculeLine import MoleculeLine
     from iSLAT.COMPONENTS.DataTypes.ir_model.intensity import Intensity
     from iSLAT.COMPONENTS.DataTypes.ir_model.spectrum import Spectrum
 
 class PlotRenderer:
     """
-    Pure plotting logic - handles all plot rendering and visual updates with optimized molecule access.
+    Handles all plot rendering and visual updates for the iSLAT spectroscopy tool.
     
-    This class provides efficient rendering of:
+    This class provides comprehensive rendering of:
     - Observed spectrum data with error bars
-    - Individual molecule model spectra using optimized data access
+    - Individual molecule model spectra
     - Summed model spectra
     - Population diagrams with caching
     - Line inspection plots
     - Saved line markers
     
-    Key optimizations:
-    - Uses MoleculeDict.get_visible_molecules_fast() when available
-    - Leverages molecule.prepare_plot_data() for cached flux calculations
-    - Implements population diagram caching to avoid redundant calculations
-    - Supports bulk operations for better performance with many molecules
+    Features:
+    - Efficient molecule visibility filtering
+    - Cached flux calculations for performance
+    - Population diagram caching to avoid redundant calculations
     - Memory-conscious plotting with line limit management
-    
-    Type hints are provided throughout for better code clarity and IDE support.
+    - Batch operations for better performance with many molecules
     """
     
     def __init__(self, plot_manager: Any) -> None:
@@ -81,7 +80,7 @@ class PlotRenderer:
         self.model_lines.clear()
         
     def render_main_spectrum_plot(self, wave_data: np.ndarray, flux_data: np.ndarray, 
-                                 molecules: Union[List[Any], Any], 
+                                 molecules: Union[List['Molecule'], 'MoleculeDict'], 
                                  summed_flux: Optional[np.ndarray] = None, 
                                  error_data: Optional[np.ndarray] = None) -> None:
         """Render the main spectrum plot with observed data, model spectra, and sum"""
@@ -100,7 +99,7 @@ class PlotRenderer:
         # Plot observed spectrum
         self._plot_observed_spectrum(wave_data, flux_data, error_data)
         
-        # Plot individual molecule spectra using most efficient method
+        # Plot individual molecule spectra
         if molecules:
             self.render_molecules_efficiently(wave_data, molecules)
             
@@ -145,215 +144,6 @@ class PlotRenderer:
                     label='Observed',
                     zorder=self.theme.get("zorder_observed", 3)
                 )
-    
-    def _plot_model_spectra_optimized(self, wave_data: np.ndarray, molecules: Any) -> None:
-        """Plot individual molecule model spectra using optimized molecule access"""
-        # Handle MoleculeDict vs List of molecules
-        if hasattr(molecules, 'get_visible_molecules_fast'):
-            # MoleculeDict - use optimized access
-            visible_molecule_names = molecules.get_visible_molecules_fast()
-            if not visible_molecule_names:
-                return
-            
-            # Get molecules efficiently
-            visible_molecules = [molecules[name] for name in visible_molecule_names 
-                               if name in molecules and getattr(molecules[name], 'is_visible', False)]
-        else:
-            # List of molecules - filter visible
-            visible_molecules = [mol for mol in molecules 
-                               if getattr(mol, 'is_visible', False)]
-        
-        if not visible_molecules:
-            return
-        
-        # Use bulk operations where possible
-        self._plot_molecules_bulk(wave_data, visible_molecules)
-    
-    def _plot_molecules_bulk(self, wave_data: np.ndarray, molecules: List[Any]) -> None:
-        """Plot molecules using bulk operations for better performance"""
-        mol_plot_data = []
-        
-        # Prepare plot data for all molecules efficiently
-        for mol in molecules:
-            try:
-                mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
-                
-                # Try to use cached flux data first
-                if hasattr(mol, 'plot_lam') and hasattr(mol, 'plot_flux'):
-                    if (mol.plot_lam is not None and mol.plot_flux is not None and 
-                        len(mol.plot_flux) > 0):
-                        # Check if wave_data matches cached data
-                        if (len(mol.plot_lam) == len(wave_data) and 
-                            np.allclose(mol.plot_lam, wave_data, rtol=1e-10)):
-                            peak_intensity = np.max(mol.plot_flux)
-                            mol_plot_data.append((peak_intensity, mol, mol.plot_lam, mol.plot_flux, mol_name))
-                            continue
-                
-                # Use optimized prepare_plot_data if available
-                if hasattr(mol, 'prepare_plot_data') and callable(mol.prepare_plot_data):
-                    try:
-                        plot_lam, plot_flux = mol.prepare_plot_data(wave_data)
-                        if plot_lam is not None and plot_flux is not None and len(plot_flux) > 0:
-                            peak_intensity = np.max(plot_flux)
-                            mol_plot_data.append((peak_intensity, mol, plot_lam, plot_flux, mol_name))
-                            continue
-                    except Exception as e:
-                        print(f"Warning: prepare_plot_data failed for {mol_name}: {e}")
-                
-                # Fallback to spectrum interpolation
-                if hasattr(mol, 'spectrum') and mol.spectrum is not None:
-                    # Ensure spectrum is valid
-                    if hasattr(mol, '_ensure_spectrum_valid'):
-                        mol._ensure_spectrum_valid()
-                    
-                    spectrum = mol.spectrum
-                    if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
-                        mol_flux_interp = np.interp(
-                            wave_data, spectrum.lamgrid, spectrum.flux_jy, left=0.0, right=0.0
-                        )
-                        if len(mol_flux_interp) > 0:
-                            peak_intensity = np.max(mol_flux_interp)
-                            if peak_intensity > 0:
-                                mol_plot_data.append((peak_intensity, mol, wave_data, mol_flux_interp, mol_name))
-                                continue
-                
-                # If we get here, no valid data was found
-                print(f"Warning: {mol_name} has no valid spectrum data for plotting")
-                
-            except Exception as e:
-                print(f"Error preparing plot data for {mol_name}: {e}")
-                continue
-        
-        # Sort by peak intensity (lowest first for better visibility)
-        mol_plot_data.sort(key=lambda x: x[0])
-        
-        # Plot all molecules
-        for peak_intensity, mol, plot_lam, plot_flux, mol_name in mol_plot_data:
-            self._plot_single_molecule(mol, plot_lam, plot_flux, mol_name)
-    
-    def _plot_single_molecule(self, mol: Any, plot_lam: np.ndarray, plot_flux: np.ndarray, mol_name: str) -> None:
-        """Plot a single molecule spectrum"""
-        try:
-            # Use the molecule's color if available, otherwise get from theme
-            color = getattr(mol, 'color', None)
-            if color is None:
-                color = self.theme.get('molecule_colors', {}).get(mol_name, 'blue')
-            
-            # Get proper label
-            label = getattr(mol, 'displaylabel', mol_name)
-
-            # Plot with style 
-            line, = self.ax1.plot(
-                plot_lam,
-                plot_flux,
-                linestyle='--',
-                color=color,
-                alpha=0.7,
-                linewidth=1,
-                label=label,
-                zorder=self.theme.get("zorder_model", 2)
-            )
-            self.model_lines.append(line)
-        except Exception as e:
-            print(f"Error plotting {mol_name}: {e}")
-    
-    def _plot_model_spectra(self, wave_data: np.ndarray, molecules: Any) -> None:
-        """Legacy method - Plot individual molecule model spectra"""
-        # Double-check visibility using the molecule's own is_visible attribute
-        truly_visible = []
-        
-        # Handle different molecule container types
-        if hasattr(molecules, 'values'):  # Dict-like (MoleculeDict)
-            molecule_list = list(molecules.values())
-        elif hasattr(molecules, '__iter__'):  # List-like
-            molecule_list = molecules
-        else:
-            molecule_list = [molecules]
-            
-        for mol in molecule_list:
-            # Check for is_visible attribute and ensure it's True
-            if getattr(mol, 'is_visible', False):
-                truly_visible.append(mol)
-        
-        if not truly_visible:
-            return
-        
-        # Sort molecules by peak intensity for better visual layering
-        mol_intensities = []
-        for mol in truly_visible:
-            mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
-            try:
-                # Prepare plot data or use molecule's spectrum directly
-                if hasattr(mol, 'prepare_plot_data'):
-                    mol.prepare_plot_data(wave_data)
-                    if hasattr(mol, 'plot_flux') and hasattr(mol, 'plot_lam') and len(mol.plot_flux) > 0:
-                        peak_intensity = np.max(mol.plot_flux) if len(mol.plot_flux) > 0 else 0
-                        mol_intensities.append((peak_intensity, mol, mol.plot_lam, mol.plot_flux))
-                    else:
-                        # Fallback to interpolating spectrum data
-                        if hasattr(mol, 'spectrum') and mol.spectrum is not None:
-                            mol_flux_interp = np.interp(
-                                wave_data,
-                                mol.spectrum.lamgrid,
-                                mol.spectrum.flux_jy,
-                                left=0.0, right=0.0
-                            )
-                            peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
-                            mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
-                        else:
-                            print(f"Warning: {mol_name} has no spectrum data")
-                            continue
-                else:
-                    # Direct interpolation approach
-                    if hasattr(mol, 'spectrum') and mol.spectrum is not None:
-                        mol_flux_interp = np.interp(
-                            wave_data,
-                            mol.spectrum.lamgrid,
-                            mol.spectrum.flux_jy,
-                            left=0.0, right=0.0
-                        )
-                        peak_intensity = np.max(mol_flux_interp) if len(mol_flux_interp) > 0 else 0
-                        mol_intensities.append((peak_intensity, mol, wave_data, mol_flux_interp))
-                    else:
-                        print(f"Warning: {mol_name} has no spectrum data")
-                        continue
-            except Exception as e:
-                print(f"Error preparing plot data for {mol_name}: {e}")
-                continue
-        
-        # Sort by peak intensity (lowest first for better visibility)
-        mol_intensities.sort(key=lambda x: x[0])
-        
-        for peak_intensity, mol, plot_lam, plot_flux in mol_intensities:
-            # Get proper molecule name
-            mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
-            
-            if peak_intensity > 0:  # Only plot if there's actual flux
-                try:
-                    # Use the molecule's color if available, otherwise get from theme
-                    color = getattr(mol, 'color', None)
-                    if color is None:
-                        # Get color from theme, or use default
-                        color = self.theme.get('molecule_colors', {}).get(mol_name, 'blue')
-                    
-                    # Get proper label
-                    label = getattr(mol, 'displaylabel', mol_name)
-
-                    # Plot with style 
-                    line, = self.ax1.plot(
-                        plot_lam,
-                        plot_flux,
-                        linestyle='--',
-                        color=color,
-                        alpha=0.7,
-                        linewidth=1,
-                        label=label,
-                        zorder=self.theme.get("zorder_model", 2)
-                    )
-                    self.model_lines.append(line)
-                except Exception as e:
-                    print(f"Error plotting {mol_name}: {e}")
-                    continue
     
     def _plot_summed_spectrum(self, wave_data: np.ndarray, summed_flux: np.ndarray) -> None:
         """Plot the summed model spectrum"""
@@ -401,7 +191,7 @@ class PlotRenderer:
             if handles:
                 self.ax2.legend()
     
-    def _get_molecule_parameters_hash(self, molecule: Any) -> Optional[int]:
+    def _get_molecule_parameters_hash(self, molecule: 'Molecule') -> Optional[int]:
         """Generate a hash of molecule parameters to detect changes"""
         if molecule is None:
             return None
@@ -457,8 +247,8 @@ class PlotRenderer:
             'wave_range': None
         }
     
-    def render_population_diagram(self, molecule: Any, wave_range: Optional[Tuple[float, float]] = None) -> None:
-        """Render the population diagram for the active molecule with optimized intensity access"""
+    def render_population_diagram(self, molecule: 'Molecule', wave_range: Optional[Tuple[float, float]] = None) -> None:
+        """Render the population diagram for the active molecule with intensity access"""
         # Check cache to avoid unnecessary re-rendering
         molecule_id = getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
         parameters_hash = self._get_molecule_parameters_hash(molecule)
@@ -486,29 +276,11 @@ class PlotRenderer:
             return
             
         try:
-            # Check if molecule has intensity data using optimized access
-            if not hasattr(molecule, 'intensity') or molecule.intensity is None:
+            # Get the intensity table using optimized access
+            int_pars = self.get_intensity_table_efficiently(molecule)
+            if int_pars is None:
                 self.ax3.set_title(f"{getattr(molecule, 'displaylabel', 'Molecule')} - No intensity data")
                 return
-            
-            # Ensure intensity is calculated
-            if hasattr(molecule, '_ensure_intensity_initialized'):
-                molecule._ensure_intensity_initialized()
-            if hasattr(molecule, 'calculate_intensity'):
-                molecule.calculate_intensity()
-                
-            intensity_obj = molecule.intensity
-            
-            # Get the intensity table using optimized access
-            if hasattr(intensity_obj, 'get_table'):
-                int_pars = intensity_obj.get_table
-                int_pars.index = range(len(int_pars.index))
-            else:
-                # Fallback: build table from molecular line data and intensity arrays
-                int_pars = self._build_intensity_table_from_arrays(molecule, intensity_obj)
-                if int_pars is None:
-                    self.ax3.set_title(f"{getattr(molecule, 'displaylabel', 'Molecule')} - Cannot build intensity table")
-                    return
 
             # Extract components for population diagram
             wavelength = int_pars['lam']
@@ -554,68 +326,6 @@ class PlotRenderer:
             print(f"Error rendering population diagram: {e}")
             mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
             self.ax3.set_title(f"{mol_label} - Error in calculation")
-    
-    def _build_intensity_table_from_arrays(self, molecule: Any, intensity_obj: Any) -> Optional[pd.DataFrame]:
-        """Build intensity table from molecular line data and calculated intensity arrays"""
-        try:
-            # Get molecular line data
-            if not hasattr(molecule, 'lines') or molecule.lines is None:
-                return None
-            
-            lines = molecule.lines
-            
-            # Get line data using optimized access
-            if hasattr(lines, 'lines_as_namedtuple'):
-                line_data = lines.lines_as_namedtuple
-            elif hasattr(lines, 'get_pandas_table'):
-                line_data = lines.get_pandas_table()
-                if line_data is not None:
-                    return self._merge_line_data_with_intensity(line_data, intensity_obj)
-            else:
-                return None
-            
-            # Get intensity arrays
-            if not hasattr(intensity_obj, 'intensity') or intensity_obj.intensity is None:
-                return None
-            
-            intensity_array = intensity_obj.intensity
-            tau_array = getattr(intensity_obj, 'tau', None)
-            
-            # Build DataFrame
-            data = {
-                'lam': line_data.lam,
-                'intens': intensity_array,
-                'a_stein': line_data.a_stein,
-                'g_up': line_data.g_up,
-                'e_up': line_data.e_up,
-                'e_low': line_data.e_low,
-                'g_low': line_data.g_low
-            }
-            
-            if tau_array is not None:
-                data['tau'] = tau_array
-            
-            return pd.DataFrame(data)
-            
-        except Exception as e:
-            print(f"Error building intensity table from arrays: {e}")
-            return None
-    
-    def _merge_line_data_with_intensity(self, line_df: pd.DataFrame, intensity_obj: Any) -> pd.DataFrame:
-        """Merge line data DataFrame with intensity arrays"""
-        try:
-            if hasattr(intensity_obj, 'intensity') and intensity_obj.intensity is not None:
-                line_df = line_df.copy()
-                line_df['intens'] = intensity_obj.intensity
-                
-                if hasattr(intensity_obj, 'tau') and intensity_obj.tau is not None:
-                    line_df['tau'] = intensity_obj.tau
-                    
-                return line_df
-            return line_df
-        except Exception as e:
-            print(f"Error merging line data with intensity: {e}")
-            return line_df
     
     def plot_saved_lines(self, saved_lines: pd.DataFrame) -> None:
         """Plot saved lines on the main spectrum"""
@@ -687,10 +397,10 @@ class PlotRenderer:
             self.ax2.scatter([wave], [height], color=color, s=20, 
                            alpha=0.8, picker=True, zorder=5)
     
-    def get_visible_molecules_efficiently(self, molecules: Any) -> List[Any]:
+    def get_visible_molecules_efficiently(self, molecules: Union['MoleculeDict', List['Molecule']]) -> List['Molecule']:
         """Get visible molecules using the most efficient method available"""
         if hasattr(molecules, 'get_visible_molecules_fast'):
-            # MoleculeDict with optimized access
+            # MoleculeDict with fast access
             visible_names = molecules.get_visible_molecules_fast()
             return [molecules[name] for name in visible_names if name in molecules]
         elif hasattr(molecules, 'values'):
@@ -703,82 +413,23 @@ class PlotRenderer:
             # Single molecule
             return [molecules] if getattr(molecules, 'is_visible', False) else []
     
-    def prepare_molecule_plot_data_bulk(self, molecules: List[Any], wave_data: np.ndarray) -> List[Tuple[float, Any, np.ndarray, np.ndarray, str]]:
-        """Prepare plot data for multiple molecules efficiently"""
-        mol_plot_data = []
-        
-        for mol in molecules:
-            try:
-                mol_name = getattr(mol, 'name', getattr(mol, 'displaylabel', 'unknown'))
-                
-                # Try to use cached flux data first
-                if hasattr(mol, 'plot_lam') and hasattr(mol, 'plot_flux'):
-                    if (mol.plot_lam is not None and mol.plot_flux is not None and 
-                        len(mol.plot_flux) > 0):
-                        # Check if wave_data matches cached data
-                        if (len(mol.plot_lam) == len(wave_data) and 
-                            np.allclose(mol.plot_lam, wave_data, rtol=1e-10)):
-                            peak_intensity = np.max(mol.plot_flux)
-                            mol_plot_data.append((peak_intensity, mol, mol.plot_lam, mol.plot_flux, mol_name))
-                            continue
-                
-                # Use optimized prepare_plot_data if available
-                if hasattr(mol, 'prepare_plot_data') and callable(mol.prepare_plot_data):
-                    try:
-                        plot_lam, plot_flux = mol.prepare_plot_data(wave_data)
-                        if plot_lam is not None and plot_flux is not None and len(plot_flux) > 0:
-                            peak_intensity = np.max(plot_flux)
-                            mol_plot_data.append((peak_intensity, mol, plot_lam, plot_flux, mol_name))
-                            continue
-                    except Exception as e:
-                        print(f"Warning: prepare_plot_data failed for {mol_name}: {e}")
-                
-                # Fallback to spectrum interpolation
-                if hasattr(mol, 'spectrum') and mol.spectrum is not None:
-                    # Ensure spectrum is valid
-                    if hasattr(mol, '_ensure_spectrum_valid'):
-                        mol._ensure_spectrum_valid()
-                    
-                    spectrum = mol.spectrum
-                    if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
-                        mol_flux_interp = np.interp(
-                            wave_data, spectrum.lamgrid, spectrum.flux_jy, left=0.0, right=0.0
-                        )
-                        if len(mol_flux_interp) > 0:
-                            peak_intensity = np.max(mol_flux_interp)
-                            if peak_intensity > 0:
-                                mol_plot_data.append((peak_intensity, mol, wave_data, mol_flux_interp, mol_name))
-                                continue
-                
-                # If we get here, no valid data was found
-                print(f"Warning: {mol_name} has no valid spectrum data for plotting")
-                
-            except Exception as e:
-                print(f"Error preparing plot data for {mol_name}: {e}")
-                continue
-        
-        return mol_plot_data
-    
-    def render_molecules_efficiently(self, wave_data: np.ndarray, molecules: Any) -> None:
-        """Render molecules using the most efficient methods available"""
+    def render_molecules_efficiently(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
+        """Render molecules using available methods"""
         if not molecules:
             return
         
-        # Get visible molecules efficiently
+        # Get visible molecules
         visible_molecules = self.get_visible_molecules_efficiently(molecules)
         if not visible_molecules:
             return
         
-        # Prepare plot data for all molecules
-        mol_plot_data = self.prepare_molecule_plot_data_bulk(visible_molecules, wave_data)
+        # Use rendering for each molecule
+        molecules_plotted = 0
+        for mol in visible_molecules:
+            if self.render_molecule_spectrum_optimized(mol, wave_data):
+                molecules_plotted += 1
         
-        # Sort by peak intensity for better visual layering
-        mol_plot_data.sort(key=lambda x: x[0])
-        
-        # Plot all molecules
-        for peak_intensity, mol, plot_lam, plot_flux, mol_name in mol_plot_data:
-            if peak_intensity > 0:  # Only plot if there's actual flux
-                self._plot_single_molecule(mol, plot_lam, plot_flux, mol_name)
+        print(f"Successfully plotted {molecules_plotted}/{len(visible_molecules)} molecules")
     
     def optimize_plot_memory(self) -> None:
         """Optimize memory usage for plotting operations"""
@@ -812,3 +463,489 @@ class PlotRenderer:
             'cache_misses': getattr(self, '_cache_misses', 0),
             'memory_optimized': hasattr(self, '_memory_optimized')
         }
+    
+    def clear_active_lines(self, active_lines_list: List[Any]) -> None:
+        """
+        Properly clear active lines by removing matplotlib artists first.
+        
+        Parameters
+        ----------
+        active_lines_list : List[Any]
+            List of [line_artist, scatter_artist, value_data] tuples
+        """
+        for line_data in active_lines_list:
+            if len(line_data) >= 2:
+                line_artist = line_data[0]  # Line artist (vlines)
+                scatter_artist = line_data[1]  # Scatter artist
+                
+                # Remove line artist if it exists
+                if line_artist is not None:
+                    try:
+                        line_artist.remove()
+                    except (ValueError, AttributeError):
+                        pass
+                
+                # Remove scatter artist if it exists
+                if scatter_artist is not None:
+                    try:
+                        scatter_artist.remove()
+                    except (ValueError, AttributeError):
+                        pass
+        
+        # Clear the list after removing all artists
+        active_lines_list.clear()
+    
+    def render_active_lines_in_population_diagram(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]], active_lines_list: List[Any]) -> None:
+        """
+        Render active lines as scatter points in the population diagram.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+        active_lines_list : List[Any]
+            List to store active line data for interaction
+        """
+        if not line_data:
+            return
+        
+        # Calculate rd_yax values for each line and add scatter points
+        for idx, (line, intensity, tau_val) in enumerate(line_data):
+            if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
+                # Get molecule properties safely
+                molecule = getattr(self.islat, 'active_molecule', None)
+                if molecule is None:
+                    continue
+                    
+                radius = getattr(molecule, 'radius', 1.0)
+                distance = getattr(molecule, 'distance', getattr(self.islat, 'global_dist', 140.0))
+                
+                # Calculate rd_yax
+                area = np.pi * (radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+                dist = distance * c.PARSEC_CM
+                beam_s = area / dist ** 2
+                F = intensity * beam_s
+                freq = c.SPEED_OF_LIGHT_MICRONS / line.lam
+                rd_yax = np.log(4 * np.pi * F / (line.a_stein * c.PLANCK_CONSTANT * freq * line.g_up))
+                
+                # Create scatter point
+                sc = self.ax3.scatter(line.e_up, rd_yax, s=30, 
+                                     color=self.theme.get("scatter_main_color", 'green'), 
+                                     edgecolors='black', picker=True)
+                
+                # Store line information
+                value_data = {
+                    'lam': line.lam,
+                    'e': line.e_up,
+                    'a': line.a_stein,
+                    'g': line.g_up,
+                    'rd_yax': rd_yax,
+                    'inten': intensity,
+                    'up_lev': line.lev_up if line.lev_up else 'N/A',
+                    'low_lev': line.lev_low if line.lev_low else 'N/A',
+                    'tau': tau_val if tau_val is not None else 'N/A'
+                }
+                
+                # Update existing entry or create new one
+                if idx < len(active_lines_list):
+                    # Update existing entry with scatter artist
+                    active_lines_list[idx][1] = sc  # Set scatter artist
+                    active_lines_list[idx][2].update(value_data)  # Update value data
+                else:
+                    # Create new entry: [line_artist, scatter_artist, value_data]
+                    active_lines_list.append([None, sc, value_data])
+    
+    def render_active_lines_in_line_inspection(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]], active_lines_list: List[Any], 
+                                              max_y: float) -> None:
+        """
+        Render active lines as vertical lines in the line inspection plot.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+        active_lines_list : List[Any]
+            List to store active line data for interaction
+        max_y : float
+            Maximum y value for scaling line heights
+        """
+        if not line_data:
+            return
+        
+        # Extract intensities for normalization
+        intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(intensities) if intensities else 1.0
+        
+        # Plot vertical lines for each molecular line and create/update active_lines entries
+        for idx, (line, intensity, tau_val) in enumerate(line_data):
+            # Calculate line height
+            lineheight = 0
+            if max_intensity > 0:
+                lineheight = (intensity / max_intensity) * max_y
+            
+            if lineheight > 0:
+                # Create vertical line
+                vline = self.ax2.vlines(line.lam, 0, lineheight,
+                                       color=self.theme.get("active_scatter_line_color", "green"), 
+                                       linestyle='dashed', linewidth=1, picker=True)
+                
+                # Add text label
+                text = self.ax2.text(line.lam, lineheight,
+                                   f"{line.e_up:.0f},{line.a_stein:.3f}", 
+                                   fontsize='x-small', 
+                                   color=self.theme.get("active_scatter_line_color", "green"), 
+                                   rotation=45)
+                
+                # Create value data for this line
+                value_data = {
+                    'lam': line.lam,
+                    'e': line.e_up,
+                    'a': line.a_stein,
+                    'g': line.g_up,
+                    'inten': intensity,
+                    'up_lev': line.lev_up if line.lev_up else 'N/A',
+                    'low_lev': line.lev_low if line.lev_low else 'N/A',
+                    'tau': tau_val if tau_val is not None else 'N/A',
+                    'text_obj': text,
+                    'lineheight': lineheight
+                }
+                
+                # Add new entry to active_lines or update existing one
+                if idx < len(active_lines_list):
+                    # Update existing entry
+                    active_lines_list[idx][0] = vline  # Set line artist
+                    active_lines_list[idx][2].update(value_data)  # Update value data
+                else:
+                    # Create new entry: [line_artist, scatter_artist, value_data]
+                    active_lines_list.append([vline, None, value_data])
+    
+    def highlight_strongest_line(self, active_lines_list: List[Any]) -> Any:
+        """
+        Find and highlight the strongest line in the active lines.
+        
+        Parameters
+        ----------
+        active_lines_list : List[Any]
+            List of [line_artist, scatter_artist, value_data] tuples
+            
+        Returns
+        -------
+        Any
+            The strongest line triplet or None
+        """
+        if not active_lines_list:
+            return None
+            
+        # Reset all lines to green first
+        for line, scatter, value in active_lines_list:
+            if line is not None:
+                line.set_color('green')
+            if scatter is not None:
+                scatter.set_facecolor('green')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('green')
+        
+        # Find the line with the highest intensity
+        highest_intensity = -float('inf')
+        strongest_triplet = None
+        
+        for line, scatter, value in active_lines_list:
+            intensity = value.get('inten', 0) if value else 0
+            if intensity > highest_intensity:
+                highest_intensity = intensity
+                strongest_triplet = [line, scatter, value]
+        
+        # Highlight the strongest line in orange
+        if strongest_triplet is not None:
+            line, scatter, value = strongest_triplet
+            if line is not None:
+                line.set_color('orange')
+            if scatter is not None:
+                scatter.set_facecolor('orange')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('orange')
+        
+        return strongest_triplet
+    
+    def handle_line_pick_event(self, picked_artist: Any, active_lines_list: List[Any]) -> Any:
+        """
+        Handle line pick events and highlight the selected line.
+        
+        Parameters
+        ----------
+        picked_artist : Any
+            The matplotlib artist that was picked
+        active_lines_list : List[Any]
+            List of [line_artist, scatter_artist, value_data] tuples
+            
+        Returns
+        -------
+        Any
+            The value data of the picked line or None
+        """
+        picked_value = None
+        
+        # Find which entry in active_lines was picked and reset colors
+        for line, scatter, value in active_lines_list:
+            is_picked = (picked_artist is line or picked_artist is scatter)
+            
+            # Reset all to green first
+            if line is not None:
+                line.set_color('green')
+            if scatter is not None:
+                scatter.set_facecolor('green')
+            if 'text_obj' in value and value['text_obj'] is not None:
+                value['text_obj'].set_color('green')
+            
+            # If this was the picked item, highlight in orange
+            if is_picked:
+                picked_value = value
+                if line is not None:
+                    line.set_color('orange')
+                if scatter is not None:
+                    scatter.set_facecolor('orange')
+                if 'text_obj' in value and value['text_obj'] is not None:
+                    value['text_obj'].set_color('orange')
+        
+        return picked_value
+    
+    def get_molecule_spectrum_efficiently(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+        """
+        Get molecule spectrum data using available methods.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            Molecule object
+        wave_data : np.ndarray
+            Wavelength array for interpolation
+            
+        Returns
+        -------
+        Tuple[Optional[np.ndarray], Optional[np.ndarray]]
+            (wavelength, flux) arrays or (None, None) if no data
+        """
+        try:
+            # Method 1: Use cached plot data if available
+            if hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
+                if molecule.plot_lam is not None and molecule.plot_flux is not None:
+                    return molecule.plot_lam, molecule.plot_flux
+            
+            # Method 2: Use optimized prepare_plot_data
+            if hasattr(molecule, 'prepare_plot_data') and callable(molecule.prepare_plot_data):
+                try:
+                    plot_data = molecule.prepare_plot_data(wave_data)
+                    if plot_data and len(plot_data) >= 2:
+                        return plot_data[0], plot_data[1]  # (lam, flux)
+                except Exception as e:
+                    print(f"Error in prepare_plot_data for {getattr(molecule, 'name', 'unknown')}: {e}")
+            
+            # Method 3: Use spectrum object directly
+            if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
+                spectrum = molecule.spectrum
+                if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
+                    lam = spectrum.lamgrid
+                    flux = spectrum.flux_jy
+                    if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
+                        return lam, flux
+            
+            # Method 4: Try to generate spectrum using intensity
+            if hasattr(molecule, 'intensity') and molecule.intensity is not None:
+                intensity_obj = molecule.intensity
+                if hasattr(intensity_obj, 'get_spectrum_on_grid'):
+                    try:
+                        spectrum_flux = intensity_obj.get_spectrum_on_grid(wave_data)
+                        if spectrum_flux is not None and len(spectrum_flux) > 0:
+                            return wave_data, spectrum_flux
+                    except Exception as e:
+                        print(f"Error getting spectrum on grid: {e}")
+                        
+            return None, None
+            
+        except Exception as e:
+            print(f"Error getting molecule spectrum: {e}")
+            return None, None
+    
+    def get_molecule_lines_efficiently(self, molecule: 'Molecule', xmin: float, xmax: float) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
+        """
+        Get molecule lines in wavelength range.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            Molecule object
+        xmin, xmax : float
+            Wavelength range
+            
+        Returns
+        -------
+        List[Tuple['MoleculeLine', float, Optional[float]]]
+            List of (MoleculeLine, intensity, tau) tuples
+        """
+        try:
+            # Method 1: Use intensity API
+            if hasattr(molecule, 'intensity') and molecule.intensity is not None:
+                intensity_obj = molecule.intensity
+                if hasattr(intensity_obj, 'get_lines_in_range_with_intensity'):
+                    return intensity_obj.get_lines_in_range_with_intensity(xmin, xmax)
+            
+            # Method 2: Use MoleculeLineList directly
+            if hasattr(molecule, 'lines') and molecule.lines is not None:
+                lines = molecule.lines
+                if hasattr(lines, 'get_lines_in_range'):
+                    lines_in_range = lines.get_lines_in_range(xmin, xmax)
+                    # Try to get corresponding intensities
+                    if hasattr(molecule, 'intensity') and molecule.intensity is not None:
+                        intensity_obj = molecule.intensity
+                        if hasattr(intensity_obj, 'intensity') and intensity_obj.intensity is not None:
+                            intensities = intensity_obj.intensity
+                            tau_values = getattr(intensity_obj, 'tau', None)
+                            
+                            result = []
+                            for i, line in enumerate(lines_in_range):
+                                intensity = intensities[i] if i < len(intensities) else 0.0
+                                tau = tau_values[i] if tau_values is not None and i < len(tau_values) else None
+                                result.append((line, intensity, tau))
+                            return result
+                    else:
+                        # Return lines with zero intensity
+                        return [(line, 0.0, None) for line in lines_in_range]
+            
+            return []
+            
+        except Exception as e:
+            print(f"Error getting molecule lines: {e}")
+            return []
+    
+    def render_molecule_spectrum_optimized(self, molecule: 'Molecule', wave_data: np.ndarray, 
+                                         plot_name: Optional[str] = None) -> bool:
+        """
+        Render a single molecule spectrum.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            Molecule object
+        wave_data : np.ndarray
+            Wavelength array
+        plot_name : Optional[str]
+            Custom name for plotting
+            
+        Returns
+        -------
+        bool
+            True if successfully plotted, False otherwise
+        """
+        try:
+            # Get spectrum data
+            plot_lam, plot_flux = self.get_molecule_spectrum_efficiently(molecule, wave_data)
+            
+            if plot_lam is None or plot_flux is None:
+                return False
+            
+            # Get molecule properties
+            mol_name = plot_name or getattr(molecule, 'name', getattr(molecule, 'displaylabel', 'unknown'))
+            color = getattr(molecule, 'color', self.theme.get('molecule_colors', {}).get(mol_name, 'blue'))
+            label = getattr(molecule, 'displaylabel', mol_name)
+            
+            # Plot the spectrum
+            line, = self.ax1.plot(
+                plot_lam,
+                plot_flux,
+                linestyle='--',
+                color=color,
+                alpha=0.7,
+                linewidth=1,
+                label=label,
+                zorder=self.theme.get("zorder_model", 2)
+            )
+            
+            self.model_lines.append(line)
+            return True
+            
+        except Exception as e:
+            print(f"Error plotting molecule {getattr(molecule, 'name', 'unknown')}: {e}")
+            return False
+    
+    def get_intensity_table_efficiently(self, molecule: 'Molecule') -> Optional[pd.DataFrame]:
+        """
+        Get intensity table using available methods.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            Molecule object
+            
+        Returns
+        -------
+        Optional[pd.DataFrame]
+            Intensity table with columns: lam, intens, a_stein, g_up, e_up, etc.
+        """
+        try:
+            if not hasattr(molecule, 'intensity') or molecule.intensity is None:
+                return None
+                
+            intensity_obj = molecule.intensity
+            
+            # Ensure intensity is calculated
+            if hasattr(molecule, '_ensure_intensity_initialized'):
+                molecule._ensure_intensity_initialized()
+            if hasattr(molecule, 'calculate_intensity'):
+                molecule.calculate_intensity()
+            
+            # Method 1: Use get_table property/method
+            if hasattr(intensity_obj, 'get_table'):
+                table = intensity_obj.get_table
+                if table is not None:
+                    # Reset index for consistent access
+                    if hasattr(table, 'index'):
+                        table.index = range(len(table.index))
+                    return table
+            
+            # Method 2: Build from MoleculeLineList and intensity arrays
+            if hasattr(molecule, 'lines') and molecule.lines is not None:
+                lines = molecule.lines
+                
+                # Get line data efficiently
+                if hasattr(lines, 'get_pandas_table'):
+                    line_df = lines.get_pandas_table()
+                    if line_df is not None:
+                        # Add intensity data
+                        if hasattr(intensity_obj, 'intensity') and intensity_obj.intensity is not None:
+                            line_df = line_df.copy()
+                            line_df['intens'] = intensity_obj.intensity[:len(line_df)]
+                            
+                            # Add tau if available
+                            if hasattr(intensity_obj, 'tau') and intensity_obj.tau is not None:
+                                line_df['tau'] = intensity_obj.tau[:len(line_df)]
+                            
+                            return line_df
+                
+                # Fallback: Build from lines_as_namedtuple
+                elif hasattr(lines, 'lines_as_namedtuple'):
+                    line_data = lines.lines_as_namedtuple
+                    if line_data is not None and hasattr(intensity_obj, 'intensity'):
+                        intensity_array = intensity_obj.intensity
+                        tau_array = getattr(intensity_obj, 'tau', None)
+                        
+                        # Build DataFrame
+                        data = {
+                            'lam': line_data.lam,
+                            'intens': intensity_array[:len(line_data.lam)],
+                            'a_stein': line_data.a_stein,
+                            'g_up': line_data.g_up,
+                            'e_up': line_data.e_up,
+                            'e_low': getattr(line_data, 'e_low', None),
+                            'g_low': getattr(line_data, 'g_low', None)
+                        }
+                        
+                        if tau_array is not None:
+                            data['tau'] = tau_array[:len(line_data.lam)]
+                        
+                        return pd.DataFrame(data)
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error getting intensity table: {e}")
+            return None
