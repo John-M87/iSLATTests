@@ -337,7 +337,11 @@ class Molecule:
     def get_flux(self, wavelength_array):
         """Get flux with enhanced caching for performance"""
         # Create a cache key from the wavelength array
-        cache_key = hash(wavelength_array.tobytes()) if hasattr(wavelength_array, 'tobytes') else str(wavelength_array)
+        try:
+            cache_key = hash(wavelength_array.tobytes()) if hasattr(wavelength_array, 'tobytes') else str(wavelength_array)
+        except (TypeError, ValueError) as e:
+            # If hashing fails, use string representation as fallback
+            cache_key = f"fallback_{id(wavelength_array)}"
         
         # Check parameter hash for cache validity
         current_param_hash = self._get_current_parameter_hash()

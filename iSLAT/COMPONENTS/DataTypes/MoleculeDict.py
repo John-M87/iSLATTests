@@ -160,9 +160,18 @@ class MoleculeDict(dict):
         """Get summed flux for all visible molecules with caching"""
         
         # Create cache key using hash for efficiency
-        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
-        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
-        cache_key = hash((wave_data_hash, frozenset(visible_molecules)))
+        try:
+            wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
+            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+            
+            # Ensure all molecules are strings (hashable)
+            visible_molecules = {str(name) for name in visible_molecules}
+            
+            cache_key = hash((wave_data_hash, frozenset(visible_molecules)))
+        except (TypeError, ValueError) as e:
+            # If hashing fails, fall back to non-cached version
+            print(f"Warning: Cache key creation failed, using non-cached calculation: {e}")
+            return self.get_summed_flux_optimized(wave_data, visible_only)
         
         # Check cache
         if cache_key in self._summed_flux_cache:
@@ -187,14 +196,23 @@ class MoleculeDict(dict):
         """Memory-optimized summed flux calculation using hash keys."""
         
         # Use hash of wave_data bytes for cache key (more memory efficient)
-        wave_hash = hash(wave_data.data.tobytes()) if hasattr(wave_data, 'data') else hash(wave_data.tobytes())
-        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
-        
-        # Create a more compact cache key
-        cache_key = hash((wave_hash, frozenset(visible_molecules)))
+        try:
+            wave_hash = hash(wave_data.data.tobytes()) if hasattr(wave_data, 'data') else hash(wave_data.tobytes())
+            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+            
+            # Ensure all molecules are strings (hashable)
+            visible_molecules = {str(name) for name in visible_molecules}
+            
+            # Create a more compact cache key
+            cache_key = hash((wave_hash, frozenset(visible_molecules)))
+        except (TypeError, ValueError) as e:
+            # If hashing fails, calculate without caching
+            print(f"Warning: Cache key creation failed in optimized version: {e}")
+            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+            cache_key = None
         
         # Check cache
-        if cache_key in self._summed_flux_cache:
+        if cache_key is not None and cache_key in self._summed_flux_cache:
             return self._summed_flux_cache[cache_key]
         
         # Pre-allocate result array with float32 to save memory
@@ -208,13 +226,15 @@ class MoleculeDict(dict):
                 if hasattr(molecule, 'plot_flux'):
                     summed_flux += molecule.plot_flux.astype(np.float32)
         
-        # Cache with size limit
-        if len(self._summed_flux_cache) > 100:  # Limit cache size
-            # Remove oldest entries (simple FIFO)
-            oldest_key = next(iter(self._summed_flux_cache))
-            del self._summed_flux_cache[oldest_key]
-        
-        self._summed_flux_cache[cache_key] = summed_flux
+        # Cache with size limit (only if cache_key is valid)
+        if cache_key is not None:
+            if len(self._summed_flux_cache) > 100:  # Limit cache size
+                # Remove oldest entries (simple FIFO)
+                oldest_key = next(iter(self._summed_flux_cache))
+                del self._summed_flux_cache[oldest_key]
+            
+            self._summed_flux_cache[cache_key] = summed_flux
+            
         return summed_flux
     
     def get_visible_molecules_fast(self) -> set:
