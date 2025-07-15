@@ -323,13 +323,13 @@ class FileInteractionPane:
         else:
             print("No input line list file selected.")'''
         from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import load_input_line_list
-        filename = load_input_line_list(self.islat_class.input_line_list)
-        self.islat_class.input_line_list = filename
+        filepath, filename = load_input_line_list(self.islat_class.input_line_list)
+        self.islat_class.input_line_list = filepath
         self.input_line_list_label.configure(text=f"Input Line List: {filename}")
     
     def _load_output_line_measurements(self):
         """Calls the ifh class to save output line measurements."""
         from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import save_output_line_measurements
-        filename = save_output_line_measurements(self.islat_class.output_line_measurements)
-        self.islat_class.output_line_measurements = filename
+        filepath, filename = save_output_line_measurements(self.islat_class.output_line_measurements)
+        self.islat_class.output_line_measurements = filepath
         self.output_measurements_label.configure(text=f"Output Measurements: {filename}")

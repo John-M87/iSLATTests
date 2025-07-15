@@ -339,7 +339,7 @@ class PlotRenderer:
             if 'lam' in line:
                 self.ax1.axvline(
                     line['lam'], 
-                    color=self.theme.get("saved_line_color", "orange"),
+                    color=self.theme.get("saved_line_color", self.theme.get("saved_line_color_one", "red")),
                     alpha=0.7, 
                     linestyle=':', 
                     label=f"Saved: {line.get('label', 'Line')}"
@@ -353,6 +353,8 @@ class PlotRenderer:
                     color=self.theme.get("saved_line_color_two", "coral"),
                     label=f"Saved Range: {line.get('label', 'Range')}"
                 )
+        # make sure that a refresh of the plot is triggered
+        self.update_plot_display()
     
     def highlight_line_selection(self, xmin: float, xmax: float) -> None:
         """Highlight a selected wavelength range"""
@@ -642,6 +644,7 @@ class PlotRenderer:
                 line.set_color('green')
             if scatter is not None:
                 scatter.set_facecolor('green')
+                scatter.set_zorder(1)  # Reset z-order
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('green')
         
@@ -662,6 +665,7 @@ class PlotRenderer:
                 line.set_color('orange')
             if scatter is not None:
                 scatter.set_facecolor('orange')
+                scatter.set_zorder(10)  # Bring to front
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('orange')
         

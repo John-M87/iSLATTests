@@ -434,7 +434,7 @@ def save_output_line_measurements(output_line_measurements, file_path=None, file
         print("No output line measurements file selected.")
         return
     
-    return filename
+    return file_path, file_name
 
 def load_input_line_list(file_path=None, file_name=None):
     from tkinter import filedialog
@@ -462,4 +462,4 @@ def load_input_line_list(file_path=None, file_name=None):
         print("No input line list file selected.")
         return
     
-    return filename
+    return file_path, file_name
