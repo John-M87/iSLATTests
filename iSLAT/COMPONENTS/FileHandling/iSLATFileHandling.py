@@ -4,6 +4,7 @@ import json
 import pandas as pd
 import numpy as np
 from ...Constants import MOLECULES_DATA
+from .molecular_data_reader import read_molecular_data
 
 save_folder_path = "DATAFILES/SAVES"
 user_configuration_file_path = config_file_path = "DATAFILES/CONFIG"
@@ -18,6 +19,7 @@ default_molecule_parameters_file_name = "DefaultMoleculeParameters.json"
 default_initial_parameters_file_name = "DefaultMoleculeParameters.json"
 
 line_saves_file_name = "saved_lines.csv"
+fit_save_lines_file_name = "fit_save_lines.csv"
 atomic_lines_file_name = "DATAFILES/LINELISTS/Atomic_lines.csv"
 models_folder_path = "DATAFILES/MODELS"
 
@@ -73,7 +75,6 @@ def read_from_user_csv(file_path=save_folder_path, file_name=molecule_list_file_
     if os.path.exists(file):
         try:
             with open(file, 'r') as csvfile:
-                #print("hey hye hye")
                 reader = csv.DictReader(csvfile)
                 return {row['Molecule Name']: row for row in reader if 'Molecule Name' in row}
         except FileNotFoundError:
@@ -137,29 +138,64 @@ def read_HITRAN_data(file_path):
         #print(f"Failed to read HITRAN file '{file_path}': {e}")
         return []
 
-def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name):
+def read_line_saves(file_path=save_folder_path, file_name=line_saves_file_name) -> pd.DataFrame:
     filename = os.path.join(file_path, file_name)
-    if os.path.exists(file_path):
+    if os.path.exists(filename):
         try:
-            with open(filename, 'r') as csvfile:
-                reader = csv.DictReader(csvfile)
-                return [row for row in reader]
-        except FileNotFoundError:
-            pass
-    return []
+            return pd.read_csv(filename)
+        except Exception as e:
+            print(f"Error reading line saves file: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 def save_line(line_info, file_path=save_folder_path, file_name=line_saves_file_name):
     """Save a line to the line saves file."""
     filename = os.path.join(file_path, file_name)
     #print(f"Saving line to {filename}")
     df = pd.DataFrame([line_info])
-    
+
     # Ensure the directory exists
     os.makedirs(file_path, exist_ok=True)
     
+    # check to see if the file is empty
+    if os.path.exists(filename) and os.path.getsize(filename) > 0:
+        do_header = False
+    else:
+        do_header = True
+
     # Save the line to the CSV file
-    df.to_csv(filename, mode='a', header=not os.path.exists(filename), index=False)
+    df.to_csv(filename, mode='a', header=do_header, index=False)
     print(f"Saved line at ~{line_info['lam']:.4f} μm to {filename}")
+
+def save_fit_results(fit_results_data, file_path = save_folder_path, file_name= fit_save_lines_file_name):
+    """
+    Save fit results data to CSV file.
+    
+    Parameters
+    ----------
+    fit_results_data : list of dict
+        List of dictionaries containing fit results
+    file_path : str
+        Directory path to save the file
+    file_name : str
+        Name of the CSV file
+        
+    Returns
+    -------
+    str
+        Full path to the saved file
+    """
+    '''# Ensure .csv extension
+    if not file_name.endswith('.csv'):
+        file_name += '.csv'''
+    
+    full_path = os.path.join(file_path, file_name)
+    
+    # Save each fit result using the existing save_line function
+    for fit_result in fit_results_data:
+        save_line(fit_result, file_path=file_path, file_name=file_name)
+    
+    return full_path
 
 def read_spectral_data(file_path : str):
     """
@@ -321,3 +357,34 @@ def load_atomic_lines(file_path=atomic_lines_file_name):
     except Exception as e:
         print(f"Error loading atomic lines: {str(e)}")
         return pd.DataFrame()
+
+def load_molecular_data_from_par(molecule_name, filename):
+    """
+    Load molecular data from a .par file.
+    
+    This function provides a convenient interface to load molecular line data
+    and partition functions from .par format files.
+    
+    Parameters
+    ----------
+    molecule_name : str
+        Name of the molecule (e.g., "CO", "H2O")
+    filename : str
+        Path to the .par file
+        
+    Returns
+    -------
+    tuple
+        (partition_function, lines_data) where:
+        - partition_function: namedtuple with temperature and Q values
+        - lines_data: list of dictionaries containing line data
+        
+    Examples
+    --------
+    >>> partition, lines = load_molecular_data_from_par("H2O", "path/to/h2o.par")
+    >>> print(f"Loaded {len(lines)} lines for {molecule_name}")
+    """
+    if not os.path.exists(filename):
+        raise FileNotFoundError(f"Molecular data file not found: {filename}")
+    
+    return read_molecular_data(molecule_name, filename)

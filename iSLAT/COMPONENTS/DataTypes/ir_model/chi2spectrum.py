@@ -95,6 +95,7 @@ class Chi2Spectrum:
         """
 
         #lam_min, lam_max, flux, flux_error = np.loadtxt(fname, unpack=True, usecols = (3,4,5,6))
+        print(f"Loading flux measurements from {fname}")
         measur = pd.read_csv(fname, sep=',', usecols=['xmin','xmax','Flux_islat','Err_islat'])
         lam_min = measur['xmin']
         lam_max = measur['xmax']
