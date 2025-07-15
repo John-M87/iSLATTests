@@ -422,7 +422,8 @@ def save_output_line_measurements(output_line_measurements, file_path=None, file
     file_path = filedialog.asksaveasfilename(
         title="Select Output Line Measurements File",
         filetypes=filetypes,
-        initialdir=set_output_file_folder_path
+        initialdir=set_output_file_folder_path,
+        defaultextension=".csv",
     )
     
     if file_path:
@@ -431,6 +432,34 @@ def save_output_line_measurements(output_line_measurements, file_path=None, file
         print(f"Output line measurements loaded: {filename}")
     else:
         print("No output line measurements file selected.")
+        return
+    
+    return filename
+
+def load_input_line_list(file_path=None, file_name=None):
+    from tkinter import filedialog
+    
+    # Define appropriate file types for line lists
+    filetypes = [
+        #('CSV Files', '*.csv'),
+        #('DAT Files', '*.dat'),
+        ('All Files', '*.*')
+    ]
+    
+    # Open file dialog
+    file_path = filedialog.askopenfilename(
+        title="Select Input Line List File",
+        filetypes=filetypes,
+        initialdir=set_output_file_folder_path,
+        defaultextension=".csv",
+    )
+    
+    if file_path:
+        # Store the file path in the islat_class
+        filename = os.path.basename(file_path)
+        print(f"Input line list loaded: {filename}")
+    else:
+        print("No input line list file selected.")
         return
     
     return filename
