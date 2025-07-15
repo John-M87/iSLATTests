@@ -91,6 +91,9 @@ class iSLAT:
         self._default_molecule_csv_data = None
         self._user_saved_molecules = None
         
+        self.input_line_list = None
+        self.output_line_measurements = None
+
         # Initialize update coordinator (will be set up after GUI init)
         self.update_coordinator = None
         

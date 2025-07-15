@@ -23,6 +23,9 @@ fit_save_lines_file_name = "fit_save_lines.csv"
 atomic_lines_file_name = "DATAFILES/LINELISTS/Atomic_lines.csv"
 models_folder_path = "DATAFILES/MODELS"
 
+set_output_file_folder_path = "DATAFILES/LINESAVES"
+set_output_file_name = "line_outputs.csv"
+
 def load_user_settings(file_path=user_configuration_file_path, file_name=user_configuration_file_name, theme_file_path=theme_file_path):
     """ load_user_settings() loads the user settings from the UserSettings.json file."""
     file = os.path.join(file_path, file_name)
@@ -403,3 +406,60 @@ def load_molecular_data_from_par(molecule_name, filename):
         raise FileNotFoundError(f"Molecular data file not found: {filename}")
     
     return read_molecular_data(molecule_name, filename)
+
+def save_output_line_measurements(output_line_measurements, file_path=None, file_name=None):
+    from tkinter import filedialog
+    
+    # Define appropriate file types for measurements
+    filetypes = [
+        #('Text Files', '*.txt'),
+        #('CSV Files', '*.csv'),
+        #('DAT Files', '*.dat'),
+        ('All Files', '*.*')
+    ]
+    
+    # Open file dialog
+    file_path = filedialog.asksaveasfilename(
+        title="Select Output Line Measurements File",
+        filetypes=filetypes,
+        initialdir=set_output_file_folder_path,
+        defaultextension=".csv",
+    )
+    
+    if file_path:
+        # Store the file path in the islat_class
+        filename = os.path.basename(file_path)
+        print(f"Output line measurements loaded: {filename}")
+    else:
+        print("No output line measurements file selected.")
+        return
+    
+    return file_path, file_name
+
+def load_input_line_list(file_path=None, file_name=None):
+    from tkinter import filedialog
+    
+    # Define appropriate file types for line lists
+    filetypes = [
+        #('CSV Files', '*.csv'),
+        #('DAT Files', '*.dat'),
+        ('All Files', '*.*')
+    ]
+    
+    # Open file dialog
+    file_path = filedialog.askopenfilename(
+        title="Select Input Line List File",
+        filetypes=filetypes,
+        initialdir=set_output_file_folder_path,
+        defaultextension=".csv",
+    )
+    
+    if file_path:
+        # Store the file path in the islat_class
+        filename = os.path.basename(file_path)
+        print(f"Input line list loaded: {filename}")
+    else:
+        print("No input line list file selected.")
+        return
+    
+    return file_path, file_name
