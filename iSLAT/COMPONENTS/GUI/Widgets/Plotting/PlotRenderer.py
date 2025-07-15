@@ -51,13 +51,59 @@ class PlotRenderer:
         self.model_lines: List[Line2D] = []
         self.active_lines: List[Line2D] = []
         
-        # Cache for population diagram to prevent unnecessary re-rendering
-        self._pop_diagram_cache: Dict[str, Any] = {
-            'molecule_id': None,
-            'parameters_hash': None,
-            'wave_range': None
+        # Enhanced caching system that leverages molecule-level caching
+        self._plot_cache: Dict[str, Any] = {
+            # Population diagram cache
+            'population_diagram': {
+                'molecule_id': None,
+                'molecule_param_hash': None,
+                'wave_range': None
+            },
+            # Spectrum plot cache tracking
+            'spectrum_plots': {},  # molecule_name -> last_param_hash
+            # Cache statistics
+            'cache_hits': 0,
+            'cache_misses': 0
         }
         
+        # Register for molecule parameter change notifications if available
+        self._setup_molecule_change_callbacks()
+        
+    def _setup_molecule_change_callbacks(self) -> None:
+        """Setup callbacks to automatically invalidate caches when molecule parameters change"""
+        try:
+            # Check if Molecule class supports parameter change callbacks
+            from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
+            if hasattr(Molecule, 'add_molecule_parameter_change_callback'):
+                Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
+                print("Registered for molecule parameter change notifications")
+        except Exception as e:
+            print(f"Could not register for molecule parameter changes: {e}")
+    
+    def _on_molecule_parameter_changed(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
+        """Callback when a molecule parameter changes - invalidate relevant caches"""
+        try:
+            # Invalidate spectrum plot cache for this molecule
+            self.invalidate_molecule_plot_cache(molecule_name)
+            
+            # Invalidate population diagram cache if it's for this molecule
+            pop_cache = self._plot_cache['population_diagram']
+            if pop_cache['molecule_id'] == molecule_name:
+                self.invalidate_population_diagram_cache()
+            
+            print(f"Cache invalidated for molecule {molecule_name} due to {parameter_name} change")
+        except Exception as e:
+            print(f"Error handling molecule parameter change: {e}")
+    
+    def cleanup_callbacks(self) -> None:
+        """Cleanup callbacks when renderer is destroyed"""
+        try:
+            from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
+            if hasattr(Molecule, 'remove_molecule_parameter_change_callback'):
+                Molecule.remove_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
+        except Exception:
+            pass
+    
     def clear_all_plots(self) -> None:
         """Clear all plots and reset visual state"""
         self.ax1.clear()
@@ -65,11 +111,16 @@ class PlotRenderer:
         self.ax3.clear()
         self.model_lines.clear()
         self.active_lines.clear()
-        # Clear population diagram cache
-        self._pop_diagram_cache = {
-            'molecule_id': None,
-            'parameters_hash': None,
-            'wave_range': None
+        # Clear enhanced plot cache
+        self._plot_cache = {
+            'population_diagram': {
+                'molecule_id': None,
+                'molecule_param_hash': None,
+                'wave_range': None
+            },
+            'spectrum_plots': {},
+            'cache_hits': self._plot_cache.get('cache_hits', 0),
+            'cache_misses': self._plot_cache.get('cache_misses', 0)
         }
         
     def clear_model_lines(self) -> None:
@@ -192,12 +243,24 @@ class PlotRenderer:
                 self.ax2.legend()
     
     def _get_molecule_parameters_hash(self, molecule: 'Molecule') -> Optional[int]:
-        """Generate a hash of molecule parameters to detect changes"""
+        """
+        Get molecule parameter hash leveraging the molecule's built-in caching system.
+        This uses the molecule's existing parameter hash when available.
+        """
         if molecule is None:
             return None
         
         try:
-            # Collect key parameters that affect population diagram
+            # Method 1: Use molecule's built-in parameter hash if available
+            if hasattr(molecule, '_parameter_hash') and molecule._parameter_hash is not None:
+                # The molecule already tracks its own parameter changes
+                return molecule._parameter_hash
+            
+            # Method 2: Use molecule's parameter hash calculation method if available
+            if hasattr(molecule, '_get_current_parameter_hash'):
+                return molecule._get_current_parameter_hash()
+            
+            # Method 3: Fallback to manual hash calculation (existing logic)
             params = []
             
             # Basic molecule properties
@@ -227,8 +290,11 @@ class PlotRenderer:
             
             # Geometric parameters using property access
             params.extend([
+                getattr(molecule, 'temp', None),
                 getattr(molecule, 'radius', None),
-                getattr(molecule, 'distance', None)
+                getattr(molecule, 'distance', None),
+                getattr(molecule, 'stellar_rv', None),
+                getattr(molecule, 'broad', None)
             ])
             
             # Convert to string and hash
@@ -241,35 +307,50 @@ class PlotRenderer:
     
     def invalidate_population_diagram_cache(self) -> None:
         """Force the population diagram to re-render on next call"""
-        self._pop_diagram_cache = {
+        self._plot_cache['population_diagram'] = {
             'molecule_id': None,
-            'parameters_hash': None, 
+            'molecule_param_hash': None, 
             'wave_range': None
         }
     
+    def invalidate_molecule_plot_cache(self, molecule_name: str) -> None:
+        """Invalidate plot cache for a specific molecule"""
+        if molecule_name in self._plot_cache['spectrum_plots']:
+            del self._plot_cache['spectrum_plots'][molecule_name]
+    
     def render_population_diagram(self, molecule: 'Molecule', wave_range: Optional[Tuple[float, float]] = None) -> None:
-        """Render the population diagram for the active molecule with intensity access"""
-        # Check cache to avoid unnecessary re-rendering
+        """
+        Render the population diagram leveraging molecule's internal caching system.
+        Uses intelligent cache validation based on molecule's parameter tracking.
+        """
+        # Get molecule identification and parameter hash
         molecule_id = getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
-        parameters_hash = self._get_molecule_parameters_hash(molecule)
+        molecule_param_hash = self._get_molecule_parameters_hash(molecule)
         
-        # Check if we can skip rendering
-        cache = self._pop_diagram_cache
-        if (cache['molecule_id'] == molecule_id and 
-            cache['parameters_hash'] == parameters_hash and 
-            cache['wave_range'] == wave_range and
-            molecule_id is not None):
-            # Same molecule and parameters, skip re-rendering
+        # Check cache to avoid unnecessary re-rendering
+        cache = self._plot_cache['population_diagram']
+        cache_hit = (cache['molecule_id'] == molecule_id and 
+                    cache['molecule_param_hash'] == molecule_param_hash and 
+                    cache['wave_range'] == wave_range and
+                    molecule_id is not None and
+                    molecule_param_hash is not None)
+        
+        if cache_hit:
+            # Cache hit - skip re-rendering
+            self._plot_cache['cache_hits'] += 1
             print(f"Population diagram cache hit for {molecule_id} - skipping render")
             return
         
+        # Cache miss - need to render
+        self._plot_cache['cache_misses'] += 1
+        
         # Update cache
         cache['molecule_id'] = molecule_id
-        cache['parameters_hash'] = parameters_hash
+        cache['molecule_param_hash'] = molecule_param_hash
         cache['wave_range'] = wave_range
         
         self.ax3.clear()
-        print(f"Actually rendering population diagram for {molecule_id}")
+        print(f"Rendering population diagram for {molecule_id} (cache miss)")
         
         if molecule is None:
             self.ax3.set_title("No molecule selected")
@@ -339,7 +420,7 @@ class PlotRenderer:
             if 'lam' in line:
                 self.ax1.axvline(
                     line['lam'], 
-                    color=self.theme.get("saved_line_color", "orange"),
+                    color=self.theme.get("saved_line_color", self.theme.get("saved_line_color_one", "red")),
                     alpha=0.7, 
                     linestyle=':', 
                     label=f"Saved: {line.get('label', 'Line')}"
@@ -353,6 +434,8 @@ class PlotRenderer:
                     color=self.theme.get("saved_line_color_two", "coral"),
                     label=f"Saved Range: {line.get('label', 'Range')}"
                 )
+        # make sure that a refresh of the plot is triggered
+        self.update_plot_display()
     
     def highlight_line_selection(self, xmin: float, xmax: float) -> None:
         """Highlight a selected wavelength range"""
@@ -455,13 +538,19 @@ class PlotRenderer:
         self.canvas.draw_idle()
     
     def get_plot_performance_stats(self) -> Dict[str, Any]:
-        """Get performance statistics for debugging"""
+        """Get enhanced performance statistics for debugging"""
         return {
             'model_lines_count': len(self.model_lines),
             'active_lines_count': len(self.active_lines),
-            'cache_hits': getattr(self, '_cache_hits', 0),
-            'cache_misses': getattr(self, '_cache_misses', 0),
-            'memory_optimized': hasattr(self, '_memory_optimized')
+            'cache_hits': self._plot_cache.get('cache_hits', 0),
+            'cache_misses': self._plot_cache.get('cache_misses', 0),
+            'cache_hit_ratio': (
+                self._plot_cache.get('cache_hits', 0) / 
+                max(1, self._plot_cache.get('cache_hits', 0) + self._plot_cache.get('cache_misses', 0))
+            ),
+            'cached_spectrum_plots': len(self._plot_cache.get('spectrum_plots', {})),
+            'memory_optimized': hasattr(self, '_memory_optimized'),
+            'line_intensity_threshold_percent': self.get_line_intensity_threshold() * 100
         }
     
     def clear_active_lines(self, active_lines_list: List[Any]) -> None:
@@ -499,6 +588,9 @@ class PlotRenderer:
         """
         Render active lines as scatter points in the population diagram.
         
+        Lines are filtered based on intensity threshold from user settings.
+        Only lines with intensity above threshold_percent of the strongest line are rendered.
+        
         Parameters
         ----------
         line_data : List[Tuple]
@@ -509,8 +601,22 @@ class PlotRenderer:
         if not line_data:
             return
         
-        # Calculate rd_yax values for each line and add scatter points
-        for idx, (line, intensity, tau_val) in enumerate(line_data):
+        # Get threshold and filter lines
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_line_data = self.filter_lines_by_threshold(line_data, threshold_percent)
+        
+        if not filtered_line_data:
+            print(f"No lines above threshold ({threshold_percent*100:.1f}% of strongest line) for population diagram")
+            return
+            
+        print(f"Rendering {len(filtered_line_data)}/{len(line_data)} lines in population diagram above threshold ({threshold_percent*100:.1f}%)")
+        
+        # Get max intensity from original data for consistent percentage calculation
+        original_intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(original_intensities) if original_intensities else 1.0
+        
+        # Calculate rd_yax values for each filtered line and add scatter points
+        for idx, (line, intensity, tau_val) in enumerate(filtered_line_data):
             if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
                 # Get molecule properties safely
                 molecule = getattr(self.islat, 'active_molecule', None)
@@ -543,7 +649,8 @@ class PlotRenderer:
                     'inten': intensity,
                     'up_lev': line.lev_up if line.lev_up else 'N/A',
                     'low_lev': line.lev_low if line.lev_low else 'N/A',
-                    'tau': tau_val if tau_val is not None else 'N/A'
+                    'tau': tau_val if tau_val is not None else 'N/A',
+                    'intensity_percent': (intensity / max_intensity) * 100  # Store percentage for debugging
                 }
                 
                 # Update existing entry or create new one
@@ -560,6 +667,9 @@ class PlotRenderer:
         """
         Render active lines as vertical lines in the line inspection plot.
         
+        Lines are filtered based on intensity threshold from user settings.
+        Only lines with intensity above threshold_percent of the strongest line are rendered.
+        
         Parameters
         ----------
         line_data : List[Tuple]
@@ -572,12 +682,22 @@ class PlotRenderer:
         if not line_data:
             return
         
-        # Extract intensities for normalization
-        intensities = [intensity for _, intensity, _ in line_data]
-        max_intensity = max(intensities) if intensities else 1.0
+        # Get threshold and filter lines
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_line_data = self.filter_lines_by_threshold(line_data, threshold_percent)
         
-        # Plot vertical lines for each molecular line and create/update active_lines entries
-        for idx, (line, intensity, tau_val) in enumerate(line_data):
+        if not filtered_line_data:
+            print(f"No lines above threshold ({threshold_percent*100:.1f}% of strongest line)")
+            return
+            
+        print(f"Rendering {len(filtered_line_data)}/{len(line_data)} lines above threshold ({threshold_percent*100:.1f}%)")
+        
+        # Get max intensity from original data for consistent scaling
+        original_intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(original_intensities) if original_intensities else 1.0
+        
+        # Plot vertical lines for each filtered molecular line and create/update active_lines entries
+        for idx, (line, intensity, tau_val) in enumerate(filtered_line_data):
             # Calculate line height
             lineheight = 0
             if max_intensity > 0:
@@ -607,7 +727,8 @@ class PlotRenderer:
                     'low_lev': line.lev_low if line.lev_low else 'N/A',
                     'tau': tau_val if tau_val is not None else 'N/A',
                     'text_obj': text,
-                    'lineheight': lineheight
+                    'lineheight': lineheight,
+                    'intensity_percent': (intensity / max_intensity) * 100  # Store percentage for debugging
                 }
                 
                 # Add new entry to active_lines or update existing one
@@ -642,6 +763,7 @@ class PlotRenderer:
                 line.set_color('green')
             if scatter is not None:
                 scatter.set_facecolor('green')
+                scatter.set_zorder(1)  # Reset z-order
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('green')
         
@@ -662,6 +784,7 @@ class PlotRenderer:
                 line.set_color('orange')
             if scatter is not None:
                 scatter.set_facecolor('orange')
+                scatter.set_zorder(10)  # Bring to front
             if 'text_obj' in value and value['text_obj'] is not None:
                 value['text_obj'].set_color('orange')
         
@@ -711,12 +834,15 @@ class PlotRenderer:
     
     def get_molecule_spectrum_efficiently(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Get molecule spectrum data using available methods.
+        Get molecule spectrum data leveraging molecule's internal caching system.
+        
+        This method uses the molecule's built-in flux caching and 
+        spectrum validation to avoid redundant calculations.
         
         Parameters
         ----------
         molecule : Molecule
-            Molecule object
+            Molecule object with internal caching
         wave_data : np.ndarray
             Wavelength array for interpolation
             
@@ -726,39 +852,70 @@ class PlotRenderer:
             (wavelength, flux) arrays or (None, None) if no data
         """
         try:
-            # Method 1: Use cached plot data if available
-            if hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
-                if molecule.plot_lam is not None and molecule.plot_flux is not None:
-                    return molecule.plot_lam, molecule.plot_flux
+            molecule_name = getattr(molecule, 'name', 'unknown')
+            current_param_hash = self._get_molecule_parameters_hash(molecule)
             
-            # Method 2: Use optimized prepare_plot_data
+            # Check if we've already plotted this molecule with these parameters
+            cached_hash = self._plot_cache['spectrum_plots'].get(molecule_name)
+            if cached_hash == current_param_hash:
+                # Parameters haven't changed, try to use molecule's cached data
+                self._plot_cache['cache_hits'] += 1
+            else:
+                # Parameters changed or first time plotting
+                self._plot_cache['cache_misses'] += 1
+                self._plot_cache['spectrum_plots'][molecule_name] = current_param_hash
+            
+            # Method 1: Use molecule's optimized prepare_plot_data (leverages all internal caching)
             if hasattr(molecule, 'prepare_plot_data') and callable(molecule.prepare_plot_data):
                 try:
                     plot_data = molecule.prepare_plot_data(wave_data)
                     if plot_data and len(plot_data) >= 2:
                         return plot_data[0], plot_data[1]  # (lam, flux)
                 except Exception as e:
-                    print(f"Error in prepare_plot_data for {getattr(molecule, 'name', 'unknown')}: {e}")
+                    print(f"Error in prepare_plot_data for {molecule_name}: {e}")
             
-            # Method 3: Use spectrum object directly
+            # Method 2: Use molecule's get_flux method (uses interpolated flux cache)
+            if hasattr(molecule, 'get_flux') and callable(molecule.get_flux):
+                try:
+                    flux = molecule.get_flux(wave_data)
+                    if flux is not None and len(flux) > 0:
+                        return wave_data, flux
+                except Exception as e:
+                    print(f"Error in get_flux for {molecule_name}: {e}")
+            
+            # Method 3: Use cached plot data if available and valid
+            if hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
+                if molecule.plot_lam is not None and molecule.plot_flux is not None:
+                    # Check if the cached data matches our wavelength grid
+                    if len(molecule.plot_lam) == len(wave_data) and np.allclose(molecule.plot_lam, wave_data, rtol=1e-10):
+                        return molecule.plot_lam, molecule.plot_flux
+            
+            # Method 4: Use spectrum object directly if molecule's internal methods fail
             if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
                 spectrum = molecule.spectrum
                 if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
                     lam = spectrum.lamgrid
                     flux = spectrum.flux_jy
                     if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
-                        return lam, flux
+                        # Interpolate to requested wavelength grid
+                        interpolated_flux = np.interp(wave_data, lam, flux, left=0, right=0)
+                        return wave_data, interpolated_flux
             
-            # Method 4: Try to generate spectrum using intensity
-            if hasattr(molecule, 'intensity') and molecule.intensity is not None:
-                intensity_obj = molecule.intensity
-                if hasattr(intensity_obj, 'get_spectrum_on_grid'):
-                    try:
-                        spectrum_flux = intensity_obj.get_spectrum_on_grid(wave_data)
-                        if spectrum_flux is not None and len(spectrum_flux) > 0:
-                            return wave_data, spectrum_flux
-                    except Exception as e:
-                        print(f"Error getting spectrum on grid: {e}")
+            # Method 5: Try to force spectrum calculation if needed
+            if hasattr(molecule, '_ensure_spectrum_valid'):
+                try:
+                    molecule._ensure_spectrum_valid()
+                    # Retry spectrum access after ensuring validity
+                    if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
+                        spectrum = molecule.spectrum
+                        if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
+                            lam = spectrum.lamgrid
+                            flux = spectrum.flux_jy
+                            if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
+                                interpolated_flux = np.interp(wave_data, lam, flux, left=0, right=0)
+                                return wave_data, interpolated_flux
+                except Exception as e:
+                    print(f"Error ensuring spectrum validity for {molecule_name}: {e}")
                         
             return None, None
             
@@ -820,12 +977,15 @@ class PlotRenderer:
     def render_molecule_spectrum_optimized(self, molecule: 'Molecule', wave_data: np.ndarray, 
                                          plot_name: Optional[str] = None) -> bool:
         """
-        Render a single molecule spectrum.
+        Render a single molecule spectrum leveraging intelligent caching.
+        
+        This method uses the molecule's internal caching system and validates
+        cache coherence before attempting to plot.
         
         Parameters
         ----------
         molecule : Molecule
-            Molecule object
+            Molecule object with internal caching
         wave_data : np.ndarray
             Wavelength array
         plot_name : Optional[str]
@@ -837,10 +997,18 @@ class PlotRenderer:
             True if successfully plotted, False otherwise
         """
         try:
-            # Get spectrum data
+            # Validate and sync cache state with molecule
+            self.sync_with_molecule_cache(molecule)
+            
+            # Get spectrum data using enhanced caching
             plot_lam, plot_flux = self.get_molecule_spectrum_efficiently(molecule, wave_data)
             
             if plot_lam is None or plot_flux is None:
+                return False
+            
+            # Check if we actually have meaningful flux data
+            if len(plot_flux) == 0 or np.all(plot_flux == 0):
+                print(f"No meaningful flux data for molecule {getattr(molecule, 'name', 'unknown')}")
                 return False
             
             # Get molecule properties
@@ -869,12 +1037,15 @@ class PlotRenderer:
     
     def get_intensity_table_efficiently(self, molecule: 'Molecule') -> Optional[pd.DataFrame]:
         """
-        Get intensity table using available methods.
+        Get intensity table leveraging molecule's internal caching system.
+        
+        This method uses the molecule's internal intensity caching and validation
+        to avoid redundant intensity calculations.
         
         Parameters
         ----------
         molecule : Molecule
-            Molecule object
+            Molecule object with internal caching
             
         Returns
         -------
@@ -887,11 +1058,11 @@ class PlotRenderer:
                 
             intensity_obj = molecule.intensity
             
-            # Ensure intensity is calculated
-            if hasattr(molecule, '_ensure_intensity_initialized'):
-                molecule._ensure_intensity_initialized()
+            # Use molecule's intelligent intensity calculation (leverages internal caching)
             if hasattr(molecule, 'calculate_intensity'):
-                molecule.calculate_intensity()
+                molecule.calculate_intensity()  # This uses molecule's internal caching
+            elif hasattr(molecule, '_ensure_intensity_initialized'):
+                molecule._ensure_intensity_initialized()
             
             # Method 1: Use get_table property/method
             if hasattr(intensity_obj, 'get_table'):
@@ -949,3 +1120,233 @@ class PlotRenderer:
         except Exception as e:
             print(f"Error getting intensity table: {e}")
             return None
+        
+    def validate_cache_coherence(self, molecule: 'Molecule') -> bool:
+        """
+        Validate that our cache is coherent with the molecule's internal state.
+        
+        This method checks if the molecule's internal caches and our plot caches
+        are synchronized, helping to detect when we need to invalidate our caches.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            The molecule to validate against
+            
+        Returns
+        -------
+        bool
+            True if caches are coherent, False if invalidation is needed
+        """
+        try:
+            if molecule is None:
+                return True
+                
+            molecule_name = getattr(molecule, 'name', 'unknown')
+            
+            # Check if molecule has internal cache invalidation flags
+            if hasattr(molecule, '_spectrum_valid') and not molecule._spectrum_valid:
+                # Molecule knows its spectrum is invalid, invalidate our cache
+                self.invalidate_molecule_plot_cache(molecule_name)
+                return False
+                
+            if hasattr(molecule, '_intensity_valid') and not molecule._intensity_valid:
+                # Molecule knows its intensity is invalid, invalidate our cache
+                self.invalidate_molecule_plot_cache(molecule_name)
+                return False
+            
+            # Check if molecule's parameter hash has changed
+            current_hash = self._get_molecule_parameters_hash(molecule)
+            cached_hash = self._plot_cache['spectrum_plots'].get(molecule_name)
+            
+            if cached_hash is not None and current_hash != cached_hash:
+                # Parameter hash mismatch, need to invalidate
+                return False
+                
+            return True
+            
+        except Exception as e:
+            print(f"Error validating cache coherence: {e}")
+            return False
+    
+    def sync_with_molecule_cache(self, molecule: 'Molecule') -> None:
+        """
+        Synchronize our caching state with the molecule's internal caching state.
+        
+        This method ensures that our plot caches reflect the current state of
+        the molecule's internal calculations and caches.
+        """
+        try:
+            if molecule is None:
+                return
+                
+            molecule_name = getattr(molecule, 'name', 'unknown')
+            
+            # Update our cache tracking based on molecule state
+            if not self.validate_cache_coherence(molecule):
+                # Cache is out of sync, update our tracking
+                current_hash = self._get_molecule_parameters_hash(molecule)
+                self._plot_cache['spectrum_plots'][molecule_name] = current_hash
+                
+                # If this is the active molecule in population diagram, invalidate that too
+                pop_cache = self._plot_cache['population_diagram']
+                if pop_cache['molecule_id'] == molecule_name:
+                    pop_cache['molecule_param_hash'] = current_hash
+                
+        except Exception as e:
+            print(f"Error syncing with molecule cache: {e}")
+            
+    def get_cache_debug_info(self, molecule: 'Molecule' = None) -> Dict[str, Any]:
+        """
+        Get detailed cache debugging information.
+        
+        Parameters
+        ----------
+        molecule : Molecule, optional
+            Specific molecule to get debug info for
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Debug information about cache states
+        """
+        debug_info = {
+            'plot_cache_stats': self.get_plot_performance_stats(),
+            'population_diagram_cache': self._plot_cache['population_diagram'].copy(),
+            'spectrum_plots_cache': self._plot_cache['spectrum_plots'].copy(),
+            'line_threshold_settings': {
+                'threshold_percent': self.get_line_intensity_threshold() * 100,
+                'threshold_value': self.get_line_intensity_threshold()
+            }
+        }
+        
+        if molecule is not None:
+            molecule_name = getattr(molecule, 'name', 'unknown')
+            debug_info['molecule_specific'] = {
+                'name': molecule_name,
+                'current_param_hash': self._get_molecule_parameters_hash(molecule),
+                'cached_param_hash': self._plot_cache['spectrum_plots'].get(molecule_name),
+                'cache_coherent': self.validate_cache_coherence(molecule),
+                'molecule_spectrum_valid': getattr(molecule, '_spectrum_valid', 'unknown'),
+                'molecule_intensity_valid': getattr(molecule, '_intensity_valid', 'unknown'),
+                'molecule_has_plot_data': (
+                    hasattr(molecule, 'plot_lam') and molecule.plot_lam is not None and
+                    hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None
+                )
+            }
+            
+        return debug_info
+    
+    def get_line_intensity_threshold(self) -> float:
+        """
+        Get the line intensity threshold from user settings.
+        
+        Returns
+        -------
+        float
+            Threshold as a percentage (0.0 to 1.0) of the strongest line intensity.
+            Default is 0.3 (30%) if not specified in settings.
+        """
+        return getattr(self.islat, 'user_settings', {}).get('line_threshold', 0.3)
+    
+    def set_line_intensity_threshold(self, threshold_percent: float) -> None:
+        """
+        Set the line intensity threshold dynamically.
+        
+        This updates the user settings and can be used for runtime adjustments.
+        
+        Parameters
+        ----------
+        threshold_percent : float
+            Threshold as a percentage (0.0 to 1.0) of the strongest line intensity.
+        """
+        if not hasattr(self.islat, 'user_settings'):
+            print("Warning: user_settings not available, cannot set threshold")
+            return
+            
+        # Validate threshold value
+        threshold_percent = max(0.0, min(1.0, threshold_percent))
+        
+        # Update user settings
+        self.islat.user_settings['line_threshold'] = threshold_percent
+        
+        print(f"Line intensity threshold updated to {threshold_percent*100:.1f}%")
+        
+        # Optionally trigger a plot refresh if plots are currently visible
+        # This could be enhanced to automatically refresh active plots
+    
+    def filter_lines_by_threshold(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]], 
+                                 threshold_percent: Optional[float] = None) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
+        """
+        Filter line data based on intensity threshold.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+        threshold_percent : Optional[float]
+            Threshold percentage (0.0 to 1.0). If None, uses user settings.
+            
+        Returns
+        -------
+        List[Tuple['MoleculeLine', float, Optional[float]]]
+            Filtered list of lines above threshold
+        """
+        if not line_data:
+            return []
+            
+        if threshold_percent is None:
+            threshold_percent = self.get_line_intensity_threshold()
+        
+        # Extract intensities for threshold calculation
+        intensities = [intensity for _, intensity, _ in line_data]
+        if not intensities:
+            return []
+            
+        max_intensity = max(intensities)
+        if max_intensity <= 0:
+            return []
+            
+        # Calculate threshold intensity
+        threshold_intensity = max_intensity * threshold_percent
+        
+        # Filter lines based on threshold
+        filtered_lines = [(line, intensity, tau_val) for line, intensity, tau_val in line_data 
+                         if intensity >= threshold_intensity]
+        
+        return filtered_lines
+    
+    def get_threshold_debug_info(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]]) -> Dict[str, Any]:
+        """
+        Get debugging information about threshold filtering.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Debug information about threshold filtering
+        """
+        if not line_data:
+            return {'total_lines': 0, 'filtered_lines': 0, 'threshold_percent': 0}
+            
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_lines = self.filter_lines_by_threshold(line_data, threshold_percent)
+        
+        intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(intensities) if intensities else 0
+        min_intensity = min(intensities) if intensities else 0
+        threshold_intensity = max_intensity * threshold_percent if max_intensity > 0 else 0
+        
+        return {
+            'total_lines': len(line_data),
+            'filtered_lines': len(filtered_lines),
+            'threshold_percent': threshold_percent * 100,
+            'max_intensity': max_intensity,
+            'min_intensity': min_intensity,
+            'threshold_intensity': threshold_intensity,
+            'lines_below_threshold': len(line_data) - len(filtered_lines)
+        }
