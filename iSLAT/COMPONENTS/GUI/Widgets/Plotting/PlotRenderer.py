@@ -549,7 +549,8 @@ class PlotRenderer:
                 max(1, self._plot_cache.get('cache_hits', 0) + self._plot_cache.get('cache_misses', 0))
             ),
             'cached_spectrum_plots': len(self._plot_cache.get('spectrum_plots', {})),
-            'memory_optimized': hasattr(self, '_memory_optimized')
+            'memory_optimized': hasattr(self, '_memory_optimized'),
+            'line_intensity_threshold_percent': self.get_line_intensity_threshold() * 100
         }
     
     def clear_active_lines(self, active_lines_list: List[Any]) -> None:
@@ -587,6 +588,9 @@ class PlotRenderer:
         """
         Render active lines as scatter points in the population diagram.
         
+        Lines are filtered based on intensity threshold from user settings.
+        Only lines with intensity above threshold_percent of the strongest line are rendered.
+        
         Parameters
         ----------
         line_data : List[Tuple]
@@ -597,8 +601,22 @@ class PlotRenderer:
         if not line_data:
             return
         
-        # Calculate rd_yax values for each line and add scatter points
-        for idx, (line, intensity, tau_val) in enumerate(line_data):
+        # Get threshold and filter lines
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_line_data = self.filter_lines_by_threshold(line_data, threshold_percent)
+        
+        if not filtered_line_data:
+            print(f"No lines above threshold ({threshold_percent*100:.1f}% of strongest line) for population diagram")
+            return
+            
+        print(f"Rendering {len(filtered_line_data)}/{len(line_data)} lines in population diagram above threshold ({threshold_percent*100:.1f}%)")
+        
+        # Get max intensity from original data for consistent percentage calculation
+        original_intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(original_intensities) if original_intensities else 1.0
+        
+        # Calculate rd_yax values for each filtered line and add scatter points
+        for idx, (line, intensity, tau_val) in enumerate(filtered_line_data):
             if all(x is not None for x in [intensity, line.a_stein, line.g_up, line.lam]):
                 # Get molecule properties safely
                 molecule = getattr(self.islat, 'active_molecule', None)
@@ -631,7 +649,8 @@ class PlotRenderer:
                     'inten': intensity,
                     'up_lev': line.lev_up if line.lev_up else 'N/A',
                     'low_lev': line.lev_low if line.lev_low else 'N/A',
-                    'tau': tau_val if tau_val is not None else 'N/A'
+                    'tau': tau_val if tau_val is not None else 'N/A',
+                    'intensity_percent': (intensity / max_intensity) * 100  # Store percentage for debugging
                 }
                 
                 # Update existing entry or create new one
@@ -648,6 +667,9 @@ class PlotRenderer:
         """
         Render active lines as vertical lines in the line inspection plot.
         
+        Lines are filtered based on intensity threshold from user settings.
+        Only lines with intensity above threshold_percent of the strongest line are rendered.
+        
         Parameters
         ----------
         line_data : List[Tuple]
@@ -660,12 +682,22 @@ class PlotRenderer:
         if not line_data:
             return
         
-        # Extract intensities for normalization
-        intensities = [intensity for _, intensity, _ in line_data]
-        max_intensity = max(intensities) if intensities else 1.0
+        # Get threshold and filter lines
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_line_data = self.filter_lines_by_threshold(line_data, threshold_percent)
         
-        # Plot vertical lines for each molecular line and create/update active_lines entries
-        for idx, (line, intensity, tau_val) in enumerate(line_data):
+        if not filtered_line_data:
+            print(f"No lines above threshold ({threshold_percent*100:.1f}% of strongest line)")
+            return
+            
+        print(f"Rendering {len(filtered_line_data)}/{len(line_data)} lines above threshold ({threshold_percent*100:.1f}%)")
+        
+        # Get max intensity from original data for consistent scaling
+        original_intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(original_intensities) if original_intensities else 1.0
+        
+        # Plot vertical lines for each filtered molecular line and create/update active_lines entries
+        for idx, (line, intensity, tau_val) in enumerate(filtered_line_data):
             # Calculate line height
             lineheight = 0
             if max_intensity > 0:
@@ -695,7 +727,8 @@ class PlotRenderer:
                     'low_lev': line.lev_low if line.lev_low else 'N/A',
                     'tau': tau_val if tau_val is not None else 'N/A',
                     'text_obj': text,
-                    'lineheight': lineheight
+                    'lineheight': lineheight,
+                    'intensity_percent': (intensity / max_intensity) * 100  # Store percentage for debugging
                 }
                 
                 # Add new entry to active_lines or update existing one
@@ -1181,6 +1214,10 @@ class PlotRenderer:
             'plot_cache_stats': self.get_plot_performance_stats(),
             'population_diagram_cache': self._plot_cache['population_diagram'].copy(),
             'spectrum_plots_cache': self._plot_cache['spectrum_plots'].copy(),
+            'line_threshold_settings': {
+                'threshold_percent': self.get_line_intensity_threshold() * 100,
+                'threshold_value': self.get_line_intensity_threshold()
+            }
         }
         
         if molecule is not None:
@@ -1199,3 +1236,117 @@ class PlotRenderer:
             }
             
         return debug_info
+    
+    def get_line_intensity_threshold(self) -> float:
+        """
+        Get the line intensity threshold from user settings.
+        
+        Returns
+        -------
+        float
+            Threshold as a percentage (0.0 to 1.0) of the strongest line intensity.
+            Default is 0.3 (30%) if not specified in settings.
+        """
+        return getattr(self.islat, 'user_settings', {}).get('line_threshold', 0.3)
+    
+    def set_line_intensity_threshold(self, threshold_percent: float) -> None:
+        """
+        Set the line intensity threshold dynamically.
+        
+        This updates the user settings and can be used for runtime adjustments.
+        
+        Parameters
+        ----------
+        threshold_percent : float
+            Threshold as a percentage (0.0 to 1.0) of the strongest line intensity.
+        """
+        if not hasattr(self.islat, 'user_settings'):
+            print("Warning: user_settings not available, cannot set threshold")
+            return
+            
+        # Validate threshold value
+        threshold_percent = max(0.0, min(1.0, threshold_percent))
+        
+        # Update user settings
+        self.islat.user_settings['line_threshold'] = threshold_percent
+        
+        print(f"Line intensity threshold updated to {threshold_percent*100:.1f}%")
+        
+        # Optionally trigger a plot refresh if plots are currently visible
+        # This could be enhanced to automatically refresh active plots
+    
+    def filter_lines_by_threshold(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]], 
+                                 threshold_percent: Optional[float] = None) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
+        """
+        Filter line data based on intensity threshold.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+        threshold_percent : Optional[float]
+            Threshold percentage (0.0 to 1.0). If None, uses user settings.
+            
+        Returns
+        -------
+        List[Tuple['MoleculeLine', float, Optional[float]]]
+            Filtered list of lines above threshold
+        """
+        if not line_data:
+            return []
+            
+        if threshold_percent is None:
+            threshold_percent = self.get_line_intensity_threshold()
+        
+        # Extract intensities for threshold calculation
+        intensities = [intensity for _, intensity, _ in line_data]
+        if not intensities:
+            return []
+            
+        max_intensity = max(intensities)
+        if max_intensity <= 0:
+            return []
+            
+        # Calculate threshold intensity
+        threshold_intensity = max_intensity * threshold_percent
+        
+        # Filter lines based on threshold
+        filtered_lines = [(line, intensity, tau_val) for line, intensity, tau_val in line_data 
+                         if intensity >= threshold_intensity]
+        
+        return filtered_lines
+    
+    def get_threshold_debug_info(self, line_data: List[Tuple['MoleculeLine', float, Optional[float]]]) -> Dict[str, Any]:
+        """
+        Get debugging information about threshold filtering.
+        
+        Parameters
+        ----------
+        line_data : List[Tuple]
+            List of (MoleculeLine, intensity, tau) tuples
+            
+        Returns
+        -------
+        Dict[str, Any]
+            Debug information about threshold filtering
+        """
+        if not line_data:
+            return {'total_lines': 0, 'filtered_lines': 0, 'threshold_percent': 0}
+            
+        threshold_percent = self.get_line_intensity_threshold()
+        filtered_lines = self.filter_lines_by_threshold(line_data, threshold_percent)
+        
+        intensities = [intensity for _, intensity, _ in line_data]
+        max_intensity = max(intensities) if intensities else 0
+        min_intensity = min(intensities) if intensities else 0
+        threshold_intensity = max_intensity * threshold_percent if max_intensity > 0 else 0
+        
+        return {
+            'total_lines': len(line_data),
+            'filtered_lines': len(filtered_lines),
+            'threshold_percent': threshold_percent * 100,
+            'max_intensity': max_intensity,
+            'min_intensity': min_intensity,
+            'threshold_intensity': threshold_intensity,
+            'lines_below_threshold': len(line_data) - len(filtered_lines)
+        }
