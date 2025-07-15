@@ -295,7 +295,7 @@ class FileInteractionPane:
         """
         Open file dialog to select input line list file and store in islat_class.
         """
-        from tkinter import filedialog
+        '''from tkinter import filedialog
         
         # Define appropriate file types for line lists
         filetypes = [
@@ -321,7 +321,11 @@ class FileInteractionPane:
             # Update the status label
             self.input_line_list_label.configure(text=f"Input Line List: {filename}")
         else:
-            print("No input line list file selected.")
+            print("No input line list file selected.")'''
+        from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import load_input_line_list
+        filename = load_input_line_list(self.islat_class.input_line_list)
+        self.islat_class.input_line_list = filename
+        self.input_line_list_label.configure(text=f"Input Line List: {filename}")
     
     def _load_output_line_measurements(self):
         """Calls the ifh class to save output line measurements."""
