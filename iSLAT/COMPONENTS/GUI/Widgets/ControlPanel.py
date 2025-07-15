@@ -258,12 +258,12 @@ class ControlPanel:
     def _create_molecule_specific_controls(self, start_row, start_col):
         """Create controls for molecule-specific parameters that update with active molecule"""
         # Add a separator/label for molecule-specific section
-        separator_label = tk.Label(self.frame, text="--- Active Molecule Parameters ---", font=('TkDefaultFont', 8, 'italic'))
-        separator_label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
-        separator_label.configure(
-            bg=self.theme.get("background", "#181A1B"),
-            fg=self.theme.get("foreground", "#F0F0F0")
-        )
+        #separator_label = tk.Label(self.frame, text="--- Active Molecule Parameters ---", font=('TkDefaultFont', 8, 'italic'))
+        #separator_label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
+        #separator_label.configure(
+        #    bg=self.theme.get("background", "#181A1B"),
+        #    fg=self.theme.get("foreground", "#F0F0F0")
+        #)
         
         # Store references for later updates
         self._molecule_parameter_entries = {}
