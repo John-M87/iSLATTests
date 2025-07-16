@@ -3,14 +3,42 @@ from tkinter import ttk
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 
 class ControlPanel:
-    # Class-level dictionary defining editable molecule fields
-    MOLECULE_FIELDS = {
+    # Class-level dictionary defining editable global fields (managed via MoleculeDict)
+    GLOBAL_FIELDS = {
         'distance': {
             'label': 'Distance:',
-            'attribute': 'distance',
+            'property': 'global_distance',
             'datatype': float,
             'format': '{:.2f}',
             'default': 140.0,
+            'width': 12
+        }
+    }
+    
+    # Class-level dictionary defining molecule-specific editable fields  
+    MOLECULE_FIELDS = {
+        'temp': {
+            'label': 'Temperature:',
+            'attribute': 'temp',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 300.0,
+            'width': 12
+        },
+        'radius': {
+            'label': 'Radius:',
+            'attribute': 'radius',
+            'datatype': float,
+            'format': '{:.2f}',
+            'default': 1.0,
+            'width': 12
+        },
+        'n_mol': {
+            'label': 'Column Density:',
+            'attribute': 'n_mol',
+            'datatype': float,
+            'format': '{:.2e}',
+            'default': 1e15,
             'width': 12
         },
         'stellar_rv': {
@@ -108,35 +136,79 @@ class ControlPanel:
 
     def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
         """Handle individual molecule parameter changes"""
+        # Force cache invalidation for molecule flux calculations
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            # Clear summed flux cache since individual molecule changed
+            self.islat.molecules_dict._summed_flux_cache.clear()
+            # Clear individual molecule flux cache
+            if molecule_name in self.islat.molecules_dict.fluxes:
+                del self.islat.molecules_dict.fluxes[molecule_name]
+        
         # Use the iSLAT update coordinator for efficient updates
         if hasattr(self.islat, 'request_update'):
+            # Request updates for model spectrum and all plots
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
+            self.islat.request_update('population_diagram')
         else:
-            # Fallback for direct updates
+            # Fallback for direct updates - update all three plots
+            plot_obj = self._get_plot_object()
+            if plot_obj:
+                # Update model spectrum first
+                if hasattr(self.islat, 'update_model_spectrum'):
+                    self.islat.update_model_spectrum()
+                
+                # Update all plots including population diagram
+                if hasattr(plot_obj, 'update_all_plots'):
+                    plot_obj.update_all_plots()
+                
+                # Explicitly trigger population diagram update
+                if hasattr(plot_obj, 'on_active_molecule_changed'):
+                    plot_obj.on_active_molecule_changed()
+            
+            # Also trigger population diagram update
             self._trigger_population_diagram_update()
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
         """Handle global parameter changes from MoleculeDict"""
+        # Force cache invalidation for all molecule flux calculations
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            # Clear all flux caches since global parameter affects all molecules
+            self.islat.molecules_dict._summed_flux_cache.clear()
+            self.islat.molecules_dict.fluxes.clear()
+        
         # Use the iSLAT update coordinator for efficient updates
         if hasattr(self.islat, 'request_update'):
+            # Request updates for model spectrum and all plots
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
+            self.islat.request_update('population_diagram')
         else:
-            # Fallback to direct update
+            # Fallback to direct update - update all three plots
             plot_obj = self._get_plot_object()
             if plot_obj:
+                # Update model spectrum first
+                if hasattr(self.islat, 'update_model_spectrum'):
+                    self.islat.update_model_spectrum()
+                
+                # Update all plots including population diagram
                 if hasattr(plot_obj, 'update_all_plots'):
                     plot_obj.update_all_plots()
+                
+                # Explicitly trigger population diagram update
+                if hasattr(plot_obj, 'on_active_molecule_changed'):
+                    plot_obj.on_active_molecule_changed()
+            
+            # Also trigger population diagram update for the active molecule
             self._trigger_population_diagram_update()
 
     def _create_all_components(self):
         """Create all control panel components in order"""
         self._create_display_controls(0, 0)
         self._create_wavelength_controls(1, 0)  
-        # Note: Global parameter controls removed - these are now per-molecule
-        self._create_molecule_specific_controls(3, 0)  # Move up since global params removed
-        self._create_molecule_selector(9, 0)  # Move down to accommodate more molecule params
+        self._create_global_parameter_controls(2, 0)  # Only distance now
+        self._create_molecule_specific_controls(3, 0)  # All other params here
+        self._create_molecule_selector(9, 0)  # Move down to accommodate molecule params
         self.reload_molecule_dropdown()
 
     def _debounced_update(self, callback):
@@ -243,28 +315,89 @@ class ControlPanel:
             )
             return
 
-        # Note: Removed global Distance, Stellar RV, FWHM, and Broadening
-        # These are now handled as per-molecule parameters
-        parameters = []
-        
         # Store references for later updates
-        self._parameter_entries = {}
+        self._global_parameter_entries = {}
         
-        for label, param_name, row, col in parameters:
-            entry, var = self._create_bound_parameter_entry(label, param_name, row, col)
+        # Create fields based on the class-level dictionary
+        row_offset = 1
+        col_offset = 0
+        
+        for field_key, field_config in self.GLOBAL_FIELDS.items():
+            # Calculate grid position (2 fields per row)
+            row = start_row + row_offset + (col_offset // 2)
+            col = start_col + (col_offset % 2) * 2
+            
+            entry, var = self._create_global_parameter_entry(
+                field_config['label'], 
+                field_config['property'], 
+                row, 
+                col, 
+                field_config['width']
+            )
+            
             if entry and var:
-                self._parameter_entries[param_name] = (entry, var)
+                self._global_parameter_entries[field_config['property']] = (entry, var)
+            
+            col_offset += 1
+
+    def _create_global_parameter_entry(self, label_text, property_name, row, col, width=12):
+        """Create an entry bound to a global parameter in molecules_dict"""
+        
+        def update_global_parameter(value_str):
+            # Skip updates for special cases
+            if value_str in ["N/A", ""]:
+                return
+                
+            if not hasattr(self.islat, 'molecules_dict') or not self.islat.molecules_dict:
+                return
+                
+            molecules_dict = self.islat.molecules_dict
+            
+            try:
+                # Get field configuration for proper data type handling
+                field_config = None
+                for field_key, config in self.GLOBAL_FIELDS.items():
+                    if config['property'] == property_name:
+                        field_config = config
+                        break
+                
+                # Convert value based on field configuration
+                if field_config:
+                    value = field_config['datatype'](value_str)
+                else:
+                    # Fallback for unknown parameters
+                    value = float(value_str)
+                    
+                # Get old value for comparison
+                old_value = getattr(molecules_dict, property_name, None)
+                
+                # Only update if the value actually changed
+                if field_config and field_config['datatype'] == float:
+                    # Convert old_value to float for proper comparison
+                    try:
+                        old_float_value = float(old_value) if old_value is not None else None
+                    except (ValueError, TypeError):
+                        old_float_value = None
+                    
+                    if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        setattr(molecules_dict, property_name, value)
+                        # The property setter will automatically trigger plot updates
+                else:
+                    if old_value != value:
+                        setattr(molecules_dict, property_name, value)
+                            
+            except (ValueError, AttributeError) as e:
+                print(f"Error updating global {property_name}: {e}")
+        
+        # Get current value from molecules_dict
+        current_value = 0.0
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            current_value = getattr(self.islat.molecules_dict, property_name, 0.0)
+        
+        return self._create_simple_entry(label_text, current_value, row, col, update_global_parameter, width)
 
     def _create_molecule_specific_controls(self, start_row, start_col):
         """Create controls for molecule-specific parameters that update with active molecule"""
-        # Add a separator/label for molecule-specific section
-        #separator_label = tk.Label(self.frame, text="--- Active Molecule Parameters ---", font=('TkDefaultFont', 8, 'italic'))
-        #separator_label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
-        #separator_label.configure(
-        #    bg=self.theme.get("background", "#181A1B"),
-        #    fg=self.theme.get("foreground", "#F0F0F0")
-        #)
-        
         # Store references for later updates
         self._molecule_parameter_entries = {}
         
@@ -618,6 +751,7 @@ class ControlPanel:
         """Trigger an explicit population diagram update"""
         plot_obj = self._get_plot_object()
         if plot_obj and hasattr(plot_obj, 'update_population_diagram'):
+            print("Hey!!!!")
             # Invalidate cache before updating to ensure re-render
             if hasattr(plot_obj, 'plot_renderer') and hasattr(plot_obj.plot_renderer, 'invalidate_population_diagram_cache'):
                 plot_obj.plot_renderer.invalidate_population_diagram_cache()
@@ -637,7 +771,8 @@ class ControlPanel:
         except:
             pass  # Callback might already be registered
         
-        # Note: Global parameter entries removed - these are now per-molecule parameters
+        # Update global parameter fields
+        self._update_global_parameter_fields()
         
         # Update wavelength range fields
         if (hasattr(self, 'min_wavelength_var') and hasattr(self, 'max_wavelength_var') 
@@ -727,6 +862,24 @@ class ControlPanel:
             current_value = var.get()
             if current_value != new_value:
                 var.set(new_value)
+
+    def _update_global_parameter_fields(self):
+        """Update all global parameter fields with values from the molecules_dict"""
+        if not hasattr(self, '_global_parameter_entries'):
+            return
+        
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+            
+        for property_name, (entry, var) in self._global_parameter_entries.items():
+            try:
+                new_value = getattr(self.islat.molecules_dict, property_name, 0.0)
+                # Only update if the value actually changed to avoid triggering callbacks
+                current_value = var.get()
+                if str(current_value) != str(new_value):
+                    var.set(str(new_value))
+            except (AttributeError, TypeError):
+                pass
 
     def _clear_molecule_parameter_fields(self):
         """Clear molecule-specific parameter fields for special cases like SUM/ALL"""

@@ -49,6 +49,10 @@ class MoleculeDict(dict):
         
         # Callbacks to notify when global parameters change
         self._global_parameter_change_callbacks: List[Callable] = []
+        
+        # Register to receive molecule parameter change notifications
+        from .Molecule import Molecule
+        Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
 
     def add_molecule(self, mol_entry: Dict[str, Any], intrinsic_line_width: Optional[float] = None, 
                      wavelength_range: Optional[Tuple[float, float]] = None, 
@@ -307,6 +311,9 @@ class MoleculeDict(dict):
                     setattr(molecule, f'_{parameter_name}', float(value))
                 elif parameter_name == 'intrinsic_line_width':
                     molecule.broad = float(value)
+                elif parameter_name == 'stellar_rv':
+                    # stellar_rv is stored as an attribute but accessed via star_rv property
+                    molecule.stellar_rv = float(value)
                 elif hasattr(molecule, parameter_name):
                     setattr(molecule, parameter_name, value)
                 
@@ -362,6 +369,10 @@ class MoleculeDict(dict):
     def bulk_set_fwhm(self, fwhm: float, molecule_names: Optional[List[str]] = None) -> None:
         """Bulk update FWHM for multiple molecules."""
         self.bulk_update_parameter('fwhm', fwhm, molecule_names)
+    
+    def bulk_set_stellar_rv(self, stellar_rv: float, molecule_names: Optional[List[str]] = None) -> None:
+        """Bulk update stellar RV for multiple molecules."""
+        self.bulk_update_parameter('stellar_rv', stellar_rv, molecule_names)
     
     def bulk_set_intrinsic_line_width(self, width: float, molecule_names: Optional[List[str]] = None) -> None:
         """Bulk update intrinsic line width for multiple molecules."""
@@ -447,6 +458,28 @@ class MoleculeDict(dict):
         
         # Clear global caches once
         self._clear_flux_caches()
+    
+    def _clear_flux_caches(self) -> None:
+        """Clear all flux-related caches"""
+        self.fluxes.clear()
+        self._summed_flux_cache.clear()
+        self._cache_wave_data_hash = None
+    
+    def _on_molecule_parameter_changed(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
+        """Callback when any molecule parameter changes - invalidate summed flux cache"""
+        # Parameters that affect the summed flux calculation
+        flux_affecting_parameters = {'temp', 'radius', 'n_mol', 'distance', 'fwhm', 'intrinsic_line_width', 'broad', 'stellar_rv'}
+        
+        if parameter_name in flux_affecting_parameters:
+            # Clear summed flux cache since molecule flux has changed
+            self._summed_flux_cache.clear()
+            
+            # Remove molecule from individual flux cache if it exists
+            if molecule_name in self.fluxes:
+                del self.fluxes[molecule_name]
+                
+            # Mark molecule as dirty for efficient tracking
+            self._dirty_molecules.add(molecule_name)
     
     def _batch_invalidate_caches_multiple(self, updated_molecules: List, parameter_names: List[str]) -> None:
         """
@@ -1120,6 +1153,42 @@ class MoleculeDict(dict):
         """Remove a callback function"""
         if callback in self._global_parameter_change_callbacks:
             self._global_parameter_change_callbacks.remove(callback)
+
+    def _notify_global_parameter_change(self, parameter_name: str, old_value: Any, new_value: Any) -> None:
+        """Notify all registered callbacks of a global parameter change"""
+        for callback in self._global_parameter_change_callbacks:
+            try:
+                callback(parameter_name, old_value, new_value)
+            except Exception as e:
+                print(f"Error in global parameter change callback: {e}")
+
+    # Global parameter properties with bulk update capabilities
+    @property
+    def global_distance(self) -> float:
+        """Global distance parameter that affects all molecules"""
+        return self._global_dist
+    
+    @global_distance.setter
+    def global_distance(self, value: float) -> None:
+        """Set global distance and update all molecules"""
+        old_value = self._global_dist
+        if abs(old_value - value) > 1e-10:
+            self._global_dist = value
+            self.bulk_set_distance(value)
+            self._notify_global_parameter_change('distance', old_value, value)
+    
+    @property
+    def global_wavelength_range(self) -> Tuple[float, float]:
+        """Global wavelength range parameter"""
+        return self._global_wavelength_range
+    
+    @global_wavelength_range.setter
+    def global_wavelength_range(self, value: Tuple[float, float]) -> None:
+        """Set global wavelength range"""
+        old_value = self._global_wavelength_range
+        if value != old_value:
+            self._global_wavelength_range = value
+            self._notify_global_parameter_change('wavelength_range', old_value, value)
 
     def __del__(self):
         """Cleanup when object is destroyed."""

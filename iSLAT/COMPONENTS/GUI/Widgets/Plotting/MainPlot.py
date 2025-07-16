@@ -254,6 +254,10 @@ class iSLATPlot:
         """
         #print("Debug: Updating model plot...")
         
+        # Force update of molecule fluxes to ensure they reflect current parameters
+        if hasattr(self.islat.molecules_dict, 'update_molecule_fluxes'):
+            self.islat.molecules_dict.update_molecule_fluxes(self.islat.wave_data)
+        
         # Calculate summed flux using MoleculeDict methods if available
         if hasattr(self.islat.molecules_dict, 'get_summed_flux_optimized'):
             summed_flux = self.islat.molecules_dict.get_summed_flux_optimized(

@@ -236,12 +236,19 @@ class Molecule:
         if self.spectrum is None:
             self._ensure_intensity_initialized()
             Spectrum = _get_spectrum_module()
+            # Calculate spectral resolution from FWHM: R = λ/FWHM where FWHM is in km/s
+            # Convert FWHM from km/s to wavelength units and calculate R
+            mean_wavelength = (self.wavelength_range[0] + self.wavelength_range[1]) / 2.0
+            # FWHM in wavelength units: Δλ = λ * (FWHM_velocity / c)
+            delta_lambda = mean_wavelength * (self.fwhm / 299792.458)  # c in km/s
+            spectral_resolution = mean_wavelength / delta_lambda if delta_lambda > 0 else self.model_line_width
+            
             self.spectrum = Spectrum(
                 lam_min=self.wavelength_range[0],
                 lam_max=self.wavelength_range[1],
                 dlambda=self.model_pixel_res,
-                R=self.model_line_width,
-                distance=self._distance
+                R=spectral_resolution,  # Use calculated resolution from molecule's FWHM
+                distance=self.distance  # Use property to get correct value
             )
             self._spectrum_valid = False  # Mark as needing update
     
@@ -250,7 +257,8 @@ class Molecule:
         param_tuple = (
             self._temp, self._radius, self._n_mol, self._distance, 
             self._fwhm, self._broad, self.wavelength_range, 
-            self.model_pixel_res, self.model_line_width
+            self.model_pixel_res, self.model_line_width,
+            getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)  # Include stellar RV in hash
         )
         self._parameter_hash = hash(param_tuple)
     
@@ -281,9 +289,10 @@ class Molecule:
                 self._clear_flux_caches()
                 return
             
-        t_kin = getattr(self, '_temp', self.t_kin)
-        n_mol = getattr(self, '_n_mol', self.n_mol_init)
-        dv = getattr(self, '_fwhm', c.FWHM_TOLERANCE)
+        # Use the molecule's current parameter values (properties handle instance/class resolution)
+        t_kin = self.temp  # Uses the property which returns _temp
+        n_mol = self.n_mol  # Uses the property which returns _n_mol  
+        dv = self.broad     # Uses the intrinsic line width property which returns _broad
         
         self.intensity.calc_intensity(
             t_kin=t_kin,
@@ -320,7 +329,9 @@ class Molecule:
         param_tuple = (
             getattr(self, '_temp', self.t_kin),
             getattr(self, '_n_mol', self.n_mol_init),
-            getattr(self, '_fwhm', c.FWHM_TOLERANCE),
+            getattr(self, '_broad', c.INTRINSIC_LINE_WIDTH),  # Use broad for intensity dv parameter
+            getattr(self, '_fwhm', c.DEFAULT_FWHM),  # Include FWHM for spectrum resolution
+            getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV),  # Include stellar RV
             # Include line data hash if available
             hash(str(self.lines.molecule_id)) if self.lines else 0
         )
@@ -412,6 +423,16 @@ class Molecule:
         
         # Interpolate molecule flux onto the global wavelength grid
         interpolated_flux = np.interp(wave_data, self.spectrum.lamgrid, self.spectrum.flux_jy, left=0, right=0)
+        
+        # Apply stellar RV Doppler shift to the flux if stellar_rv is non-zero
+        if hasattr(self, 'stellar_rv') and abs(self.stellar_rv) > 1e-6:
+            # Doppler shift: λ_observed = λ_rest * (1 + v/c)
+            # where v is radial velocity (positive = receding)
+            doppler_factor = 1.0 + (self.stellar_rv / 299792.458)  # c in km/s
+            shifted_wavelengths = wave_data / doppler_factor
+            
+            # Re-interpolate with shifted wavelengths
+            interpolated_flux = np.interp(shifted_wavelengths, self.spectrum.lamgrid, self.spectrum.flux_jy, left=0, right=0)
         
         # Store results
         self.plot_lam = wave_data
@@ -513,13 +534,16 @@ class Molecule:
     
     @fwhm.setter
     def fwhm(self, value):
-        """FWHM setter - recalculates intensity when changed"""
+        """FWHM setter - recalculates intensity and recreates spectrum when changed"""
         old_value = self._fwhm
         self._fwhm = float(value)
         
-        # Invalidate caches
+        # FWHM changes require both intensity recalculation and spectrum recreation
+        # because FWHM affects the spectral resolution R parameter
         self._intensity_valid = False
         self._spectrum_valid = False
+        self.spectrum = None  # Force spectrum recreation with new FWHM-based resolution
+        self._clear_flux_caches()
         self._clear_flux_caches()
         
         self._notify_my_parameter_change('fwhm', old_value, self._fwhm)
@@ -570,44 +594,39 @@ class Molecule:
         """Stellar RV setter"""
         old_value = getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)
         self.stellar_rv = float(value)
+        
+        # Stellar RV changes affect the final spectrum due to Doppler shift
+        self._clear_flux_caches()
+        
         self._notify_my_parameter_change('stellar_rv', old_value, self.stellar_rv)
     
     @property
     def broad(self):
         """Intrinsic line width getter"""
-        return self._broad_val
+        return self._broad
     
     @broad.setter
     def broad(self, value):
         """Intrinsic line width setter"""
-        old_value = self._broad_val
-        self._broad_val = float(value)
+        old_value = self._broad
+        self._broad = float(value)
 
         # Invalidate caches
         self._intensity_valid = False
         self._spectrum_valid = False
         self._clear_flux_caches()
 
-        self._notify_my_parameter_change('broad', old_value, self._broad_val)
+        self._notify_my_parameter_change('broad', old_value, self._broad)
 
     @property
     def intrinsic_line_width(self):
-        """Intrinsic line width getter"""
-        return self._broad
-
+        """Alias for broad (intrinsic line width)"""
+        return self.broad
+    
     @intrinsic_line_width.setter
     def intrinsic_line_width(self, value):
-        """Intrinsic line width setter"""
-        self.broad = value  # Reuse the broad setter to handle caching and notifications
-        '''old_value = self.broad
-        self.broad = float(value)
-        
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
-        self._notify_my_parameter_change('intrinsic_line_width', old_value, self.broad)'''
+        """Alias setter for broad (intrinsic line width)"""
+        self.broad = value
     
     def _update_spectrum(self):
         """Update the spectrum with current intensity and area"""
@@ -624,7 +643,7 @@ class Molecule:
             # Add updated intensity with current radius
             self.spectrum.add_intensity(
                 intensity=self.intensity,
-                dA=self._radius ** 2 * np.pi
+                dA=self.radius ** 2 * np.pi  # Use property to get correct value
             )
             
             # Mark spectrum as valid and clear flux caches
@@ -639,17 +658,22 @@ class Molecule:
                 self.calculate_intensity()
                 
             Spectrum = _get_spectrum_module()
+            # Calculate spectral resolution from FWHM
+            mean_wavelength = (self.wavelength_range[0] + self.wavelength_range[1]) / 2.0
+            delta_lambda = mean_wavelength * (self.fwhm / 299792.458)  # c in km/s
+            spectral_resolution = mean_wavelength / delta_lambda if delta_lambda > 0 else self.model_line_width
+            
             self.spectrum = Spectrum(
                 lam_min=self.wavelength_range[0],
                 lam_max=self.wavelength_range[1],
                 dlambda=self.model_pixel_res,
-                R=self.model_line_width,
+                R=spectral_resolution,  # Use calculated resolution from molecule's FWHM
                 distance=self.distance  # Use the property which handles instance vs class values
             )
             
             self.spectrum.add_intensity(
                 intensity=self.intensity,
-                dA=self._radius ** 2 * np.pi
+                dA=self.radius ** 2 * np.pi  # Use property to get correct value
             )
             
             # Mark spectrum as valid and clear flux caches

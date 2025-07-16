@@ -31,8 +31,6 @@ class GUI:
         self.config = config
         self.theme = config["theme"]
         self.islat_class = islat_class_ref
-        self._popout_states = {}  # Track popout states for widgets
-        self._popout_windows = {}  # Track active popout windows
         
         # Apply theme to root window
         self._apply_theme_to_widget(self.master)
@@ -242,9 +240,6 @@ class GUI:
         if hasattr(self, 'control_panel') and hasattr(self.control_panel, 'apply_theme'):
             self.control_panel.apply_theme(self.theme)
             
-        if hasattr(self, 'molecule_table') and hasattr(self.molecule_table, 'apply_theme'):
-            self.molecule_table.apply_theme(self.theme)
-            
         if hasattr(self, 'plot') and hasattr(self.plot, 'apply_theme'):
             self.plot.apply_theme(self.theme)
             
@@ -317,21 +312,20 @@ class GUI:
         
         # Create individual frames for each component
         top_options_frame = tk.Frame(self.left_resizable)
-        molecule_table_frame = tk.Frame(self.left_resizable)
         file_selector_frame = tk.Frame(self.left_resizable)
         control_panel_frame = tk.Frame(self.left_resizable)
         data_field_frame = tk.Frame(self.left_resizable)
         
         # Apply theme to frames
-        for frame in [top_options_frame, molecule_table_frame, file_selector_frame, control_panel_frame, data_field_frame]:
+        for frame in [top_options_frame, file_selector_frame, control_panel_frame, data_field_frame]:
             frame.configure(bg=self.theme["background"])
         
         # Add frames to resizable container with different weights and minimum sizes
-        self.left_resizable.add_frame(top_options_frame, weight=0, minsize=80)
-        self.left_resizable.add_frame(molecule_table_frame, weight=2, minsize=150)
-        self.left_resizable.add_frame(file_selector_frame, weight=0, minsize=80)
-        self.left_resizable.add_frame(control_panel_frame, weight=2, minsize=120)
-        self.left_resizable.add_frame(data_field_frame, weight=4, minsize=200)
+        # Enable dynamic sizing for frames that can have variable content
+        self.left_resizable.add_frame(top_options_frame, weight=0, minsize=80, dynamic_minsize=True)
+        self.left_resizable.add_frame(file_selector_frame, weight=0, minsize=80, dynamic_minsize=True)
+        self.left_resizable.add_frame(control_panel_frame, weight=2, minsize=120, dynamic_minsize=True)
+        self.left_resizable.add_frame(data_field_frame, weight=4, minsize=200, dynamic_minsize=False)
 
         # Main data field - create this first so we can pass it to other components
         self.data_field = DataField("Main Data Field", "", data_field_frame)
@@ -344,8 +338,6 @@ class GUI:
             self._apply_theme_to_widget(self.data_field.text)
         if hasattr(self.data_field, 'scrollbar'):
             self._apply_theme_to_widget(self.data_field.scrollbar)
-        
-        self._add_popout_button_to_corner(self.data_field.frame, "Main Data Field", self.data_field.frame, data_field_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
 
         # Top control buttons - now we can pass data_field
         self.top_options = TopOptions(top_options_frame, self.islat_class, theme=self.theme, data_field=self.data_field)
@@ -353,27 +345,9 @@ class GUI:
         
         # Apply theme to top options
         self._apply_theme_to_widget(self.top_options.frame)
-        
-        self._add_popout_button_to_corner(self.top_options.frame, "Top Options", self.top_options, top_options_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 2})
-
-        # Molecule table
-        self.molecule_table = MoleculeWindow("Molecule Table", molecule_table_frame, self.molecule_data, self.plot, self.config, self.islat_class)
-        self.molecule_table.frame.pack(fill="both", expand=True, padx=5, pady=5)
-        
-        # Apply theme to molecule table
-        self._apply_theme_to_widget(self.molecule_table.frame)
-        # Also apply theme to the molecule table's canvas and scrollbar
-        if hasattr(self.molecule_table, 'canvas'):
-            self._apply_theme_to_widget(self.molecule_table.canvas)
-        if hasattr(self.molecule_table, 'scrollbar'):
-            self._apply_theme_to_widget(self.molecule_table.scrollbar)
-        
-        self._add_popout_button_to_corner(self.molecule_table.frame, "Molecule Table", self.molecule_table, molecule_table_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
 
         # Spectrum file selector
         self.file_interaction_pane = FileInteractionPane(file_selector_frame, self.islat_class, self.theme)
-        
-        self._add_popout_button_to_corner(self.file_interaction_pane.frame, "Spectrum File", self.file_interaction_pane.frame, file_selector_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
 
         # Control panel for input parameters
         self.control_frame = tk.LabelFrame(control_panel_frame, text="Control Panel")
@@ -391,173 +365,13 @@ class GUI:
         self._apply_theme_to_widget(self.control_frame)
         if hasattr(self.control_panel, 'apply_theme'):
             self.control_panel.apply_theme(self.theme)
-        
-        self._add_popout_button_to_corner(self.control_frame, "Control Panel", self.control_frame, control_panel_frame, 0, 0, "pack", {"fill": "both", "expand": True, "padx": 5, "pady": 5})
-
-    def _add_popout_button_to_corner(self, widget, title, content, parent, row, column, manager, manager_kwargs):
-        # Store geometry info for re-adding
-        widget_id = id(widget)
-        self._popout_states[widget_id] = {
-            "widget": widget,
-            "parent": parent,
-            "row": row,
-            "column": column,
-            "manager": manager,
-            "manager_kwargs": manager_kwargs,
-            "title": title,
-            "content": content,
-            "is_popped_out": False
-        }
-        
-        # Add the button after a small delay to ensure widget is fully initialized
-        def add_button():
-            try:
-                btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id), 
-                               width=2, height=1, relief="flat", padx=0, pady=0)
-                # Apply theme to popout button
-                btn.configure(
-                    bg=self.theme["buttons"]["DefaultBotton"]["background"],
-                    fg=self.theme["foreground"],
-                    activebackground=self.theme["buttons"]["DefaultBotton"]["active_background"],
-                    activeforeground=self.theme["foreground"]
-                )
-                btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
-            except tk.TclError:
-                # Widget might not be ready yet, try again later
-                widget.after(100, add_button)
-        
-        widget.after(10, add_button)
-
-    def _toggle_popout(self, widget_id):
-        """Toggle between popout and pop-in for a widget."""
-        state = self._popout_states.get(widget_id)
-        if not state:
-            return
-
-        if state["is_popped_out"]:
-            self._pop_in_widget(widget_id)
-        else:
-            self._popout_widget(widget_id)
-
-    def _popout_widget(self, widget_id):
-        """Pop out a widget to a separate window."""
-        state = self._popout_states.get(widget_id)
-        if not state or state["is_popped_out"]:
-            return
-
-        widget = state["widget"]
-        
-        # Remove from main window
-        if state["manager"] == "grid":
-            widget.grid_forget()
-        elif state["manager"] == "pack":
-            widget.pack_forget()
-        elif state["manager"] == "place":
-            widget.place_forget()
-
-        # Create popout window
-        # Use self.master instead of self.window to ensure we have a valid parent
-        parent_window = getattr(self, 'window', self.master)
-        pop = tk.Toplevel(parent_window)
-        pop.title(state["title"])
-        
-        # Set size based on screen resolution for popout windows
-        screen_width = pop.winfo_screenwidth()
-        screen_height = pop.winfo_screenheight()
-        window_width = min(int(screen_width * 0.6), 800)
-        window_height = min(int(screen_height * 0.6), 600)
-        pos_x = int((screen_width - window_width) / 2)
-        pos_y = int((screen_height - window_height) / 2)
-        pop.geometry(f"{window_width}x{window_height}+{pos_x}+{pos_y}")
-        pop.minsize(400, 300)
-        
-        # Apply theme to popout window
-        self._apply_theme_to_widget(pop)
-        
-        # Configure popout window grid
-        pop.grid_rowconfigure(0, weight=1)
-        pop.grid_columnconfigure(0, weight=1)
-
-        # Reparent the widget to the popout window
-        widget.master = pop
-
-        # Place the widget in the popout window
-        widget.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
-
-        # Update the popout button in the widget to show pop-in functionality
-        self._update_popout_button(widget, widget_id, is_popped_out=True)
-
-        # Store the popout window reference
-        self._popout_windows[widget_id] = pop
-        state["is_popped_out"] = True
-
-        # Handle window close event
-        def on_close():
-            self._pop_in_widget(widget_id)
-
-        pop.protocol("WM_DELETE_WINDOW", on_close)
-
-    def _pop_in_widget(self, widget_id):
-        """Pop in a widget back to the main window."""
-        state = self._popout_states.get(widget_id)
-        if not state or not state["is_popped_out"]:
-            return
-
-        widget = state["widget"]
-        pop = self._popout_windows.get(widget_id)
-        
-        if pop:
-            try:
-                # Remove from popout window
-                widget.grid_forget()
-                
-                # Reparent back to original parent
-                widget.master = state["parent"]
-                
-                # Place back in original location
-                if state["manager"] == "grid":
-                    widget.grid(row=state["row"], column=state["column"], **state["manager_kwargs"])
-                elif state["manager"] == "pack":
-                    widget.pack(**state["manager_kwargs"])
-                elif state["manager"] == "place":
-                    widget.place(**state["manager_kwargs"])
-                
-                # Update the popout button back to popout functionality
-                self._update_popout_button(widget, widget_id, is_popped_out=False)
-                
-                # Destroy the popout window
-                pop.destroy()
-                
-            except tk.TclError as e:
-                print(f"Error during pop-in: {e}")
-            finally:
-                # Clean up references
-                if widget_id in self._popout_windows:
-                    del self._popout_windows[widget_id]
-                state["is_popped_out"] = False
-
-    def _update_popout_button(self, widget, widget_id, is_popped_out):
-        """Update the popout button for the current state."""
-        try:
-            # Remove existing popout button
-            for child in widget.winfo_children():
-                if isinstance(child, tk.Button) and child.cget("text") == "⧉":
-                    child.destroy()
-                    break
-            
-            # Create new button with appropriate command
-            btn = tk.Button(widget, text="⧉", command=lambda: self._toggle_popout(widget_id),
-                           width=2, height=1, relief="flat", padx=0, pady=0)
-            # Apply theme to the button
-            btn.configure(
-                bg=self.theme["buttons"]["DefaultBotton"]["background"],
-                fg=self.theme["foreground"],
-                activebackground=self.theme["buttons"]["DefaultBotton"]["active_background"],
-                activeforeground=self.theme["foreground"]
-            )
-            btn.place(relx=1.0, rely=0.0, anchor="ne", x=-2, y=2)
-        except tk.TclError as e:
-            print(f"Error updating popout button: {e}")
+    
+    def update_frame_sizes(self):
+        """Update dynamic frame sizes based on current content."""
+        if hasattr(self, 'left_resizable'):
+            self.left_resizable.update_dynamic_sizes()
+        if hasattr(self, 'main_resizable'):
+            self.main_resizable.update_dynamic_sizes()
 
     def create_window(self):
         self.window = self.master
@@ -605,7 +419,7 @@ class GUI:
         # Apply theme to right frame
         self._apply_theme_to_widget(right_frame)
         
-        # Handle plot popout - create a container frame for better control
+        # Create a container frame for better control
         plot_container = tk.Frame(right_frame)
         plot_container.pack(fill="both", expand=True)
         
@@ -625,8 +439,6 @@ class GUI:
         else:
             # Fallback - use the plot container
             plot_widget = plot_container
-            
-        self._add_popout_button_to_corner(plot_widget, "Plot", plot_widget, right_frame, 0, 0, "pack", {"fill": "both", "expand": True})
 
         # Left side: all controls
         left_frame = tk.Frame(left_main_frame)
@@ -643,25 +455,17 @@ class GUI:
         
         # Apply theme to bottom options frame
         self._apply_theme_to_widget(self.bottom_options.frame)
-        
-        self._add_popout_button_to_corner(self.bottom_options.frame, "Bottom Options", self.bottom_options.frame, self.window, 1, 0, "grid", {"columnspan": 2, "sticky": "ew"})
 
         # Force theme updates to catch any missed widgets
         self.window.after(100, self._force_theme_update)
         # Additional delayed update to catch any widgets created asynchronously
         self.window.after(500, self._force_theme_update)
 
-    def cleanup_popouts(self):
-        """Clean up all popout windows when the main window is closed."""
-        for widget_id in list(self._popout_windows.keys()):
-            self._pop_in_widget(widget_id)
-
-    def start(self):
-        self.create_window()
+        def start(self):
+            self.create_window()
         
         # Set up cleanup on window close
         def on_closing():
-            self.cleanup_popouts()
             self.window.destroy()
         
         self.window.protocol("WM_DELETE_WINDOW", on_closing)
