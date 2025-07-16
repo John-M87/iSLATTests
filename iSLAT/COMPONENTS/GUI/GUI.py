@@ -312,19 +312,19 @@ class GUI:
         
         # Create individual frames for each component
         top_options_frame = tk.Frame(self.left_resizable)
-        file_selector_frame = tk.Frame(self.left_resizable)
         control_panel_frame = tk.Frame(self.left_resizable)
+        file_selector_frame = tk.Frame(self.left_resizable)
         data_field_frame = tk.Frame(self.left_resizable)
         
         # Apply theme to frames
-        for frame in [top_options_frame, file_selector_frame, control_panel_frame, data_field_frame]:
+        for frame in [top_options_frame, control_panel_frame, file_selector_frame, data_field_frame]:
             frame.configure(bg=self.theme["background"])
         
         # Add frames to resizable container with different weights and minimum sizes
         # Enable dynamic sizing for frames that can have variable content
         self.left_resizable.add_frame(top_options_frame, weight=0, minsize=80, dynamic_minsize=True)
-        self.left_resizable.add_frame(file_selector_frame, weight=0, minsize=80, dynamic_minsize=True)
         self.left_resizable.add_frame(control_panel_frame, weight=2, minsize=120, dynamic_minsize=True)
+        self.left_resizable.add_frame(file_selector_frame, weight=0, minsize=80, dynamic_minsize=True)
         self.left_resizable.add_frame(data_field_frame, weight=4, minsize=200, dynamic_minsize=False)
 
         # Main data field - create this first so we can pass it to other components
@@ -346,9 +346,6 @@ class GUI:
         # Apply theme to top options
         self._apply_theme_to_widget(self.top_options.frame)
 
-        # Spectrum file selector
-        self.file_interaction_pane = FileInteractionPane(file_selector_frame, self.islat_class, self.theme)
-
         # Control panel for input parameters
         self.control_frame = tk.LabelFrame(control_panel_frame, text="Control Panel")
         self.control_frame.pack(fill="both", expand=True, padx=5, pady=5)
@@ -365,6 +362,9 @@ class GUI:
         self._apply_theme_to_widget(self.control_frame)
         if hasattr(self.control_panel, 'apply_theme'):
             self.control_panel.apply_theme(self.theme)
+
+        # Spectrum file selector
+        self.file_interaction_pane = FileInteractionPane(file_selector_frame, self.islat_class, self.theme)
     
     def update_frame_sizes(self):
         """Update dynamic frame sizes based on current content."""
@@ -403,42 +403,23 @@ class GUI:
         right_main_frame.configure(bg=self.theme["background"])
         
         # Add frames to horizontal resizable container
-        self.main_resizable.add_frame(left_main_frame, weight=1, minsize=350)
-        self.main_resizable.add_frame(right_main_frame, weight=2, minsize=450)
+        # Reduced weight for left panel to start with less horizontal space
+        self.main_resizable.add_frame(left_main_frame, weight=1, minsize=300)
+        self.main_resizable.add_frame(right_main_frame, weight=3, minsize=450)
 
         # Right side: plots
         right_frame = tk.Frame(right_main_frame)
-        right_frame.pack(fill="both", expand=True)
+        right_frame.pack(fill="both", expand=True, padx=0, pady=0)
         
         # Configure right frame for responsive plot
         right_frame.grid_rowconfigure(0, weight=1)
         right_frame.grid_columnconfigure(0, weight=1)
         
-        self.plot = iSLATPlot(right_frame, self.wave_data, self.flux_data, self.theme, self.islat_class)
-        
         # Apply theme to right frame
         self._apply_theme_to_widget(right_frame)
         
-        # Create a container frame for better control
-        plot_container = tk.Frame(right_frame)
-        plot_container.pack(fill="both", expand=True)
-        
-        # Apply theme to plot container
-        self._apply_theme_to_widget(plot_container)
-        
-        # Check if plot has a frame attribute, otherwise create one
-        if hasattr(self.plot, 'frame'):
-            plot_widget = self.plot.frame
-            plot_widget.master = plot_container
-            plot_widget.pack(fill="both", expand=True)
-        elif hasattr(self.plot, 'figure'):
-            canvas = FigureCanvasTkAgg(self.plot.figure, master=plot_container)
-            canvas_widget = canvas.get_tk_widget()
-            canvas_widget.pack(fill="both", expand=True)
-            plot_widget = plot_container
-        else:
-            # Fallback - use the plot container
-            plot_widget = plot_container
+        # Create the plot directly in right_frame without extra container
+        self.plot = iSLATPlot(right_frame, self.wave_data, self.flux_data, self.theme, self.islat_class)
 
         # Left side: all controls
         left_frame = tk.Frame(left_main_frame)

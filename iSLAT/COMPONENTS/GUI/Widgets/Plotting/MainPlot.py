@@ -42,6 +42,8 @@ class iSLATPlot:
         self.active_lines = []  # List of (line, scatter) tuples for active molecular lines
 
         self.fig = plt.Figure(figsize=(10, 7))
+        # Adjust subplot parameters to minimize margins and maximize plot area
+        self.fig.subplots_adjust(left=0.08, bottom=0.08, right=0.98, top=0.95, wspace=0.15, hspace=0.25)
         gs = GridSpec(2, 2, height_ratios=[2, 3], figure=self.fig)
         self.ax1 = self.full_spectrum = self.fig.add_subplot(gs[0, :])
         self.ax2 = self.line_inspection = self.fig.add_subplot(gs[1, 0])
@@ -71,8 +73,15 @@ class iSLATPlot:
         self.interaction_handler.set_span_select_callback(self.onselect)
         self.interaction_handler.set_click_callback(self.on_click)
         
-        self.toolbar.pack(side="top", fill="x")
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.toolbar.pack(side="top", fill="x", padx=0, pady=0)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=0, pady=0)
+        
+        # Apply tight layout to maximize space usage
+        try:
+            self.fig.tight_layout(pad=0.5)
+        except:
+            pass  # Fallback if tight_layout fails
+            
         self.canvas.draw()
 
         self.selected_wave = None
