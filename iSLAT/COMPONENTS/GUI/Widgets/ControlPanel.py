@@ -1,76 +1,16 @@
 import tkinter as tk
 from tkinter import ttk
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
+from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import load_control_panel_fields_config
 
 class ControlPanel:
-    # Class-level dictionary defining editable global fields (managed via MoleculeDict)
-    GLOBAL_FIELDS = {
-        'distance': {
-            'label': 'Distance:',
-            'property': 'global_distance',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 140.0,
-            'width': 12
-        }
-    }
-    
-    # Class-level dictionary defining molecule-specific editable fields  
-    MOLECULE_FIELDS = {
-        'temp': {
-            'label': 'Temperature:',
-            'attribute': 'temp',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 300.0,
-            'width': 12
-        },
-        'radius': {
-            'label': 'Radius:',
-            'attribute': 'radius',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 1.0,
-            'width': 12
-        },
-        'n_mol': {
-            'label': 'Column Density:',
-            'attribute': 'n_mol',
-            'datatype': float,
-            'format': '{:.2e}',
-            'default': 1e15,
-            'width': 12
-        },
-        'stellar_rv': {
-            'label': 'Stellar RV:',
-            'attribute': 'stellar_rv',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.0,
-            'width': 12
-        },
-        'fwhm': {
-            'label': 'FWHM:',
-            'attribute': 'fwhm',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.1,
-            'width': 12
-        },
-        'broad': {
-            'label': 'Broadening:',
-            'attribute': 'broad',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.1,
-            'width': 12
-        }
-    }
-    
     def __init__(self, master, islat):
         self.master = master
         self.islat = islat
         self._debounce_after_id = None  # For debouncing updates
+        
+        # Load field configurations from JSON file using iSLAT file handling
+        self._load_field_configurations()
         
         # Get theme from islat
         self.theme = getattr(islat, 'config', {}).get('theme', {})
@@ -93,6 +33,18 @@ class ControlPanel:
         
         # Apply theming after everything is created
         self.frame.after(50, lambda: self.apply_theme(self.theme))
+
+    def _load_field_configurations(self):
+        """Load field configurations from JSON file using iSLAT file handling"""
+        try:
+            config = load_control_panel_fields_config()
+            self.GLOBAL_FIELDS = config.get('global_fields', {})
+            self.MOLECULE_FIELDS = config.get('molecule_fields', {})
+        except Exception as e:
+            print(f"Error loading control panel field configurations: {e}")
+            # Use fallback default configurations
+            self.GLOBAL_FIELDS = {}
+            self.MOLECULE_FIELDS = {}
 
     def _register_callbacks(self):
         """Register callbacks using the new iSLAT callback system"""
