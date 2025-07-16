@@ -18,27 +18,13 @@ class MoleculeDict(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
-        # Flux storage and caching
         self.fluxes: Dict[str, np.ndarray] = {}
-        self._summed_flux_cache: Dict[int, np.ndarray] = {}  # Use hash as key instead of tuple for efficiency
+        self._summed_flux_cache: Dict[int, np.ndarray] = {}
         self._cache_wave_data_hash: Optional[int] = None
         
-        # Fast lookup sets for optimized operations
         self._visible_molecules: set = set()
-        self._dirty_molecules: set = set()  # Track which molecules need recalculation
+        self._dirty_molecules: set = set()
         
-        # Parameter arrays for vectorized operations
-        self._parameter_arrays: Dict[str, np.ndarray] = {
-            'temp': np.array([]),
-            'radius': np.array([]),
-            'n_mol': np.array([]),
-            'distance': np.array([]),
-            'fwhm': np.array([]),
-            'intrinsic_line_width': np.array([])
-        }
-        self._molecule_names_array: np.ndarray = np.array([])
-        
-        # Global parameters that affect all molecules
         self._global_dist: float = default_parms.DEFAULT_DISTANCE
         self._global_star_rv: float = default_parms.DEFAULT_STELLAR_RV
         self._global_fwhm: float = default_parms.DEFAULT_FWHM
@@ -47,10 +33,8 @@ class MoleculeDict(dict):
         self._global_model_line_width: float = default_parms.MODEL_LINE_WIDTH
         self._global_model_pixel_res: float = default_parms.MODEL_PIXEL_RESOLUTION
         
-        # Callbacks to notify when global parameters change
         self._global_parameter_change_callbacks: List[Callable] = []
         
-        # Register to receive molecule parameter change notifications
         from .Molecule import Molecule
         Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
 
@@ -161,39 +145,38 @@ class MoleculeDict(dict):
         self._cache_wave_data_hash = wave_data_hash
     
     def get_summed_flux(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
-        """Get summed flux for all visible molecules with caching"""
-        
-        # Create cache key using hash for efficiency
         try:
             wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
             visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
-            
-            # Ensure all molecules are strings (hashable)
             visible_molecules = {str(name) for name in visible_molecules}
-            
             cache_key = hash((wave_data_hash, frozenset(visible_molecules)))
-        except (TypeError, ValueError) as e:
-            # If hashing fails, fall back to non-cached version
-            print(f"Warning: Cache key creation failed, using non-cached calculation: {e}")
-            return self.get_summed_flux_optimized(wave_data, visible_only)
+        except (TypeError, ValueError):
+            return self._calculate_summed_flux_uncached(wave_data, visible_only)
         
-        # Check cache
         if cache_key in self._summed_flux_cache:
             return self._summed_flux_cache[cache_key]
         
-        # Calculate summed flux
+        summed_flux = self._calculate_summed_flux_uncached(wave_data, visible_only)
+        
+        self._summed_flux_cache[cache_key] = summed_flux
+        if len(self._summed_flux_cache) > 50:
+            oldest_keys = list(self._summed_flux_cache.keys())[:10]
+            for key in oldest_keys:
+                del self._summed_flux_cache[key]
+        
+        return summed_flux
+    
+    def _calculate_summed_flux_uncached(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
         summed_flux = np.zeros_like(wave_data)
+        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
         
         for mol_name in visible_molecules:
             if mol_name in self:
                 molecule = self[mol_name]
-                # Ensure molecule has up-to-date plot data
                 molecule.prepare_plot_data(wave_data)
                 if hasattr(molecule, 'plot_flux'):
                     summed_flux += molecule.plot_flux
         
-        # Cache result
-        self._summed_flux_cache[cache_key] = summed_flux
         return summed_flux
     
     def get_summed_flux_optimized(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
@@ -287,68 +270,57 @@ class MoleculeDict(dict):
 
     # Enhanced bulk parameter update methods
     def bulk_update_parameter(self, parameter_name: str, value: Any, molecule_names: Optional[List[str]] = None) -> None:
-        """
-        Update a single parameter for multiple molecules efficiently.
-        
-        Args:
-            parameter_name: Name of the parameter to update
-            value: New value for the parameter
-            molecule_names: List of molecule names to update (None for all)
-        """
         if molecule_names is None:
             molecule_names = list(self.keys())
         
-        updated_molecules = []
+        affected_molecules = []
         
-        # Batch update with thread safety
         for mol_name in molecule_names:
             if mol_name in self:
                 molecule = self[mol_name]
                 old_value = getattr(molecule, parameter_name, None)
                 
-                # Update the parameter directly (bypassing setter to avoid individual cache invalidations)
                 if hasattr(molecule, f'_{parameter_name}'):
                     setattr(molecule, f'_{parameter_name}', float(value))
                 elif parameter_name == 'intrinsic_line_width':
-                    molecule.broad = float(value)
+                    molecule._broad = float(value)
                 elif parameter_name == 'stellar_rv':
-                    # stellar_rv is stored as an attribute but accessed via star_rv property
                     molecule.stellar_rv = float(value)
                 elif hasattr(molecule, parameter_name):
                     setattr(molecule, parameter_name, value)
                 
-                updated_molecules.append((molecule, parameter_name, old_value, value))
+                if old_value != value:
+                    molecule._invalidate_caches_for_parameter(parameter_name)
+                    affected_molecules.append(mol_name)
         
-        # Batch invalidation and notification
-        self._batch_invalidate_caches(updated_molecules, parameter_name)
+        if affected_molecules:
+            self._summed_flux_cache.clear()
+            for mol_name in affected_molecules:
+                self.fluxes.pop(mol_name, None)
         
-        print(f"Bulk updated {parameter_name} to {value} for {len(updated_molecules)} molecules")
+        print(f"Bulk updated {parameter_name} to {value} for {len(affected_molecules)} molecules")
     
     def bulk_update_parameters(self, parameter_dict: Dict[str, Any], molecule_names: Optional[List[str]] = None) -> None:
-        """
-        Update multiple parameters for multiple molecules efficiently.
-        
-        Args:
-            parameter_dict: Dictionary of parameter names and values
-            molecule_names: List of molecule names to update (None for all)
-        """
         if molecule_names is None:
             molecule_names = list(self.keys())
         
-        updated_molecules = []
+        affected_molecules = []
         
-        # Batch update with efficient parameter setting
         for mol_name in molecule_names:
             if mol_name in self:
                 molecule = self[mol_name]
+                old_params = {param: getattr(molecule, param, None) for param in parameter_dict.keys()}
                 molecule.bulk_update_parameters(parameter_dict, skip_notification=True)
-                updated_molecules.append(molecule)
+                
+                if any(old_params[param] != parameter_dict[param] for param in parameter_dict.keys()):
+                    affected_molecules.append(mol_name)
         
-        # Batch cache invalidation
-        if updated_molecules:
-            self._batch_invalidate_caches_multiple(updated_molecules, parameter_dict.keys())
+        if affected_molecules:
+            self._summed_flux_cache.clear()
+            for mol_name in affected_molecules:
+                self.fluxes.pop(mol_name, None)
         
-        print(f"Bulk updated {len(parameter_dict)} parameters for {len(updated_molecules)} molecules")
+        print(f"Bulk updated parameters for {len(affected_molecules)} molecules")
     
     def bulk_set_temperature(self, temperature: float, molecule_names: Optional[List[str]] = None) -> None:
         """Bulk update temperature for multiple molecules."""
@@ -466,20 +438,15 @@ class MoleculeDict(dict):
         self._cache_wave_data_hash = None
     
     def _on_molecule_parameter_changed(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
-        """Callback when any molecule parameter changes - invalidate summed flux cache"""
-        # Parameters that affect the summed flux calculation
-        flux_affecting_parameters = {'temp', 'radius', 'n_mol', 'distance', 'fwhm', 'intrinsic_line_width', 'broad', 'stellar_rv'}
-        
-        if parameter_name in flux_affecting_parameters:
-            # Clear summed flux cache since molecule flux has changed
-            self._summed_flux_cache.clear()
+        if old_value == new_value:
+            return
             
-            # Remove molecule from individual flux cache if it exists
-            if molecule_name in self.fluxes:
-                del self.fluxes[molecule_name]
-                
-            # Mark molecule as dirty for efficient tracking
-            self._dirty_molecules.add(molecule_name)
+        self._summed_flux_cache.clear()
+        
+        if molecule_name in self.fluxes:
+            del self.fluxes[molecule_name]
+            
+        self._dirty_molecules.add(molecule_name)
     
     def _batch_invalidate_caches_multiple(self, updated_molecules: List, parameter_names: List[str]) -> None:
         """

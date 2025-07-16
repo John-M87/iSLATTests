@@ -7,7 +7,6 @@ class ControlPanel:
     def __init__(self, master, islat):
         self.master = master
         self.islat = islat
-        self._debounce_after_id = None  # For debouncing updates
         
         # Load field configurations from JSON file using iSLAT file handling
         self._load_field_configurations()
@@ -28,7 +27,6 @@ class ControlPanel:
         # Initialize all UI components
         self._create_all_components()
         
-        # Register for change notifications using the new callback system
         self._register_callbacks()
         
         # Apply theming after everything is created
@@ -47,17 +45,14 @@ class ControlPanel:
             self.MOLECULE_FIELDS = {}
 
     def _register_callbacks(self):
-        """Register callbacks using the new iSLAT callback system"""
+        """Register callbacks for UI synchronization only"""
         try:
-            # Register for active molecule changes using the iSLAT callback system
             if hasattr(self.islat, 'add_active_molecule_change_callback'):
                 self.islat.add_active_molecule_change_callback(self._on_active_molecule_change)
             
-            # Register for global parameter changes if molecules_dict is available
             if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
                 self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
             
-            # Register for individual molecule parameter changes
             Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
             
         except Exception as e:
@@ -80,79 +75,13 @@ class ControlPanel:
             # Update dropdown without triggering callback
             self.molecule_var.set(display_label)
         
-        # Update molecule-specific parameter fields
         self._update_molecule_parameter_fields()
-        
-        # Trigger population diagram update for the new molecule
-        self._trigger_population_diagram_update()
 
     def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
-        """Handle individual molecule parameter changes"""
-        # Force cache invalidation for molecule flux calculations
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            # Clear summed flux cache since individual molecule changed
-            self.islat.molecules_dict._summed_flux_cache.clear()
-            # Clear individual molecule flux cache
-            if molecule_name in self.islat.molecules_dict.fluxes:
-                del self.islat.molecules_dict.fluxes[molecule_name]
-        
-        # Use the iSLAT update coordinator for efficient updates
-        if hasattr(self.islat, 'request_update'):
-            # Request updates for model spectrum and all plots
-            self.islat.request_update('model_spectrum')
-            self.islat.request_update('plots')
-            self.islat.request_update('population_diagram')
-        else:
-            # Fallback for direct updates - update all three plots
-            plot_obj = self._get_plot_object()
-            if plot_obj:
-                # Update model spectrum first
-                if hasattr(self.islat, 'update_model_spectrum'):
-                    self.islat.update_model_spectrum()
-                
-                # Update all plots including population diagram
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
-                
-                # Explicitly trigger population diagram update
-                if hasattr(plot_obj, 'on_active_molecule_changed'):
-                    plot_obj.on_active_molecule_changed()
-            
-            # Also trigger population diagram update
-            self._trigger_population_diagram_update()
+        pass
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
-        """Handle global parameter changes from MoleculeDict"""
-        # Force cache invalidation for all molecule flux calculations
-        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-            # Clear all flux caches since global parameter affects all molecules
-            self.islat.molecules_dict._summed_flux_cache.clear()
-            self.islat.molecules_dict.fluxes.clear()
-        
-        # Use the iSLAT update coordinator for efficient updates
-        if hasattr(self.islat, 'request_update'):
-            # Request updates for model spectrum and all plots
-            self.islat.request_update('model_spectrum')
-            self.islat.request_update('plots')
-            self.islat.request_update('population_diagram')
-        else:
-            # Fallback to direct update - update all three plots
-            plot_obj = self._get_plot_object()
-            if plot_obj:
-                # Update model spectrum first
-                if hasattr(self.islat, 'update_model_spectrum'):
-                    self.islat.update_model_spectrum()
-                
-                # Update all plots including population diagram
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
-                
-                # Explicitly trigger population diagram update
-                if hasattr(plot_obj, 'on_active_molecule_changed'):
-                    plot_obj.on_active_molecule_changed()
-            
-            # Also trigger population diagram update for the active molecule
-            self._trigger_population_diagram_update()
+        pass
 
     def _create_all_components(self):
         """Create all control panel components in order"""
@@ -161,21 +90,7 @@ class ControlPanel:
         self._create_global_parameter_controls(2, 0)  # Only distance now
         self._create_molecule_specific_controls(3, 0)  # All other params here
         self._create_molecule_selector(9, 0)  # Move down to accommodate molecule params
-        self.reload_molecule_dropdown()
-
-    def _debounced_update(self, callback):
-        """Debounce updates to prevent excessive calls using iSLAT's update coordinator"""
-        if self._debounce_after_id:
-            self.master.after_cancel(self._debounce_after_id)
-        
-        def execute_update():
-            callback()
-            # Use iSLAT's update coordinator for plot updates
-            if hasattr(self.islat, 'request_update'):
-                self.islat.request_update('model_spectrum')
-                self.islat.request_update('plots')
-        
-        self._debounce_after_id = self.master.after(100, execute_update)
+        self._reload_molecule_dropdown()
 
     def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
         """Create a simple entry field with label and change callback"""
@@ -204,7 +119,7 @@ class ControlPanel:
         )
         
         def on_change(*args):
-            self._debounced_update(lambda: on_change_callback(var.get()))
+            on_change_callback(var.get())
         
         var.trace_add("write", on_change)
         return entry, var
@@ -221,9 +136,8 @@ class ControlPanel:
             try:
                 value = float(value_str)
                 old_value = getattr(molecules_dict, param_name)
-                if abs(old_value - value) > 1e-10:  # Only update if actually different
+                if abs(old_value - value) > 1e-10:
                     setattr(molecules_dict, param_name, value)
-                    # The global parameter change callback will handle updates automatically
             except (ValueError, AttributeError):
                 pass
         
@@ -296,7 +210,6 @@ class ControlPanel:
         """Create an entry bound to a global parameter in molecules_dict"""
         
         def update_global_parameter(value_str):
-            # Skip updates for special cases
             if value_str in ["N/A", ""]:
                 return
                 
@@ -306,26 +219,20 @@ class ControlPanel:
             molecules_dict = self.islat.molecules_dict
             
             try:
-                # Get field configuration for proper data type handling
                 field_config = None
                 for field_key, config in self.GLOBAL_FIELDS.items():
                     if config['property'] == property_name:
                         field_config = config
                         break
                 
-                # Convert value based on field configuration
                 if field_config:
                     value = field_config['datatype'](value_str)
                 else:
-                    # Fallback for unknown parameters
                     value = float(value_str)
                     
-                # Get old value for comparison
                 old_value = getattr(molecules_dict, property_name, None)
                 
-                # Only update if the value actually changed
                 if field_config and field_config['datatype'] == float:
-                    # Convert old_value to float for proper comparison
                     try:
                         old_float_value = float(old_value) if old_value is not None else None
                     except (ValueError, TypeError):
@@ -333,7 +240,6 @@ class ControlPanel:
                     
                     if old_float_value is None or abs(old_float_value - value) > 1e-10:
                         setattr(molecules_dict, property_name, value)
-                        # The property setter will automatically trigger plot updates
                 else:
                     if old_value != value:
                         setattr(molecules_dict, property_name, value)
@@ -425,7 +331,6 @@ class ControlPanel:
                     
                     if old_float_value is None or abs(old_float_value - value) > 1e-10:
                         setattr(active_mol, param_name, value)
-                        # Note: Hash change will automatically trigger plot updates
                 else:
                     if old_value != value:
                         setattr(active_mol, param_name, value)
@@ -578,21 +483,8 @@ class ControlPanel:
             pass
 
     def _set_display_range(self, start, end):
-        """Set the display range and update plots using iSLAT's update system"""
         if hasattr(self.islat, 'display_range'):
             self.islat.display_range = (start, end)
-        
-        # Use iSLAT's update coordinator for consistent updates
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('plots')
-        else:
-            # Fallback to direct update
-            plot_obj = self._get_plot_object()
-            if plot_obj:
-                if hasattr(plot_obj, 'match_display_range'):
-                    plot_obj.match_display_range()
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
 
     def _update_wavelength_range(self, value_str=None):
         """Update wavelength range for model calculations (not display)"""
@@ -606,15 +498,13 @@ class ControlPanel:
             if min_val < max_val:
                 molecules_dict = self.islat.molecules_dict
                 molecules_dict.global_wavelength_range = (min_val, max_val)
-                # Update the iSLAT wavelength range if it exists
                 if hasattr(self.islat, 'wavelength_range'):
                     self.islat.wavelength_range = (min_val, max_val)
-                # The global parameter change callback will handle updates automatically
         except (ValueError, AttributeError):
             pass
 
     def _update_molecule_parameter(self, value_str=None):
-        """Update molecule-specific parameters for the active molecule"""
+        """Update molecule-specific parameter UI fields for the active molecule"""
         if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
             return
             
@@ -629,35 +519,30 @@ class ControlPanel:
             if not molecule_obj:
                 return
             
-            # Update each molecule-specific parameter
+            # Update each molecule-specific parameter UI field
             for param_name, (entry, var) in self._molecule_parameter_entries.items():
                 if hasattr(molecule_obj, param_name):
                     value = getattr(molecule_obj, param_name)
                     var.set(str(value))
         
         except Exception as e:
-            print(f"Error updating molecule parameters: {e}")
+            print(f"Error updating molecule parameter UI fields: {e}")
 
     def _on_molecule_selected(self, event=None):
         """Handle molecule selection - uses iSLAT's active_molecule property"""
         selected_label = self.molecule_var.get()
         
-        # Use iSLAT's active_molecule setter which will trigger callbacks automatically
         try:
             if selected_label in ["SUM", "ALL"]:
-                # For special cases, set directly (iSLAT handles these)
                 self.islat.active_molecule = selected_label
-                # Clear molecule-specific fields for special cases
                 self._clear_molecule_parameter_fields()
             elif hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-                # Find molecule by display label
                 for mol_name, mol_obj in self.islat.molecules_dict.items():
                     display_label = getattr(mol_obj, 'displaylabel', mol_name)
                     if display_label == selected_label:
-                        self.islat.active_molecule = mol_name  # This will trigger callbacks
+                        self.islat.active_molecule = mol_name
                         return
                 
-                # Fallback if molecule not found
                 first_mol = next(iter(self.islat.molecules_dict.keys()), None)
                 if first_mol:
                     self.islat.active_molecule = first_mol
@@ -684,31 +569,6 @@ class ControlPanel:
         if current_value not in options and options:
             self.molecule_var.set(options[0])
             self._on_molecule_selected()
-
-    def _get_plot_object(self):
-        """Get the plot object for updates"""
-        for attr_path in ['GUI.plot', 'main_plot', 'plot']:
-            obj = self.islat
-            for part in attr_path.split('.'):
-                if hasattr(obj, part):
-                    obj = getattr(obj, part)
-                else:
-                    obj = None
-                    break
-            if obj:
-                return obj
-        return None
-
-    def _trigger_population_diagram_update(self):
-        """Trigger an explicit population diagram update"""
-        plot_obj = self._get_plot_object()
-        if plot_obj and hasattr(plot_obj, 'update_population_diagram'):
-            print("Hey!!!!")
-            # Invalidate cache before updating to ensure re-render
-            if hasattr(plot_obj, 'plot_renderer') and hasattr(plot_obj.plot_renderer, 'invalidate_population_diagram_cache'):
-                plot_obj.plot_renderer.invalidate_population_diagram_cache()
-            # Always call update_population_diagram - it will handle invalid cases internally
-            plot_obj.update_population_diagram()
 
     def refresh_from_molecules_dict(self):
         """Refresh all fields from current molecules_dict values"""
@@ -738,32 +598,10 @@ class ControlPanel:
         
         self._reload_molecule_dropdown()
         
-        # Ensure theming is applied after refresh
         self.apply_theme()
 
-    # Public interface methods for backward compatibility
-    def reload_molecule_dropdown(self):
-        """Public method for reloading molecule dropdown"""
-        self._reload_molecule_dropdown()
-        # Update molecule parameter fields after reloading
-        self._update_molecule_parameter_fields()
-        # Ensure theming is applied after reload
-        self.apply_theme()
-
-    def update_plots(self):
-        """Public method for triggering plot updates using iSLAT's update coordinator"""
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('plots')
-        else:
-            # Fallback to direct update
-            plot_obj = self._get_plot_object()
-            if plot_obj and hasattr(plot_obj, 'update_all_plots'):
-                plot_obj.update_all_plots()
-    
     def cleanup(self):
-        """Clean up callbacks when control panel is destroyed"""
         try:
-            # Remove callbacks to prevent memory leaks
             if hasattr(self.islat, 'remove_active_molecule_change_callback'):
                 self.islat.remove_active_molecule_change_callback(self._on_active_molecule_change)
         except Exception as e:
@@ -810,7 +648,6 @@ class ControlPanel:
             
         for param_name, (entry, var) in self._molecule_parameter_entries.items():
             new_value = self._get_active_molecule_parameter_value(param_name)
-            # Only update if the value actually changed to avoid triggering callbacks
             current_value = var.get()
             if current_value != new_value:
                 var.set(new_value)
@@ -826,7 +663,6 @@ class ControlPanel:
         for property_name, (entry, var) in self._global_parameter_entries.items():
             try:
                 new_value = getattr(self.islat.molecules_dict, property_name, 0.0)
-                # Only update if the value actually changed to avoid triggering callbacks
                 current_value = var.get()
                 if str(current_value) != str(new_value):
                     var.set(str(new_value))

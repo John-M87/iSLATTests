@@ -40,58 +40,48 @@ class PlotRenderer:
         self.islat = plot_manager.islat
         self.theme: Dict[str, Any] = plot_manager.theme
         
-        # Plot references
         self.fig = plot_manager.fig
-        self.ax1 = plot_manager.ax1  # Main spectrum plot
-        self.ax2 = plot_manager.ax2  # Line inspection plot
-        self.ax3 = plot_manager.ax3  # Population diagram
+        self.ax1 = plot_manager.ax1
+        self.ax2 = plot_manager.ax2
+        self.ax3 = plot_manager.ax3
         self.canvas = plot_manager.canvas
         
-        # Visual state
         self.model_lines: List[Line2D] = []
         self.active_lines: List[Line2D] = []
         
-        # Enhanced caching system that leverages molecule-level caching
-        self._plot_cache: Dict[str, Any] = {
-            # Population diagram cache
-            'population_diagram': {
-                'molecule_id': None,
-                'molecule_param_hash': None,
-                'wave_range': None
-            },
-            # Spectrum plot cache tracking
-            'spectrum_plots': {},  # molecule_name -> last_param_hash
-            # Cache statistics
+        self._plot_cache = {
+            'population_diagram': {'molecule_id': None, 'param_hash': None, 'wave_range': None},
+            'spectrum_plots': {},
             'cache_hits': 0,
             'cache_misses': 0
         }
         
-        # Register for molecule parameter change notifications if available
         self._setup_molecule_change_callbacks()
         
     def _setup_molecule_change_callbacks(self) -> None:
-        """Setup callbacks to automatically invalidate caches when molecule parameters change"""
         try:
-            # Check if Molecule class supports parameter change callbacks
             from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
             if hasattr(Molecule, 'add_molecule_parameter_change_callback'):
                 Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
-                print("Registered for molecule parameter change notifications")
         except Exception as e:
             print(f"Could not register for molecule parameter changes: {e}")
     
     def _on_molecule_parameter_changed(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
         """Callback when a molecule parameter changes - invalidate relevant caches"""
         try:
-            # Invalidate spectrum plot cache for this molecule
-            self.invalidate_molecule_plot_cache(molecule_name)
-            
-            # Invalidate population diagram cache if it's for this molecule
+            if old_value == new_value:
+                return
+                
+            # Invalidate spectrum cache for this molecule
+            if molecule_name in self._plot_cache['spectrum_plots']:
+                del self._plot_cache['spectrum_plots'][molecule_name]
+                
+            # Invalidate population diagram if it's for this molecule
             pop_cache = self._plot_cache['population_diagram']
             if pop_cache['molecule_id'] == molecule_name:
-                self.invalidate_population_diagram_cache()
-            
-            print(f"Cache invalidated for molecule {molecule_name} due to {parameter_name} change")
+                pop_cache['molecule_id'] = None
+                pop_cache['param_hash'] = None
+                
         except Exception as e:
             print(f"Error handling molecule parameter change: {e}")
     
@@ -105,19 +95,13 @@ class PlotRenderer:
             pass
     
     def clear_all_plots(self) -> None:
-        """Clear all plots and reset visual state"""
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
         self.model_lines.clear()
         self.active_lines.clear()
-        # Clear enhanced plot cache
         self._plot_cache = {
-            'population_diagram': {
-                'molecule_id': None,
-                'molecule_param_hash': None,
-                'wave_range': None
-            },
+            'population_diagram': {'molecule_id': None, 'param_hash': None, 'wave_range': None},
             'spectrum_plots': {},
             'cache_hits': self._plot_cache.get('cache_hits', 0),
             'cache_misses': self._plot_cache.get('cache_misses', 0)
@@ -243,140 +227,67 @@ class PlotRenderer:
                 self.ax2.legend()
     
     def _get_molecule_parameters_hash(self, molecule: 'Molecule') -> Optional[int]:
-        """
-        Get molecule parameter hash leveraging the molecule's built-in caching system.
-        This uses the molecule's existing parameter hash when available.
-        """
         if molecule is None:
             return None
         
         try:
-            # Method 1: Use molecule's built-in parameter hash if available
-            if hasattr(molecule, '_parameter_hash') and molecule._parameter_hash is not None:
-                # The molecule already tracks its own parameter changes
-                return molecule._parameter_hash
-            
-            # Method 2: Use molecule's parameter hash calculation method if available
-            if hasattr(molecule, '_get_current_parameter_hash'):
-                return molecule._get_current_parameter_hash()
-            
-            # Method 3: Fallback to manual hash calculation (existing logic)
-            params = []
-            
-            # Basic molecule properties
-            mol_name = getattr(molecule, 'name', getattr(molecule, 'displaylabel', 'unknown'))
-            params.append(mol_name)
-            
-            # Physical parameters from intensity calculation
-            if hasattr(molecule, 'intensity') and molecule.intensity is not None:
-                intensity_obj = molecule.intensity
-                intensity_params = [
-                    getattr(intensity_obj, 't_kin', None),
-                    getattr(intensity_obj, 'n_mol', None), 
-                    getattr(intensity_obj, 'dv', None)
-                ]
-                params.extend(intensity_params)
-                
-                # Also check if intensity has been calculated (tau and intensity arrays)
-                has_calculated_intensity = (
-                    hasattr(intensity_obj, 'tau') and 
-                    intensity_obj.tau is not None and
-                    hasattr(intensity_obj, 'intensity') and 
-                    intensity_obj.intensity is not None
-                )
-                params.append(has_calculated_intensity)
+            if hasattr(molecule, 'get_parameter_hash'):
+                return molecule.get_parameter_hash('full')
+            elif hasattr(molecule, '_compute_full_parameter_hash'):
+                return molecule._compute_full_parameter_hash()
             else:
-                params.extend([None, None, None, False])
-            
-            # Geometric parameters using property access
-            params.extend([
-                getattr(molecule, 'temp', None),
-                getattr(molecule, 'radius', None),
-                getattr(molecule, 'distance', None),
-                getattr(molecule, 'stellar_rv', None),
-                getattr(molecule, 'broad', None)
-            ])
-            
-            # Convert to string and hash
-            param_str = str(tuple(params))
-            return hash(param_str)
-        except Exception as e:
-            print(f"Error generating parameter hash: {e}")
-            # If hashing fails, return None to force re-render
+                return hash((molecule.name, molecule.temp, molecule.radius, molecule.n_mol, 
+                           molecule.distance, molecule.fwhm, molecule.broad))
+        except Exception:
             return None
     
     def invalidate_population_diagram_cache(self) -> None:
-        """Force the population diagram to re-render on next call"""
-        self._plot_cache['population_diagram'] = {
-            'molecule_id': None,
-            'molecule_param_hash': None, 
-            'wave_range': None
-        }
-    
-    def invalidate_molecule_plot_cache(self, molecule_name: str) -> None:
-        """Invalidate plot cache for a specific molecule"""
-        if molecule_name in self._plot_cache['spectrum_plots']:
-            del self._plot_cache['spectrum_plots'][molecule_name]
+        self._plot_cache['population_diagram'] = {'molecule_id': None, 'param_hash': None, 'wave_range': None}
     
     def render_population_diagram(self, molecule: 'Molecule', wave_range: Optional[Tuple[float, float]] = None) -> None:
-        """
-        Render the population diagram leveraging molecule's internal caching system.
-        Uses intelligent cache validation based on molecule's parameter tracking.
-        """
-        # Get molecule identification and parameter hash
         molecule_id = getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
         molecule_param_hash = self._get_molecule_parameters_hash(molecule)
         
-        # Check cache to avoid unnecessary re-rendering
         cache = self._plot_cache['population_diagram']
         cache_hit = (cache['molecule_id'] == molecule_id and 
-                    cache['molecule_param_hash'] == molecule_param_hash and 
+                    cache['param_hash'] == molecule_param_hash and 
                     cache['wave_range'] == wave_range and
                     molecule_id is not None and
                     molecule_param_hash is not None)
         
         if cache_hit:
-            # Cache hit - skip re-rendering
             self._plot_cache['cache_hits'] += 1
-            print(f"Population diagram cache hit for {molecule_id} - skipping render")
             return
         
-        # Cache miss - need to render
         self._plot_cache['cache_misses'] += 1
         
-        # Update cache
         cache['molecule_id'] = molecule_id
-        cache['molecule_param_hash'] = molecule_param_hash
+        cache['param_hash'] = molecule_param_hash
         cache['wave_range'] = wave_range
         
         self.ax3.clear()
-        print(f"Rendering population diagram for {molecule_id} (cache miss)")
         
         if molecule is None:
             self.ax3.set_title("No molecule selected")
             return
             
         try:
-            # Get the intensity table using optimized access
             int_pars = self.get_intensity_table_efficiently(molecule)
             if int_pars is None:
                 self.ax3.set_title(f"{getattr(molecule, 'displaylabel', 'Molecule')} - No intensity data")
                 return
 
-            # Extract components for population diagram
             wavelength = int_pars['lam']
             intens_mod = int_pars['intens']
             Astein_mod = int_pars['a_stein']
             gu = int_pars['g_up']
             eu = int_pars['e_up']
 
-            # Calculating the y-axis for the population diagram
-            # Get molecule radius and distance safely using property access
-            radius = getattr(molecule, 'radius', 1.0)  # Default to 1.0 AU if not available
-            distance = getattr(molecule, 'distance', getattr(self.islat, 'global_dist', 140.0))  # Default distance
+            radius = getattr(molecule, 'radius', 1.0)
+            distance = getattr(molecule, 'distance', getattr(self.islat, 'global_dist', 140.0))
             
-            area = np.pi * (radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2  # In cm^2
-            dist = distance * c.PARSEC_CM  # In cm
+            area = np.pi * (radius * c.ASTRONOMICAL_UNIT_M * 1e2) ** 2
+            dist = distance * c.PARSEC_CM
             beam_s = area / dist ** 2
             F = intens_mod * beam_s
             frequency = c.SPEED_OF_LIGHT_MICRONS / wavelength
@@ -834,43 +745,22 @@ class PlotRenderer:
     
     def get_molecule_spectrum_efficiently(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Get molecule spectrum data leveraging molecule's internal caching system.
+        Get molecule spectrum data efficiently using the molecule's internal caching system.
         
-        This method uses the molecule's built-in flux caching and 
-        spectrum validation to avoid redundant calculations.
-        
-        Parameters
-        ----------
-        molecule : Molecule
-            Molecule object with internal caching
-        wave_data : np.ndarray
-            Wavelength array for interpolation
-            
-        Returns
-        -------
-        Tuple[Optional[np.ndarray], Optional[np.ndarray]]
-            (wavelength, flux) arrays or (None, None) if no data
+        This method leverages the molecule's optimized caching to avoid redundant calculations.
         """
         try:
             molecule_name = getattr(molecule, 'name', 'unknown')
-            current_param_hash = self._get_molecule_parameters_hash(molecule)
             
-            # Check if we've already plotted this molecule with these parameters
-            cached_hash = self._plot_cache['spectrum_plots'].get(molecule_name)
-            if cached_hash == current_param_hash:
-                # Parameters haven't changed, try to use molecule's cached data
-                self._plot_cache['cache_hits'] += 1
-            else:
-                # Parameters changed or first time plotting
-                self._plot_cache['cache_misses'] += 1
-                self._plot_cache['spectrum_plots'][molecule_name] = current_param_hash
-            
-            # Method 1: Use molecule's optimized prepare_plot_data (leverages all internal caching)
+            # Method 1: Use molecule's prepare_plot_data method (preferred)
             if hasattr(molecule, 'prepare_plot_data') and callable(molecule.prepare_plot_data):
                 try:
-                    plot_data = molecule.prepare_plot_data(wave_data)
-                    if plot_data and len(plot_data) >= 2:
-                        return plot_data[0], plot_data[1]  # (lam, flux)
+                    result = molecule.prepare_plot_data(wave_data)
+                    if result is not None and len(result) == 2:
+                        return result[0], result[1]  # (lam, flux)
+                    elif hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
+                        if molecule.plot_lam is not None and molecule.plot_flux is not None:
+                            return molecule.plot_lam, molecule.plot_flux
                 except Exception as e:
                     print(f"Error in prepare_plot_data for {molecule_name}: {e}")
             
@@ -879,44 +769,22 @@ class PlotRenderer:
                 try:
                     flux = molecule.get_flux(wave_data)
                     if flux is not None and len(flux) > 0:
-                        return wave_data, flux
+                        return wave_data.copy(), flux
                 except Exception as e:
                     print(f"Error in get_flux for {molecule_name}: {e}")
             
-            # Method 3: Use cached plot data if available and valid
-            if hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
-                if molecule.plot_lam is not None and molecule.plot_flux is not None:
-                    # Check if the cached data matches our wavelength grid
-                    if len(molecule.plot_lam) == len(wave_data) and np.allclose(molecule.plot_lam, wave_data, rtol=1e-10):
-                        return molecule.plot_lam, molecule.plot_flux
-            
-            # Method 4: Use spectrum object directly if molecule's internal methods fail
+            # Method 3: Use spectrum object directly if molecule's internal methods fail
             if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
                 spectrum = molecule.spectrum
                 if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
                     lam = spectrum.lamgrid
-                    flux = spectrum.flux_jy
+                    flux = spectrum.flux_jy  # Use Jy units for consistency
                     if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
                         # Interpolate to requested wavelength grid
                         interpolated_flux = np.interp(wave_data, lam, flux, left=0, right=0)
-                        return wave_data, interpolated_flux
+                        return wave_data.copy(), interpolated_flux
             
-            # Method 5: Try to force spectrum calculation if needed
-            if hasattr(molecule, '_ensure_spectrum_valid'):
-                try:
-                    molecule._ensure_spectrum_valid()
-                    # Retry spectrum access after ensuring validity
-                    if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
-                        spectrum = molecule.spectrum
-                        if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
-                            lam = spectrum.lamgrid
-                            flux = spectrum.flux_jy
-                            if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
-                                interpolated_flux = np.interp(wave_data, lam, flux, left=0, right=0)
-                                return wave_data, interpolated_flux
-                except Exception as e:
-                    print(f"Error ensuring spectrum validity for {molecule_name}: {e}")
-                        
+            print(f"No valid spectrum data found for molecule {molecule_name}")
             return None, None
             
         except Exception as e:
@@ -1122,76 +990,36 @@ class PlotRenderer:
             return None
         
     def validate_cache_coherence(self, molecule: 'Molecule') -> bool:
-        """
-        Validate that our cache is coherent with the molecule's internal state.
-        
-        This method checks if the molecule's internal caches and our plot caches
-        are synchronized, helping to detect when we need to invalidate our caches.
-        
-        Parameters
-        ----------
-        molecule : Molecule
-            The molecule to validate against
-            
-        Returns
-        -------
-        bool
-            True if caches are coherent, False if invalidation is needed
-        """
         try:
             if molecule is None:
                 return True
                 
             molecule_name = getattr(molecule, 'name', 'unknown')
             
-            # Check if molecule has internal cache invalidation flags
-            if hasattr(molecule, '_spectrum_valid') and not molecule._spectrum_valid:
-                # Molecule knows its spectrum is invalid, invalidate our cache
-                self.invalidate_molecule_plot_cache(molecule_name)
-                return False
-                
-            if hasattr(molecule, '_intensity_valid') and not molecule._intensity_valid:
-                # Molecule knows its intensity is invalid, invalidate our cache
-                self.invalidate_molecule_plot_cache(molecule_name)
+            if hasattr(molecule, 'is_cache_valid') and not molecule.is_cache_valid('spectrum'):
+                if molecule_name in self._plot_cache['spectrum_plots']:
+                    del self._plot_cache['spectrum_plots'][molecule_name]
                 return False
             
-            # Check if molecule's parameter hash has changed
-            current_hash = self._get_molecule_parameters_hash(molecule)
-            cached_hash = self._plot_cache['spectrum_plots'].get(molecule_name)
-            
-            if cached_hash is not None and current_hash != cached_hash:
-                # Parameter hash mismatch, need to invalidate
-                return False
-                
             return True
-            
         except Exception as e:
             print(f"Error validating cache coherence: {e}")
             return False
     
     def sync_with_molecule_cache(self, molecule: 'Molecule') -> None:
-        """
-        Synchronize our caching state with the molecule's internal caching state.
-        
-        This method ensures that our plot caches reflect the current state of
-        the molecule's internal calculations and caches.
-        """
         try:
             if molecule is None:
                 return
                 
             molecule_name = getattr(molecule, 'name', 'unknown')
             
-            # Update our cache tracking based on molecule state
             if not self.validate_cache_coherence(molecule):
-                # Cache is out of sync, update our tracking
                 current_hash = self._get_molecule_parameters_hash(molecule)
                 self._plot_cache['spectrum_plots'][molecule_name] = current_hash
                 
-                # If this is the active molecule in population diagram, invalidate that too
                 pop_cache = self._plot_cache['population_diagram']
                 if pop_cache['molecule_id'] == molecule_name:
-                    pop_cache['molecule_param_hash'] = current_hash
+                    pop_cache['param_hash'] = current_hash
                 
         except Exception as e:
             print(f"Error syncing with molecule cache: {e}")
