@@ -461,13 +461,13 @@ class GUI:
         # Additional delayed update to catch any widgets created asynchronously
         self.window.after(500, self._force_theme_update)
 
-        def start(self):
-            self.create_window()
+    def start(self):
+        self.create_window()
         
         # Set up cleanup on window close
         def on_closing():
             self.window.destroy()
-        
+    
         self.window.protocol("WM_DELETE_WINDOW", on_closing)
 
         # Check config for start-on-top behavior
