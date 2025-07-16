@@ -15,5 +15,9 @@
     "zorder_observed": 3,
     "zorder_model": 2,
     "zorder_summed": 1,
+<<<<<<< Updated upstream:iSLAT/CONFIG/UserSettings.json
+=======
+    "start_on_top": true,
+>>>>>>> Stashed changes:iSLAT/DATAFILES/CONFIG/UserSettings.json
     "theme": "LightTheme"
 }
