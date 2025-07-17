@@ -54,7 +54,7 @@ class iSLATPlot:
         self.ax3.set_title(f"{self.islat.active_molecule.displaylabel} Population diagram")
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent_frame)
-        self.toolbar = NavigationToolbar2Tk(self.canvas, parent_frame)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, window = parent_frame)
         
         # Apply theme to matplotlib figure and toolbar
         self._apply_plot_theming()

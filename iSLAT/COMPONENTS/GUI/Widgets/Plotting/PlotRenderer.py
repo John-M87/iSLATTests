@@ -891,7 +891,7 @@ class PlotRenderer:
                 linestyle='--',
                 color=color,
                 alpha=0.7,
-                linewidth=1,
+                linewidth=self.theme.get("model_plot_line_width", 1.5),
                 label=label,
                 zorder=self.theme.get("zorder_model", 2)
             )
