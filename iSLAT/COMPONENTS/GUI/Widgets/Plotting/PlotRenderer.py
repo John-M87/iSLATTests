@@ -393,37 +393,99 @@ class PlotRenderer:
     
     def get_visible_molecules_efficiently(self, molecules: Union['MoleculeDict', List['Molecule']]) -> List['Molecule']:
         """Get visible molecules using the most efficient method available"""
+        
+        print(f"PlotRenderer: molecules type = {type(molecules)}")
+        print(f"PlotRenderer: hasattr(molecules, 'get_visible_molecules_fast') = {hasattr(molecules, 'get_visible_molecules_fast')}")
+        print(f"PlotRenderer: hasattr(molecules, 'values') = {hasattr(molecules, 'values')}")
+        print(f"PlotRenderer: hasattr(molecules, '__iter__') = {hasattr(molecules, '__iter__')}")
+        
         if hasattr(molecules, 'get_visible_molecules_fast'):
             # MoleculeDict with fast access
             visible_names = molecules.get_visible_molecules_fast()
-            return [molecules[name] for name in visible_names if name in molecules]
+            visible_molecules = [molecules[name] for name in visible_names if name in molecules]
+            print(f"PlotRenderer: get_visible_molecules_fast(): {len(visible_molecules)}/{len(molecules)} molecules visible: {visible_names}")
+            return visible_molecules
         elif hasattr(molecules, 'values'):
-            # Regular dict-like object
-            return [mol for mol in molecules.values() if getattr(mol, 'is_visible', False)]
+            # Regular dict-like object - check each molecule's is_visible attribute
+            print("PlotRenderer: Using values() path for dict-like object")
+            visible_molecules = []
+            for mol in molecules.values():
+                is_visible_raw = getattr(mol, 'is_visible', False)
+                mol_name = getattr(mol, 'name', 'unknown')
+                
+                # Convert string boolean to actual boolean
+                if isinstance(is_visible_raw, str):
+                    is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
+                else:
+                    is_visible = bool(is_visible_raw)
+                    
+                print(f"PlotRenderer: Checking {mol_name}: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible}")
+                if is_visible:
+                    visible_molecules.append(mol)
+            print(f"PlotRenderer: values() path result: {len(visible_molecules)}/{len(molecules)} molecules visible")
+            return visible_molecules
         elif hasattr(molecules, '__iter__'):
             # List-like object
-            return [mol for mol in molecules if getattr(mol, 'is_visible', False)]
+            print("PlotRenderer: Using __iter__ path for list-like object")
+            visible_molecules = []
+            total_count = 0
+            for mol in molecules:
+                total_count += 1
+                is_visible_raw = getattr(mol, 'is_visible', False)
+                mol_name = getattr(mol, 'name', 'unknown')
+                mol_id = id(mol)
+                
+                # Convert string boolean to actual boolean
+                if isinstance(is_visible_raw, str):
+                    is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
+                else:
+                    is_visible = bool(is_visible_raw)
+                
+                print(f"PlotRenderer: Checking {mol_name} (id:{mol_id}): is_visible_raw = {is_visible_raw} (type: {type(is_visible_raw)}) -> is_visible = {is_visible}")
+                
+                if is_visible:
+                    visible_molecules.append(mol)
+                    print(f"PlotRenderer: ADDED {mol_name} to visible_molecules list (list length now: {len(visible_molecules)})")
+                else:
+                    print(f"PlotRenderer: SKIPPED {mol_name} (not visible)")
+                
+            print(f"PlotRenderer: Final visible_molecules list length: {len(visible_molecules)}")
+            print(f"PlotRenderer: __iter__ path result: {len(visible_molecules)}/{total_count} molecules visible")
+            return visible_molecules
         else:
             # Single molecule
-            return [molecules] if getattr(molecules, 'is_visible', False) else []
+            is_visible_raw = getattr(molecules, 'is_visible', False)
+            
+            # Convert string boolean to actual boolean
+            if isinstance(is_visible_raw, str):
+                is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
+            else:
+                is_visible = bool(is_visible_raw)
+                
+            result = [molecules] if is_visible else []
+            print(f"PlotRenderer: Single molecule visibility: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible} -> {'visible' if is_visible else 'hidden'}")
+            return result
     
     def render_molecules_efficiently(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
         """Render molecules using available methods"""
         if not molecules:
             return
         
+        print(f"PlotRenderer: render_molecules_efficiently called with {len(molecules) if hasattr(molecules, '__len__') else 'unknown count'} molecules")
+        
         # Get visible molecules
         visible_molecules = self.get_visible_molecules_efficiently(molecules)
         if not visible_molecules:
+            print("PlotRenderer: No visible molecules, returning early")
             return
         
-        # Use rendering for each molecule
-        molecules_plotted = 0
-        for mol in visible_molecules:
-            if self.render_molecule_spectrum_optimized(mol, wave_data):
-                molecules_plotted += 1
+        print(f"PlotRenderer: About to render {len(visible_molecules)} visible molecules: {[getattr(m, 'name', 'unknown') for m in visible_molecules]}")
         
-        print(f"Successfully plotted {molecules_plotted}/{len(visible_molecules)} molecules")
+        # Use rendering for each molecule
+        for mol in visible_molecules:
+            mol_name = getattr(mol, 'name', 'unknown')
+            print(f"PlotRenderer: Rendering molecule: {mol_name}")
+            self.render_molecule_spectrum_optimized(mol, wave_data)
     
     def optimize_plot_memory(self) -> None:
         """Optimize memory usage for plotting operations"""
@@ -876,7 +938,6 @@ class PlotRenderer:
             
             # Check if we actually have meaningful flux data
             if len(plot_flux) == 0 or np.all(plot_flux == 0):
-                print(f"No meaningful flux data for molecule {getattr(molecule, 'name', 'unknown')}")
                 return False
             
             # Get molecule properties

@@ -878,9 +878,20 @@ class iSLATPlot:
     def on_molecule_parameter_changed(self, molecule_name, parameter_name, old_value, new_value):
         """
         Called when any molecule parameter changes.
-        Refreshes displays if the changed molecule is the active one.
+        Refreshes displays and invalidates caches for the changed molecule.
         """
-        # Check if the changed molecule is the active one
+        # Invalidate the cache for the changed molecule
+        self.data_processor.invalidate_cache_for_molecule(molecule_name)
+        
+        # If this molecule is visible, we need to update the main spectrum plot
+        if (hasattr(self.islat, 'molecules_dict') and 
+            molecule_name in self.islat.molecules_dict and
+            self.islat.molecules_dict[molecule_name].is_visible):
+            
+            # Update the main spectrum plot to reflect parameter changes
+            self.update_model_plot()
+        
+        # Check if the changed molecule is the active one for additional updates
         if (hasattr(self.islat, 'active_molecule') and 
             self.islat.active_molecule and 
             hasattr(self.islat.active_molecule, 'name') and

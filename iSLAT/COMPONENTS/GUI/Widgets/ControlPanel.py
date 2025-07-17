@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, colorchooser
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
 from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import load_control_panel_fields_config
 
@@ -76,12 +76,33 @@ class ControlPanel:
             self.molecule_var.set(display_label)
         
         self._update_molecule_parameter_fields()
+        self._update_color_and_visibility_controls()
 
     def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
-        pass
+        """Handle molecule parameter changes to update UI fields"""
+        # Only update UI if this is the active molecule
+        if (hasattr(self.islat, 'active_molecule') and 
+            isinstance(self.islat.active_molecule, str) and 
+            self.islat.active_molecule == molecule_name):
+            
+            # Update the specific parameter field if it exists
+            if hasattr(self, '_molecule_parameter_entries') and parameter_name in self._molecule_parameter_entries:
+                entry, var = self._molecule_parameter_entries[parameter_name]
+                new_value_str = self._get_active_molecule_parameter_value(parameter_name)
+                if var.get() != new_value_str:
+                    var.set(new_value_str)
+            
+            # Update color and visibility controls if needed
+            if parameter_name in ['color', 'is_visible']:
+                self._update_color_and_visibility_controls()
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
-        pass
+        """Handle global parameter changes to update UI fields"""
+        # Update the specific global parameter field if it exists
+        if hasattr(self, '_global_parameter_entries') and parameter_name in self._global_parameter_entries:
+            entry, var = self._global_parameter_entries[parameter_name]
+            if var.get() != str(new_value):
+                var.set(str(new_value))
 
     def _create_all_components(self):
         """Create all control panel components in order"""
@@ -90,6 +111,7 @@ class ControlPanel:
         self._create_global_parameter_controls(2, 0)  # Only distance now
         self._create_molecule_specific_controls(3, 0)  # All other params here
         self._create_molecule_selector(9, 0)  # Move down to accommodate molecule params
+        self._create_molecule_color_and_visibility_controls(10, 0)  # Add color and visibility controls
         self._reload_molecule_dropdown()
 
     def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
@@ -239,9 +261,11 @@ class ControlPanel:
                         old_float_value = None
                     
                     if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(molecules_dict, property_name, value)
                 else:
                     if old_value != value:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(molecules_dict, property_name, value)
                             
             except (ValueError, AttributeError) as e:
@@ -330,9 +354,11 @@ class ControlPanel:
                         old_float_value = None
                     
                     if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(active_mol, param_name, value)
                 else:
                     if old_value != value:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(active_mol, param_name, value)
                             
             except (ValueError, AttributeError) as e:
@@ -403,6 +429,192 @@ class ControlPanel:
         # Apply theming to the control panel after all components are created
         self.frame.after(10, self._apply_theming)
 
+    def _create_molecule_color_and_visibility_controls(self, row, column):
+        """Create color button and visibility checkbox for the active molecule"""
+        # Visibility checkbox
+        visibility_label = tk.Label(self.frame, text="Visible:")
+        visibility_label.grid(row=row, column=column, padx=5, pady=5)
+        
+        # Apply theme to the label
+        visibility_label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
+        
+        self.visibility_var = tk.BooleanVar()
+        self.visibility_checkbox = tk.Checkbutton(
+            self.frame, 
+            variable=self.visibility_var, 
+            command=self._on_visibility_changed
+        )
+        self.visibility_checkbox.grid(row=row, column=column + 1, padx=5, pady=5)
+        
+        # Apply theme to checkbutton
+        self.visibility_checkbox.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0"),
+            activebackground=self.theme.get("background", "#181A1B"),
+            activeforeground=self.theme.get("foreground", "#F0F0F0"),
+            selectcolor=self.theme.get("background_accent_color", "#23272A")
+        )
+        
+        # Color button
+        color_label = tk.Label(self.frame, text="Color:")
+        color_label.grid(row=row, column=column + 2, padx=5, pady=5)
+        
+        # Apply theme to the label
+        color_label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
+        
+        # Get default color for initialization
+        default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+        default_color = default_colors[0]
+        
+        self.color_button = tk.Button(
+            self.frame, 
+            bg=default_color, 
+            width=4,
+            command=self._on_color_button_clicked
+        )
+        self.color_button.grid(row=row, column=column + 3, padx=5, pady=5)
+        # Mark this as a color selection button so theming will ignore it
+        self.color_button._is_color_button = True
+        
+        # Initialize with current active molecule data
+        self._update_color_and_visibility_controls()
+
+    def _ensure_molecule_color_initialized(self, mol_obj):
+        """Ensure molecule has a color assigned, using MoleculeWindow logic"""
+        if not hasattr(mol_obj, 'color') or mol_obj.color is None:
+            default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+            
+            # Use molecule index for consistent coloring, similar to MoleculeWindow
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                molecules_list = list(self.islat.molecules_dict.keys())
+                try:
+                    mol_index = molecules_list.index(mol_obj.name)
+                except (ValueError, AttributeError):
+                    mol_index = 0
+            else:
+                mol_index = 0
+                
+            mol_obj.color = default_colors[mol_index % len(default_colors)]
+
+    def _on_visibility_changed(self):
+        """Handle visibility checkbox changes for individual molecule plotting"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return
+            
+        # Skip for special cases
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            return
+            
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+        
+        new_visibility = self.visibility_var.get()
+        molecule_name = active_mol.name
+        
+        # Simply toggle this molecule's visibility - don't affect other molecules
+        self.islat.molecules_dict.bulk_set_visibility(new_visibility, [molecule_name])
+        
+        # Debug: Verify the visibility was actually set
+        print(f"ControlPanel: Set {molecule_name} visibility to {new_visibility}, actual value: {getattr(active_mol, 'is_visible', 'UNDEFINED')}")
+        
+        # Trigger plot refresh to show/hide the molecule
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+            self.islat.GUI.plot.update_all_plots()
+            print(f"ControlPanel: Triggered plot refresh for visibility change")
+
+    def _on_color_button_clicked(self):
+        """Handle color button clicks to open color chooser"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return
+            
+        # Skip for special cases
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            return
+            
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        # Get molecule name for the color chooser title
+        mol_name = getattr(active_mol, 'displaylabel', getattr(active_mol, 'name', 'Molecule'))
+        
+        # Open color chooser
+        color_code = colorchooser.askcolor(title=f"Pick color for {mol_name}")[1]
+        if color_code:
+            # Store old color for notification
+            old_color = getattr(active_mol, 'color', None)
+            
+            # Update molecule color
+            active_mol.color = color_code
+            self.color_button.config(bg=color_code)
+            
+            # Manually trigger the molecule parameter change notification
+            # since color is not a property with a setter
+            if hasattr(active_mol, '_notify_my_parameter_change'):
+                active_mol._notify_my_parameter_change('color', old_color, color_code)
+            
+            # Trigger plot refresh to show color change
+            if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+                self.islat.GUI.plot.update_all_plots()
+                print(f"ControlPanel: Triggered plot refresh for color change")
+
+    def _get_active_molecule_object(self):
+        """Get the active molecule object, similar to MoleculeWindow logic"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return None
+            
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in self.islat.molecules_dict:
+                return self.islat.molecules_dict[self.islat.active_molecule]
+            elif hasattr(self.islat.active_molecule, 'name'):
+                return self.islat.active_molecule
+        
+        return None
+
+    def _update_color_and_visibility_controls(self):
+        """Update color button and visibility checkbox based on active molecule"""
+        if not hasattr(self, 'color_button') or not hasattr(self, 'visibility_checkbox'):
+            return
+            
+        # For special cases like SUM/ALL, disable controls
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            self.visibility_checkbox.configure(state='disabled')
+            self.color_button.configure(state='disabled')
+            self.visibility_var.set(False)
+            return
+        
+        # Enable controls for regular molecules
+        self.visibility_checkbox.configure(state='normal')
+        self.color_button.configure(state='normal')
+        
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        # Ensure molecule has a color
+        self._ensure_molecule_color_initialized(active_mol)
+        
+        # Update visibility checkbox - simply reflect this molecule's visibility state
+        is_visible = getattr(active_mol, 'is_visible', False)
+        self.visibility_var.set(is_visible)
+        
+        # Update color button
+        color = getattr(active_mol, 'color', "#FF6B6B")
+        self.color_button.config(bg=color)
+
     def _apply_theming(self):
         """Apply theme to all control panel widgets"""
         # Use the theme from self.theme
@@ -458,12 +670,25 @@ class ControlPanel:
                     selectforeground=theme.get("background", "#181A1B")
                 )
             elif widget_class == 'Button':
-                btn_theme = theme.get("buttons", {}).get("DefaultBotton", {})
+                # Check if this is a marked color selection button - never theme these
+                if hasattr(widget, '_is_color_button') and widget._is_color_button:
+                    # This is a color selection button - preserve its molecule color
+                    pass
+                else:
+                    btn_theme = theme.get("buttons", {}).get("DefaultBotton", {})
+                    widget.configure(
+                        bg=btn_theme.get("background", theme.get("background_accent_color", "#23272A")),
+                        fg=theme.get("foreground", "#F0F0F0"),
+                        activebackground=btn_theme.get("active_background", theme.get("selection_color", "#00FF99")),
+                        activeforeground=theme.get("foreground", "#F0F0F0")
+                    )
+            elif widget_class == 'Checkbutton':
                 widget.configure(
-                    bg=btn_theme.get("background", theme.get("background_accent_color", "#23272A")),
+                    bg=theme.get("background", "#181A1B"),
                     fg=theme.get("foreground", "#F0F0F0"),
-                    activebackground=btn_theme.get("active_background", theme.get("selection_color", "#00FF99")),
-                    activeforeground=theme.get("foreground", "#F0F0F0")
+                    activebackground=theme.get("background", "#181A1B"),
+                    activeforeground=theme.get("foreground", "#F0F0F0"),
+                    selectcolor=theme.get("background_accent_color", "#23272A")
                 )
                 
             # Recursively apply to children
@@ -541,11 +766,13 @@ class ControlPanel:
                     display_label = getattr(mol_obj, 'displaylabel', mol_name)
                     if display_label == selected_label:
                         self.islat.active_molecule = mol_name
+                        self._update_color_and_visibility_controls()
                         return
                 
                 first_mol = next(iter(self.islat.molecules_dict.keys()), None)
                 if first_mol:
                     self.islat.active_molecule = first_mol
+                    self._update_color_and_visibility_controls()
         except Exception as e:
             print(f"Error setting active molecule: {e}")
 
@@ -676,3 +903,6 @@ class ControlPanel:
             
         for param_name, (entry, var) in self._molecule_parameter_entries.items():
             var.set("N/A")
+        
+        # Also update color and visibility controls for special cases
+        self._update_color_and_visibility_controls()
