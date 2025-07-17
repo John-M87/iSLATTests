@@ -135,8 +135,12 @@ class iSLATPlot:
                 for spine in ax.spines.values():
                     spine.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
                     
+
+                if self.theme.get(f'ax{ax.get_gid()}_grid', False):
+                    #print(f"Applying grid to ax{ax.get_gid()}")
+                    ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
                 # Set grid colors if grid is enabled
-                ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
+                #ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
             
             # Apply theme to toolbar if possible
             if hasattr(self.toolbar, 'configure'):
