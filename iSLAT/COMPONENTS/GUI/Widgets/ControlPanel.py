@@ -1,48 +1,15 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, colorchooser
 from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
+from iSLAT.COMPONENTS.FileHandling.iSLATFileHandling import load_control_panel_fields_config
 
 class ControlPanel:
-    # Class-level dictionary defining editable molecule fields
-    MOLECULE_FIELDS = {
-        'distance': {
-            'label': 'Distance:',
-            'attribute': 'distance',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 140.0,
-            'width': 12
-        },
-        'stellar_rv': {
-            'label': 'Stellar RV:',
-            'attribute': 'stellar_rv',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.0,
-            'width': 12
-        },
-        'fwhm': {
-            'label': 'FWHM:',
-            'attribute': 'fwhm',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.1,
-            'width': 12
-        },
-        'broad': {
-            'label': 'Broadening:',
-            'attribute': 'broad',
-            'datatype': float,
-            'format': '{:.2f}',
-            'default': 0.1,
-            'width': 12
-        }
-    }
-    
     def __init__(self, master, islat):
         self.master = master
         self.islat = islat
-        self._debounce_after_id = None  # For debouncing updates
+        
+        # Load field configurations from JSON file using iSLAT file handling
+        self._load_field_configurations()
         
         # Get theme from islat
         self.theme = getattr(islat, 'config', {}).get('theme', {})
@@ -60,24 +27,32 @@ class ControlPanel:
         # Initialize all UI components
         self._create_all_components()
         
-        # Register for change notifications using the new callback system
         self._register_callbacks()
         
         # Apply theming after everything is created
         self.frame.after(50, lambda: self.apply_theme(self.theme))
 
-    def _register_callbacks(self):
-        """Register callbacks using the new iSLAT callback system"""
+    def _load_field_configurations(self):
+        """Load field configurations from JSON file using iSLAT file handling"""
         try:
-            # Register for active molecule changes using the iSLAT callback system
+            config = load_control_panel_fields_config()
+            self.GLOBAL_FIELDS = config.get('global_fields', {})
+            self.MOLECULE_FIELDS = config.get('molecule_fields', {})
+        except Exception as e:
+            print(f"Error loading control panel field configurations: {e}")
+            # Use fallback default configurations
+            self.GLOBAL_FIELDS = {}
+            self.MOLECULE_FIELDS = {}
+
+    def _register_callbacks(self):
+        """Register callbacks for UI synchronization only"""
+        try:
             if hasattr(self.islat, 'add_active_molecule_change_callback'):
                 self.islat.add_active_molecule_change_callback(self._on_active_molecule_change)
             
-            # Register for global parameter changes if molecules_dict is available
             if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
                 self.islat.molecules_dict.add_global_parameter_change_callback(self._on_global_parameter_change)
             
-            # Register for individual molecule parameter changes
             Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_change)
             
         except Exception as e:
@@ -100,58 +75,44 @@ class ControlPanel:
             # Update dropdown without triggering callback
             self.molecule_var.set(display_label)
         
-        # Update molecule-specific parameter fields
         self._update_molecule_parameter_fields()
-        
-        # Trigger population diagram update for the new molecule
-        self._trigger_population_diagram_update()
+        self._update_color_and_visibility_controls()
 
     def _on_molecule_parameter_change(self, molecule_name, parameter_name, old_value, new_value):
-        """Handle individual molecule parameter changes"""
-        # Use the iSLAT update coordinator for efficient updates
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('model_spectrum')
-            self.islat.request_update('plots')
-        else:
-            # Fallback for direct updates
-            self._trigger_population_diagram_update()
+        """Handle molecule parameter changes to update UI fields"""
+        # Only update UI if this is the active molecule
+        if (hasattr(self.islat, 'active_molecule') and 
+            isinstance(self.islat.active_molecule, str) and 
+            self.islat.active_molecule == molecule_name):
+            
+            # Update the specific parameter field if it exists
+            if hasattr(self, '_molecule_parameter_entries') and parameter_name in self._molecule_parameter_entries:
+                entry, var = self._molecule_parameter_entries[parameter_name]
+                new_value_str = self._get_active_molecule_parameter_value(parameter_name)
+                if var.get() != new_value_str:
+                    var.set(new_value_str)
+            
+            # Update color and visibility controls if needed
+            if parameter_name in ['color', 'is_visible']:
+                self._update_color_and_visibility_controls()
 
     def _on_global_parameter_change(self, parameter_name, old_value, new_value):
-        """Handle global parameter changes from MoleculeDict"""
-        # Use the iSLAT update coordinator for efficient updates
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('model_spectrum')
-            self.islat.request_update('plots')
-        else:
-            # Fallback to direct update
-            plot_obj = self._get_plot_object()
-            if plot_obj:
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
-            self._trigger_population_diagram_update()
+        """Handle global parameter changes to update UI fields"""
+        # Update the specific global parameter field if it exists
+        if hasattr(self, '_global_parameter_entries') and parameter_name in self._global_parameter_entries:
+            entry, var = self._global_parameter_entries[parameter_name]
+            if var.get() != str(new_value):
+                var.set(str(new_value))
 
     def _create_all_components(self):
         """Create all control panel components in order"""
         self._create_display_controls(0, 0)
         self._create_wavelength_controls(1, 0)  
-        # Note: Global parameter controls removed - these are now per-molecule
-        self._create_molecule_specific_controls(3, 0)  # Move up since global params removed
-        self._create_molecule_selector(9, 0)  # Move down to accommodate more molecule params
-        self.reload_molecule_dropdown()
-
-    def _debounced_update(self, callback):
-        """Debounce updates to prevent excessive calls using iSLAT's update coordinator"""
-        if self._debounce_after_id:
-            self.master.after_cancel(self._debounce_after_id)
-        
-        def execute_update():
-            callback()
-            # Use iSLAT's update coordinator for plot updates
-            if hasattr(self.islat, 'request_update'):
-                self.islat.request_update('model_spectrum')
-                self.islat.request_update('plots')
-        
-        self._debounce_after_id = self.master.after(100, execute_update)
+        self._create_global_parameter_controls(2, 0)  # Only distance now
+        self._create_molecule_specific_controls(3, 0)  # All other params here
+        self._create_molecule_selector(9, 0)  # Move down to accommodate molecule params
+        self._create_molecule_color_and_visibility_controls(10, 0)  # Add color and visibility controls
+        self._reload_molecule_dropdown()
 
     def _create_simple_entry(self, label_text, initial_value, row, col, on_change_callback, width=8):
         """Create a simple entry field with label and change callback"""
@@ -180,7 +141,7 @@ class ControlPanel:
         )
         
         def on_change(*args):
-            self._debounced_update(lambda: on_change_callback(var.get()))
+            on_change_callback(var.get())
         
         var.trace_add("write", on_change)
         return entry, var
@@ -197,9 +158,8 @@ class ControlPanel:
             try:
                 value = float(value_str)
                 old_value = getattr(molecules_dict, param_name)
-                if abs(old_value - value) > 1e-10:  # Only update if actually different
+                if abs(old_value - value) > 1e-10:
                     setattr(molecules_dict, param_name, value)
-                    # The global parameter change callback will handle updates automatically
             except (ValueError, AttributeError):
                 pass
         
@@ -243,28 +203,83 @@ class ControlPanel:
             )
             return
 
-        # Note: Removed global Distance, Stellar RV, FWHM, and Broadening
-        # These are now handled as per-molecule parameters
-        parameters = []
-        
         # Store references for later updates
-        self._parameter_entries = {}
+        self._global_parameter_entries = {}
         
-        for label, param_name, row, col in parameters:
-            entry, var = self._create_bound_parameter_entry(label, param_name, row, col)
+        # Create fields based on the class-level dictionary
+        row_offset = 1
+        col_offset = 0
+        
+        for field_key, field_config in self.GLOBAL_FIELDS.items():
+            # Calculate grid position (2 fields per row)
+            row = start_row + row_offset + (col_offset // 2)
+            col = start_col + (col_offset % 2) * 2
+            
+            entry, var = self._create_global_parameter_entry(
+                field_config['label'], 
+                field_config['property'], 
+                row, 
+                col, 
+                field_config['width']
+            )
+            
             if entry and var:
-                self._parameter_entries[param_name] = (entry, var)
+                self._global_parameter_entries[field_config['property']] = (entry, var)
+            
+            col_offset += 1
+
+    def _create_global_parameter_entry(self, label_text, property_name, row, col, width=12):
+        """Create an entry bound to a global parameter in molecules_dict"""
+        
+        def update_global_parameter(value_str):
+            if value_str in ["N/A", ""]:
+                return
+                
+            if not hasattr(self.islat, 'molecules_dict') or not self.islat.molecules_dict:
+                return
+                
+            molecules_dict = self.islat.molecules_dict
+            
+            try:
+                field_config = None
+                for field_key, config in self.GLOBAL_FIELDS.items():
+                    if config['property'] == property_name:
+                        field_config = config
+                        break
+                
+                if field_config:
+                    value = field_config['datatype'](value_str)
+                else:
+                    value = float(value_str)
+                    
+                old_value = getattr(molecules_dict, property_name, None)
+                
+                if field_config and field_config['datatype'] == float:
+                    try:
+                        old_float_value = float(old_value) if old_value is not None else None
+                    except (ValueError, TypeError):
+                        old_float_value = None
+                    
+                    if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        # Use property setters to ensure proper cache invalidation and notifications
+                        setattr(molecules_dict, property_name, value)
+                else:
+                    if old_value != value:
+                        # Use property setters to ensure proper cache invalidation and notifications
+                        setattr(molecules_dict, property_name, value)
+                            
+            except (ValueError, AttributeError) as e:
+                print(f"Error updating global {property_name}: {e}")
+        
+        # Get current value from molecules_dict
+        current_value = 0.0
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            current_value = getattr(self.islat.molecules_dict, property_name, 0.0)
+        
+        return self._create_simple_entry(label_text, current_value, row, col, update_global_parameter, width)
 
     def _create_molecule_specific_controls(self, start_row, start_col):
         """Create controls for molecule-specific parameters that update with active molecule"""
-        # Add a separator/label for molecule-specific section
-        #separator_label = tk.Label(self.frame, text="--- Active Molecule Parameters ---", font=('TkDefaultFont', 8, 'italic'))
-        #separator_label.grid(row=start_row, column=start_col, columnspan=4, padx=5, pady=5)
-        #separator_label.configure(
-        #    bg=self.theme.get("background", "#181A1B"),
-        #    fg=self.theme.get("foreground", "#F0F0F0")
-        #)
-        
         # Store references for later updates
         self._molecule_parameter_entries = {}
         
@@ -339,10 +354,11 @@ class ControlPanel:
                         old_float_value = None
                     
                     if old_float_value is None or abs(old_float_value - value) > 1e-10:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(active_mol, param_name, value)
-                        # Note: Hash change will automatically trigger plot updates
                 else:
                     if old_value != value:
+                        # Use property setters to ensure proper cache invalidation and notifications
                         setattr(active_mol, param_name, value)
                             
             except (ValueError, AttributeError) as e:
@@ -413,6 +429,192 @@ class ControlPanel:
         # Apply theming to the control panel after all components are created
         self.frame.after(10, self._apply_theming)
 
+    def _create_molecule_color_and_visibility_controls(self, row, column):
+        """Create color button and visibility checkbox for the active molecule"""
+        # Visibility checkbox
+        visibility_label = tk.Label(self.frame, text="Visible:")
+        visibility_label.grid(row=row, column=column, padx=5, pady=5)
+        
+        # Apply theme to the label
+        visibility_label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
+        
+        self.visibility_var = tk.BooleanVar()
+        self.visibility_checkbox = tk.Checkbutton(
+            self.frame, 
+            variable=self.visibility_var, 
+            command=self._on_visibility_changed
+        )
+        self.visibility_checkbox.grid(row=row, column=column + 1, padx=5, pady=5)
+        
+        # Apply theme to checkbutton
+        self.visibility_checkbox.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0"),
+            activebackground=self.theme.get("background", "#181A1B"),
+            activeforeground=self.theme.get("foreground", "#F0F0F0"),
+            selectcolor=self.theme.get("background_accent_color", "#23272A")
+        )
+        
+        # Color button
+        color_label = tk.Label(self.frame, text="Color:")
+        color_label.grid(row=row, column=column + 2, padx=5, pady=5)
+        
+        # Apply theme to the label
+        color_label.configure(
+            bg=self.theme.get("background", "#181A1B"),
+            fg=self.theme.get("foreground", "#F0F0F0")
+        )
+        
+        # Get default color for initialization
+        default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+        default_color = default_colors[0]
+        
+        self.color_button = tk.Button(
+            self.frame, 
+            bg=default_color, 
+            width=4,
+            command=self._on_color_button_clicked
+        )
+        self.color_button.grid(row=row, column=column + 3, padx=5, pady=5)
+        # Mark this as a color selection button so theming will ignore it
+        self.color_button._is_color_button = True
+        
+        # Initialize with current active molecule data
+        self._update_color_and_visibility_controls()
+
+    def _ensure_molecule_color_initialized(self, mol_obj):
+        """Ensure molecule has a color assigned, using MoleculeWindow logic"""
+        if not hasattr(mol_obj, 'color') or mol_obj.color is None:
+            default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
+            
+            # Use molecule index for consistent coloring, similar to MoleculeWindow
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+                molecules_list = list(self.islat.molecules_dict.keys())
+                try:
+                    mol_index = molecules_list.index(mol_obj.name)
+                except (ValueError, AttributeError):
+                    mol_index = 0
+            else:
+                mol_index = 0
+                
+            mol_obj.color = default_colors[mol_index % len(default_colors)]
+
+    def _on_visibility_changed(self):
+        """Handle visibility checkbox changes for individual molecule plotting"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return
+            
+        # Skip for special cases
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            return
+            
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+        
+        new_visibility = self.visibility_var.get()
+        molecule_name = active_mol.name
+        
+        # Simply toggle this molecule's visibility - don't affect other molecules
+        self.islat.molecules_dict.bulk_set_visibility(new_visibility, [molecule_name])
+        
+        # Debug: Verify the visibility was actually set
+        print(f"ControlPanel: Set {molecule_name} visibility to {new_visibility}, actual value: {getattr(active_mol, 'is_visible', 'UNDEFINED')}")
+        
+        # Trigger plot refresh to show/hide the molecule
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+            self.islat.GUI.plot.update_all_plots()
+            print(f"ControlPanel: Triggered plot refresh for visibility change")
+
+    def _on_color_button_clicked(self):
+        """Handle color button clicks to open color chooser"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return
+            
+        # Skip for special cases
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            return
+            
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        # Get molecule name for the color chooser title
+        mol_name = getattr(active_mol, 'displaylabel', getattr(active_mol, 'name', 'Molecule'))
+        
+        # Open color chooser
+        color_code = colorchooser.askcolor(title=f"Pick color for {mol_name}")[1]
+        if color_code:
+            # Store old color for notification
+            old_color = getattr(active_mol, 'color', None)
+            
+            # Update molecule color
+            active_mol.color = color_code
+            self.color_button.config(bg=color_code)
+            
+            # Manually trigger the molecule parameter change notification
+            # since color is not a property with a setter
+            if hasattr(active_mol, '_notify_my_parameter_change'):
+                active_mol._notify_my_parameter_change('color', old_color, color_code)
+            
+            # Trigger plot refresh to show color change
+            if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+                self.islat.GUI.plot.update_all_plots()
+                print(f"ControlPanel: Triggered plot refresh for color change")
+
+    def _get_active_molecule_object(self):
+        """Get the active molecule object, similar to MoleculeWindow logic"""
+        if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
+            return None
+            
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in self.islat.molecules_dict:
+                return self.islat.molecules_dict[self.islat.active_molecule]
+            elif hasattr(self.islat.active_molecule, 'name'):
+                return self.islat.active_molecule
+        
+        return None
+
+    def _update_color_and_visibility_controls(self):
+        """Update color button and visibility checkbox based on active molecule"""
+        if not hasattr(self, 'color_button') or not hasattr(self, 'visibility_checkbox'):
+            return
+            
+        # For special cases like SUM/ALL, disable controls
+        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
+            self.visibility_checkbox.configure(state='disabled')
+            self.color_button.configure(state='disabled')
+            self.visibility_var.set(False)
+            return
+        
+        # Enable controls for regular molecules
+        self.visibility_checkbox.configure(state='normal')
+        self.color_button.configure(state='normal')
+        
+        # Get the active molecule object
+        active_mol = self._get_active_molecule_object()
+        if not active_mol:
+            return
+            
+        # Ensure molecule has a color
+        self._ensure_molecule_color_initialized(active_mol)
+        
+        # Update visibility checkbox - simply reflect this molecule's visibility state
+        is_visible = getattr(active_mol, 'is_visible', False)
+        self.visibility_var.set(is_visible)
+        
+        # Update color button
+        color = getattr(active_mol, 'color', "#FF6B6B")
+        self.color_button.config(bg=color)
+
     def _apply_theming(self):
         """Apply theme to all control panel widgets"""
         # Use the theme from self.theme
@@ -468,12 +670,25 @@ class ControlPanel:
                     selectforeground=theme.get("background", "#181A1B")
                 )
             elif widget_class == 'Button':
-                btn_theme = theme.get("buttons", {}).get("DefaultBotton", {})
+                # Check if this is a marked color selection button - never theme these
+                if hasattr(widget, '_is_color_button') and widget._is_color_button:
+                    # This is a color selection button - preserve its molecule color
+                    pass
+                else:
+                    btn_theme = theme.get("buttons", {}).get("DefaultBotton", {})
+                    widget.configure(
+                        bg=btn_theme.get("background", theme.get("background_accent_color", "#23272A")),
+                        fg=theme.get("foreground", "#F0F0F0"),
+                        activebackground=btn_theme.get("active_background", theme.get("selection_color", "#00FF99")),
+                        activeforeground=theme.get("foreground", "#F0F0F0")
+                    )
+            elif widget_class == 'Checkbutton':
                 widget.configure(
-                    bg=btn_theme.get("background", theme.get("background_accent_color", "#23272A")),
+                    bg=theme.get("background", "#181A1B"),
                     fg=theme.get("foreground", "#F0F0F0"),
-                    activebackground=btn_theme.get("active_background", theme.get("selection_color", "#00FF99")),
-                    activeforeground=theme.get("foreground", "#F0F0F0")
+                    activebackground=theme.get("background", "#181A1B"),
+                    activeforeground=theme.get("foreground", "#F0F0F0"),
+                    selectcolor=theme.get("background_accent_color", "#23272A")
                 )
                 
             # Recursively apply to children
@@ -493,21 +708,8 @@ class ControlPanel:
             pass
 
     def _set_display_range(self, start, end):
-        """Set the display range and update plots using iSLAT's update system"""
         if hasattr(self.islat, 'display_range'):
             self.islat.display_range = (start, end)
-        
-        # Use iSLAT's update coordinator for consistent updates
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('plots')
-        else:
-            # Fallback to direct update
-            plot_obj = self._get_plot_object()
-            if plot_obj:
-                if hasattr(plot_obj, 'match_display_range'):
-                    plot_obj.match_display_range()
-                if hasattr(plot_obj, 'update_all_plots'):
-                    plot_obj.update_all_plots()
 
     def _update_wavelength_range(self, value_str=None):
         """Update wavelength range for model calculations (not display)"""
@@ -521,15 +723,13 @@ class ControlPanel:
             if min_val < max_val:
                 molecules_dict = self.islat.molecules_dict
                 molecules_dict.global_wavelength_range = (min_val, max_val)
-                # Update the iSLAT wavelength range if it exists
                 if hasattr(self.islat, 'wavelength_range'):
                     self.islat.wavelength_range = (min_val, max_val)
-                # The global parameter change callback will handle updates automatically
         except (ValueError, AttributeError):
             pass
 
     def _update_molecule_parameter(self, value_str=None):
-        """Update molecule-specific parameters for the active molecule"""
+        """Update molecule-specific parameter UI fields for the active molecule"""
         if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
             return
             
@@ -544,38 +744,35 @@ class ControlPanel:
             if not molecule_obj:
                 return
             
-            # Update each molecule-specific parameter
+            # Update each molecule-specific parameter UI field
             for param_name, (entry, var) in self._molecule_parameter_entries.items():
                 if hasattr(molecule_obj, param_name):
                     value = getattr(molecule_obj, param_name)
                     var.set(str(value))
         
         except Exception as e:
-            print(f"Error updating molecule parameters: {e}")
+            print(f"Error updating molecule parameter UI fields: {e}")
 
     def _on_molecule_selected(self, event=None):
         """Handle molecule selection - uses iSLAT's active_molecule property"""
         selected_label = self.molecule_var.get()
         
-        # Use iSLAT's active_molecule setter which will trigger callbacks automatically
         try:
             if selected_label in ["SUM", "ALL"]:
-                # For special cases, set directly (iSLAT handles these)
                 self.islat.active_molecule = selected_label
-                # Clear molecule-specific fields for special cases
                 self._clear_molecule_parameter_fields()
             elif hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
-                # Find molecule by display label
                 for mol_name, mol_obj in self.islat.molecules_dict.items():
                     display_label = getattr(mol_obj, 'displaylabel', mol_name)
                     if display_label == selected_label:
-                        self.islat.active_molecule = mol_name  # This will trigger callbacks
+                        self.islat.active_molecule = mol_name
+                        self._update_color_and_visibility_controls()
                         return
                 
-                # Fallback if molecule not found
                 first_mol = next(iter(self.islat.molecules_dict.keys()), None)
                 if first_mol:
                     self.islat.active_molecule = first_mol
+                    self._update_color_and_visibility_controls()
         except Exception as e:
             print(f"Error setting active molecule: {e}")
 
@@ -600,30 +797,6 @@ class ControlPanel:
             self.molecule_var.set(options[0])
             self._on_molecule_selected()
 
-    def _get_plot_object(self):
-        """Get the plot object for updates"""
-        for attr_path in ['GUI.plot', 'main_plot', 'plot']:
-            obj = self.islat
-            for part in attr_path.split('.'):
-                if hasattr(obj, part):
-                    obj = getattr(obj, part)
-                else:
-                    obj = None
-                    break
-            if obj:
-                return obj
-        return None
-
-    def _trigger_population_diagram_update(self):
-        """Trigger an explicit population diagram update"""
-        plot_obj = self._get_plot_object()
-        if plot_obj and hasattr(plot_obj, 'update_population_diagram'):
-            # Invalidate cache before updating to ensure re-render
-            if hasattr(plot_obj, 'plot_renderer') and hasattr(plot_obj.plot_renderer, 'invalidate_population_diagram_cache'):
-                plot_obj.plot_renderer.invalidate_population_diagram_cache()
-            # Always call update_population_diagram - it will handle invalid cases internally
-            plot_obj.update_population_diagram()
-
     def refresh_from_molecules_dict(self):
         """Refresh all fields from current molecules_dict values"""
         if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
@@ -637,7 +810,8 @@ class ControlPanel:
         except:
             pass  # Callback might already be registered
         
-        # Note: Global parameter entries removed - these are now per-molecule parameters
+        # Update global parameter fields
+        self._update_global_parameter_fields()
         
         # Update wavelength range fields
         if (hasattr(self, 'min_wavelength_var') and hasattr(self, 'max_wavelength_var') 
@@ -651,32 +825,10 @@ class ControlPanel:
         
         self._reload_molecule_dropdown()
         
-        # Ensure theming is applied after refresh
         self.apply_theme()
 
-    # Public interface methods for backward compatibility
-    def reload_molecule_dropdown(self):
-        """Public method for reloading molecule dropdown"""
-        self._reload_molecule_dropdown()
-        # Update molecule parameter fields after reloading
-        self._update_molecule_parameter_fields()
-        # Ensure theming is applied after reload
-        self.apply_theme()
-
-    def update_plots(self):
-        """Public method for triggering plot updates using iSLAT's update coordinator"""
-        if hasattr(self.islat, 'request_update'):
-            self.islat.request_update('plots')
-        else:
-            # Fallback to direct update
-            plot_obj = self._get_plot_object()
-            if plot_obj and hasattr(plot_obj, 'update_all_plots'):
-                plot_obj.update_all_plots()
-    
     def cleanup(self):
-        """Clean up callbacks when control panel is destroyed"""
         try:
-            # Remove callbacks to prevent memory leaks
             if hasattr(self.islat, 'remove_active_molecule_change_callback'):
                 self.islat.remove_active_molecule_change_callback(self._on_active_molecule_change)
         except Exception as e:
@@ -723,10 +875,26 @@ class ControlPanel:
             
         for param_name, (entry, var) in self._molecule_parameter_entries.items():
             new_value = self._get_active_molecule_parameter_value(param_name)
-            # Only update if the value actually changed to avoid triggering callbacks
             current_value = var.get()
             if current_value != new_value:
                 var.set(new_value)
+
+    def _update_global_parameter_fields(self):
+        """Update all global parameter fields with values from the molecules_dict"""
+        if not hasattr(self, '_global_parameter_entries'):
+            return
+        
+        if not (hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict):
+            return
+            
+        for property_name, (entry, var) in self._global_parameter_entries.items():
+            try:
+                new_value = getattr(self.islat.molecules_dict, property_name, 0.0)
+                current_value = var.get()
+                if str(current_value) != str(new_value):
+                    var.set(str(new_value))
+            except (AttributeError, TypeError):
+                pass
 
     def _clear_molecule_parameter_fields(self):
         """Clear molecule-specific parameter fields for special cases like SUM/ALL"""
@@ -735,3 +903,6 @@ class ControlPanel:
             
         for param_name, (entry, var) in self._molecule_parameter_entries.items():
             var.set("N/A")
+        
+        # Also update color and visibility controls for special cases
+        self._update_color_and_visibility_controls()

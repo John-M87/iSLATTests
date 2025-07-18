@@ -14,12 +14,13 @@ class ResizableFrame(tk.Frame):
         self.total_weight = 0
         self.initialized = False
         
-    def add_frame(self, frame, weight=1, minsize=50):
+    def add_frame(self, frame, weight=1, minsize=50, dynamic_minsize=False):
         """Add a frame to the resizable container."""
         frame_info = {
             'frame': frame, 
             'weight': weight, 
             'minsize': minsize,
+            'dynamic_minsize': dynamic_minsize,  # Whether to calculate minsize based on content
             'current_size': 0  # Will be calculated in _calculate_initial_sizes
         }
         self.frames.append(frame_info)
@@ -53,6 +54,111 @@ class ResizableFrame(tk.Frame):
             sash.bind("<Enter>", enter_handler)
             sash.bind("<Leave>", leave_handler)
     
+    def _calculate_content_minsize(self, frame):
+        """Calculate minimum size based on frame content."""
+        try:
+            # Update the frame to ensure all widgets have been placed
+            frame.update_idletasks()
+            
+            if self.orientation == 'vertical':
+                # For vertical orientation, calculate required height
+                return self._calculate_required_height(frame)
+            else:
+                # For horizontal orientation, calculate required width
+                return self._calculate_required_width(frame)
+        except tk.TclError:
+            # If frame isn't ready, return a reasonable default
+            return 50
+    
+    def _calculate_required_height(self, frame):
+        """Calculate the minimum height required for all widgets in a frame."""
+        min_height = 0
+        
+        # Check all child widgets
+        for child in frame.winfo_children():
+            try:
+                child.update_idletasks()
+                
+                # Get widget geometry
+                child_height = child.winfo_reqheight()
+                child_y = child.winfo_y()
+                
+                # Calculate total space needed (position + height + padding)
+                if child.winfo_manager() == 'pack':
+                    # For packed widgets, add some padding
+                    padx, pady = self._get_pack_padding(child)
+                    total_height = child_y + child_height + pady
+                elif child.winfo_manager() == 'grid':
+                    # For grid widgets, consider row span
+                    grid_info = child.grid_info()
+                    pady = grid_info.get('pady', 0)
+                    if isinstance(pady, tuple):
+                        pady = sum(pady)
+                    total_height = child_y + child_height + pady
+                else:
+                    total_height = child_y + child_height + 10  # Default padding
+                
+                min_height = max(min_height, total_height)
+                
+            except tk.TclError:
+                continue
+        
+        # Add some extra padding for the frame itself
+        return max(min_height + 20, 50)  # Minimum of 50 pixels
+    
+    def _calculate_required_width(self, frame):
+        """Calculate the minimum width required for all widgets in a frame."""
+        min_width = 0
+        
+        # Check all child widgets
+        for child in frame.winfo_children():
+            try:
+                child.update_idletasks()
+                
+                # Get widget geometry
+                child_width = child.winfo_reqwidth()
+                child_x = child.winfo_x()
+                
+                # Calculate total space needed (position + width + padding)
+                if child.winfo_manager() == 'pack':
+                    # For packed widgets, add some padding
+                    padx, pady = self._get_pack_padding(child)
+                    total_width = child_x + child_width + padx
+                elif child.winfo_manager() == 'grid':
+                    # For grid widgets, consider column span
+                    grid_info = child.grid_info()
+                    padx = grid_info.get('padx', 0)
+                    if isinstance(padx, tuple):
+                        padx = sum(padx)
+                    total_width = child_x + child_width + padx
+                else:
+                    total_width = child_x + child_width + 10  # Default padding
+                
+                min_width = max(min_width, total_width)
+                
+            except tk.TclError:
+                continue
+        
+        # Add some extra padding for the frame itself
+        return max(min_width + 20, 50)  # Minimum of 50 pixels
+    
+    def _get_pack_padding(self, widget):
+        """Get padding information for a packed widget."""
+        try:
+            pack_info = widget.pack_info()
+            padx = pack_info.get('padx', 0)
+            pady = pack_info.get('pady', 0)
+            
+            # Handle tuple padding values
+            if isinstance(padx, tuple):
+                padx = sum(padx)
+            if isinstance(pady, tuple):
+                pady = sum(pady)
+                
+            return padx, pady
+        except tk.TclError:
+            return 10, 10  # Default padding
+    
     def _on_configure(self, event):
         """Handle window resize events."""
         if event.widget == self and self.initialized:
@@ -62,12 +168,20 @@ class ResizableFrame(tk.Frame):
     def _initialize_layout(self):
         """Initialize the layout after the widget is mapped."""
         if not self.initialized and self.winfo_width() > 1 and self.winfo_height() > 1:
+            self._update_dynamic_minsizes()
             self._calculate_initial_sizes()
             self._layout_frames()
             self.initialized = True
         elif not self.initialized:
             # Try again later if widget isn't ready
             self.after(50, self._initialize_layout)
+    
+    def _update_dynamic_minsizes(self):
+        """Update dynamic minimum sizes for all frames that need it."""
+        for frame_info in self.frames:
+            if frame_info['dynamic_minsize']:
+                calculated_minsize = self._calculate_content_minsize(frame_info['frame'])
+                frame_info['minsize'] = calculated_minsize
     
     def _calculate_initial_sizes(self):
         """Calculate initial sizes for frames based on their weights."""
@@ -97,6 +211,22 @@ class ResizableFrame(tk.Frame):
                 if frame_info['weight'] > 0:
                     proportional_size = int((frame_info['weight'] / total_weight) * remaining_space)
                     frame_info['current_size'] = frame_info['minsize'] + proportional_size
+    
+    def update_dynamic_sizes(self):
+        """Update dynamic minimum sizes and recalculate layout."""
+        self._update_dynamic_minsizes()
+        self._calculate_initial_sizes()
+        self._layout_frames()
+    
+    def set_frame_dynamic_minsize(self, frame, dynamic=True):
+        """Enable or disable dynamic minimum sizing for a specific frame."""
+        for frame_info in self.frames:
+            if frame_info['frame'] == frame:
+                frame_info['dynamic_minsize'] = dynamic
+                if dynamic:
+                    # Immediately recalculate if enabling dynamic sizing
+                    self.after_idle(self.update_dynamic_sizes)
+                break
     
     def _bind_sash_events(self, sash, sash_index):
         """Bind mouse events to sash for dragging."""
