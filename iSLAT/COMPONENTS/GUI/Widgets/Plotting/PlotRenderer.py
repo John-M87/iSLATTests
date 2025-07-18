@@ -21,18 +21,18 @@ class PlotRenderer:
     
     This class provides comprehensive rendering of:
     - Observed spectrum data with error bars
-    - Individual molecule model spectra
+    - Individual molecule model spectra leveraging molecule caching
     - Summed model spectra
-    - Population diagrams with caching
+    - Population diagrams using molecule cached data
     - Line inspection plots
     - Saved line markers
     
     Features:
     - Efficient molecule visibility filtering
-    - Cached flux calculations for performance
-    - Population diagram caching to avoid redundant calculations
+    - Direct use of molecule cached calculations for optimal performance
     - Memory-conscious plotting with line limit management
     - Batch operations for better performance with many molecules
+    - Zero cache conflicts by relying entirely on molecule caching
     """
     
     def __init__(self, plot_manager: Any) -> None:
@@ -49,14 +49,13 @@ class PlotRenderer:
         self.model_lines: List[Line2D] = []
         self.active_lines: List[Line2D] = []
         
-        self._plot_cache = {
-            'population_diagram': {'molecule_id': None, 'param_hash': None, 'wave_range': None},
-            'spectrum_plots': {},
-            'cache_hits': 0,
-            'cache_misses': 0
+        # Simplified stats - only for performance monitoring, no data caching
+        self._plot_stats = {
+            'renders_count': 0,
+            'molecules_rendered': 0
         }
         
-        self._register_molecule_change_callbacks()
+        # Remove molecule change callbacks since we don't cache data anymore
     
     # Helper methods for common operations
     def _convert_visibility_to_bool(self, is_visible_raw: Any) -> bool:
@@ -101,68 +100,22 @@ class PlotRenderer:
             print(f"Error accessing {attr_name} for molecule {self._get_molecule_display_name(molecule)}: {e}")
             return default_value
     
-    def _is_cache_valid_for_molecule(self, molecule: 'Molecule', cache_type: str) -> bool:
-        """Check if cache is valid for a specific molecule and cache type"""
-        try:
-            if molecule is None:
-                return False
-                
-            if hasattr(molecule, 'is_cache_valid'):
-                return molecule.is_cache_valid(cache_type)
-            
-            # Fallback: assume cache is valid if no validation method exists
-            return True
-        except Exception as e:
-            print(f"Error validating {cache_type} cache: {e}")
-            return False
-        
-    def _register_molecule_change_callbacks(self) -> None:
-        try:
-            from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
-            if hasattr(Molecule, 'add_molecule_parameter_change_callback'):
-                Molecule.add_molecule_parameter_change_callback(self._handle_molecule_parameter_change)
-        except Exception as e:
-            print(f"Could not register for molecule parameter changes: {e}")
-    
-    def _handle_molecule_parameter_change(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
-        """Callback when a molecule parameter changes - invalidate relevant caches"""
-        try:
-            if old_value == new_value:
-                return
-                
-            # Invalidate spectrum cache for this molecule
-            if molecule_name in self._plot_cache['spectrum_plots']:
-                del self._plot_cache['spectrum_plots'][molecule_name]
-                
-            # Invalidate population diagram if it's for this molecule
-            pop_cache = self._plot_cache['population_diagram']
-            if pop_cache['molecule_id'] == molecule_name:
-                pop_cache['molecule_id'] = None
-                pop_cache['param_hash'] = None
-                
-        except Exception as e:
-            print(f"Error handling molecule parameter change: {e}")
-    
     def cleanup_callbacks(self) -> None:
-        """Cleanup callbacks when renderer is destroyed"""
-        try:
-            from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
-            if hasattr(Molecule, 'remove_molecule_parameter_change_callback'):
-                Molecule.remove_molecule_parameter_change_callback(self._handle_molecule_parameter_change)
-        except Exception:
-            pass
+        """No callbacks to cleanup since we rely entirely on molecule caching"""
+        pass
     
     def clear_all_plots(self) -> None:
+        """Clear all plots and reset stats"""
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
         self.model_lines.clear()
         self.active_lines.clear()
-        self._plot_cache = {
-            'population_diagram': {'molecule_id': None, 'param_hash': None, 'wave_range': None},
-            'spectrum_plots': {},
-            'cache_hits': self._plot_cache.get('cache_hits', 0),
-            'cache_misses': self._plot_cache.get('cache_misses', 0)
+        
+        # Reset only performance stats, no cache data
+        self._plot_stats = {
+            'renders_count': 0,
+            'molecules_rendered': 0
         }
         
     def clear_model_lines(self) -> None:
@@ -299,30 +252,13 @@ class PlotRenderer:
         except Exception:
             return None
     
-    def invalidate_population_diagram_cache(self) -> None:
-        self._plot_cache['population_diagram'] = {'molecule_id': None, 'param_hash': None, 'wave_range': None}
-    
     def render_population_diagram(self, molecule: 'Molecule', wave_range: Optional[Tuple[float, float]] = None) -> None:
-        molecule_id = self._get_molecule_identifier(molecule)
-        molecule_param_hash = self._get_molecule_parameters_hash(molecule)
+        """
+        Render population diagram using molecule's cached intensity data.
         
-        cache = self._plot_cache['population_diagram']
-        cache_hit = (cache['molecule_id'] == molecule_id and 
-                    cache['param_hash'] == molecule_param_hash and 
-                    cache['wave_range'] == wave_range and
-                    molecule_id is not None and
-                    molecule_param_hash is not None)
-        
-        if cache_hit:
-            self._plot_cache['cache_hits'] += 1
-            return
-        
-        self._plot_cache['cache_misses'] += 1
-        
-        cache['molecule_id'] = molecule_id
-        cache['param_hash'] = molecule_param_hash
-        cache['wave_range'] = wave_range
-        
+        This method relies on the molecule's internal caching system rather than
+        maintaining its own cache to avoid conflicts with cached parameter restoration.
+        """
         self.ax3.clear()
         
         if molecule is None:
@@ -330,6 +266,7 @@ class PlotRenderer:
             return
             
         try:
+            # Use molecule's cached intensity data directly
             int_pars = self.get_intensity_data(molecule)
             if int_pars is None:
                 mol_label = self._get_molecule_display_name(molecule)
@@ -517,25 +454,32 @@ class PlotRenderer:
             return result
     
     def render_visible_molecules(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
-        """Render molecules using available methods"""
+        """
+        Render molecules using their built-in caching for optimal performance.
+        
+        Each molecule's caching system is leveraged to avoid redundant calculations
+        based on parameter hashes and cache validity.
+        """
         if not molecules:
             return
-        
-        print(f"PlotRenderer: render_visible_molecules called with {len(molecules) if hasattr(molecules, '__len__') else 'unknown count'} molecules")
         
         # Get visible molecules
         visible_molecules = self.get_visible_molecules(molecules)
         if not visible_molecules:
-            print("PlotRenderer: No visible molecules, returning early")
             return
         
-        print(f"PlotRenderer: About to render {len(visible_molecules)} visible molecules: {[getattr(m, 'name', 'unknown') for m in visible_molecules]}")
-        
-        # Use rendering for each molecule
+        # Use each molecule's internal caching for rendering
         for mol in visible_molecules:
             mol_name = getattr(mol, 'name', 'unknown')
-            print(f"PlotRenderer: Rendering molecule: {mol_name}")
-            self.render_individual_molecule_spectrum(mol, wave_data)
+            try:
+                # The render_individual_molecule_spectrum method will use the molecule's
+                # built-in caching via get_flux() which respects parameter hash validation
+                success = self.render_individual_molecule_spectrum(mol, wave_data)
+                if not success:
+                    print(f"Warning: Could not render molecule {mol_name}")
+            except Exception as e:
+                print(f"Error rendering molecule {mol_name}: {e}")
+                continue
     
     def optimize_plot_memory_usage(self) -> None:
         """Optimize memory usage for plotting operations"""
@@ -561,18 +505,13 @@ class PlotRenderer:
         self.canvas.draw_idle()
     
     def get_plot_performance_stats(self) -> Dict[str, Any]:
-        """Get enhanced performance statistics for debugging"""
+        """Get simplified performance statistics"""
         return {
             'model_lines_count': len(self.model_lines),
             'active_lines_count': len(self.active_lines),
-            'cache_hits': self._plot_cache.get('cache_hits', 0),
-            'cache_misses': self._plot_cache.get('cache_misses', 0),
-            'cache_hit_ratio': (
-                self._plot_cache.get('cache_hits', 0) / 
-                max(1, self._plot_cache.get('cache_hits', 0) + self._plot_cache.get('cache_misses', 0))
-            ),
-            'cached_spectrum_plots': len(self._plot_cache.get('spectrum_plots', {})),
-            'memory_optimized': hasattr(self, '_memory_optimized'),
+            'total_renders': self._plot_stats.get('renders_count', 0),
+            'molecules_rendered': self._plot_stats.get('molecules_rendered', 0),
+            'caching_strategy': 'molecule_only',  # Document our strategy
             'line_intensity_threshold_percent': self.get_line_intensity_threshold() * 100
         }
     
@@ -857,50 +796,52 @@ class PlotRenderer:
     
     def get_molecule_spectrum_data(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
-        Get molecule spectrum data efficiently using the molecule's internal caching system.
+        Get spectrum data directly from molecule's caching system.
         
-        This method leverages the molecule's optimized caching to avoid redundant calculations.
+        Fixed to use prepare_plot_data() which has proper parameter-hash-aware caching,
+        instead of get_flux() which clears cache on parameter changes.
+        
+        Parameters
+        ----------
+        molecule : Molecule
+            Molecule with internal flux caching
+        wave_data : np.ndarray
+            Wavelength array
+            
+        Returns
+        -------
+        Tuple[Optional[np.ndarray], Optional[np.ndarray]]
+            (wavelength, flux) arrays or (None, None) if unavailable
         """
-        try:
-            molecule_name = self._get_molecule_display_name(molecule)
-            
-            # Method 1: Use molecule's prepare_plot_data method (preferred)
-            if hasattr(molecule, 'prepare_plot_data') and callable(molecule.prepare_plot_data):
-                try:
-                    result = molecule.prepare_plot_data(wave_data)
-                    if result is not None and len(result) == 2:
-                        return result[0], result[1]  # (lam, flux)
-                    elif hasattr(molecule, 'plot_lam') and hasattr(molecule, 'plot_flux'):
-                        if molecule.plot_lam is not None and molecule.plot_flux is not None:
-                            return molecule.plot_lam, molecule.plot_flux
-                except Exception as e:
-                    print(f"Error in prepare_plot_data for {molecule_name}: {e}")
-            
-            # Method 2: Use molecule's get_flux method (uses interpolated flux cache)
-            if hasattr(molecule, 'get_flux') and callable(molecule.get_flux):
-                try:
-                    flux = molecule.get_flux(wave_data)
-                    if flux is not None and len(flux) > 0:
-                        return wave_data.copy(), flux
-                except Exception as e:
-                    print(f"Error in get_flux for {molecule_name}: {e}")
-            
-            # Method 3: Use spectrum object directly if molecule's internal methods fail
-            if hasattr(molecule, 'spectrum') and molecule.spectrum is not None:
-                spectrum = molecule.spectrum
-                if hasattr(spectrum, 'lamgrid') and hasattr(spectrum, 'flux_jy'):
-                    lam = spectrum.lamgrid
-                    flux = spectrum.flux_jy  # Use Jy units for consistency
-                    if lam is not None and flux is not None and len(lam) > 0 and len(flux) > 0:
-                        # Interpolate to requested wavelength grid
-                        interpolated_flux = np.interp(wave_data, lam, flux, left=0, right=0)
-                        return wave_data.copy(), interpolated_flux
-            
-            print(f"No valid spectrum data found for molecule {molecule_name}")
+        if molecule is None or wave_data is None:
             return None, None
+        
+        try:
+            # Track cache stats to see if we're hitting or missing
+            initial_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
             
+            # Use prepare_plot_data which has parameter-hash-aware caching
+            # This method checks parameter hash and reuses cached data when parameters return to previous values
+            result = molecule.prepare_plot_data(wave_data)
+            
+            # Check if cache was hit or missed
+            final_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
+            used_cache = final_cache_hits > initial_cache_hits
+            
+            if result is not None and len(result) == 2:
+                plot_lam, plot_flux = result
+                if plot_lam is not None and plot_flux is not None and len(plot_flux) > 0:
+                    cache_status = "from cache" if used_cache else "newly computed"
+                    print(f"Retrieved flux data for {self._get_molecule_display_name(molecule)} ({cache_status})")
+                    return plot_lam, plot_flux
+            
+            print(f"No flux data available for {self._get_molecule_display_name(molecule)}")
+            return None, None
+                
         except Exception as e:
-            print(f"Error getting molecule spectrum: {e}")
+            print(f"Error getting flux data for {self._get_molecule_display_name(molecule)}: {e}")
+            import traceback
+            traceback.print_exc()
             return None, None
     
     def get_molecule_line_data(self, molecule: 'Molecule', xmin: float, xmax: float) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
@@ -957,10 +898,10 @@ class PlotRenderer:
     def render_individual_molecule_spectrum(self, molecule: 'Molecule', wave_data: np.ndarray, 
                                          plot_name: Optional[str] = None) -> bool:
         """
-        Render a single molecule spectrum leveraging intelligent caching.
+        Render a single molecule spectrum using ONLY the molecule's cached data.
         
-        This method uses the molecule's internal caching system and validates
-        cache coherence before attempting to plot.
+        No additional caching layers - complete reliance on molecule's caching system.
+        Enhanced with cache debugging to diagnose 850°→950°→850° issues.
         
         Parameters
         ----------
@@ -977,24 +918,36 @@ class PlotRenderer:
             True if successfully plotted, False otherwise
         """
         try:
-            # Validate and sync cache state with molecule
-            self.sync_molecule_cache(molecule)
+            # Increment render stats
+            self._plot_stats['renders_count'] += 1
             
-            print("Hey whats up man")
-            # Get spectrum data using enhanced caching
+            molecule_name = plot_name or self._get_molecule_display_name(molecule)
+            
+            # Debug cache status before attempting to get spectrum data
+            cache_debug = self.debug_molecule_cache_status(molecule)
+            wave_cache_size = cache_debug.get('wave_data_cache_size', 0)
+            print(f"Rendering {molecule_name} - Cache debug: flux_cache_size={cache_debug.get('flux_cache_size', 0)}, "
+                  f"wave_data_cache_size={wave_cache_size}, "
+                  f"spectrum_cache_size={cache_debug.get('spectrum_cache_size', 0)}, "
+                  f"intensity_cache_size={cache_debug.get('intensity_cache_size', 0)}")
+            if wave_cache_size > 0:
+                print(f"  Wave data cache contains {wave_cache_size} entries with parameter hashes")
+            
+            # Get spectrum data directly from molecule's caching system
             plot_lam, plot_flux = self.get_molecule_spectrum_data(molecule, wave_data)
             
             if plot_lam is None or plot_flux is None:
+                print(f"No spectrum data available for {molecule_name}")
                 return False
             
             # Check if we actually have meaningful flux data
             if len(plot_flux) == 0 or np.all(plot_flux == 0):
+                print(f"Spectrum data is empty or all zeros for {molecule_name}")
                 return False
             
             # Get molecule properties
-            mol_name = plot_name or self._get_molecule_display_name(molecule)
             color = self._get_molecule_color(molecule)
-            label = getattr(molecule, 'displaylabel', mol_name)
+            label = getattr(molecule, 'displaylabel', molecule_name)
             
             # Plot the spectrum
             line, = self.ax1.plot(
@@ -1009,18 +962,22 @@ class PlotRenderer:
             )
             
             self.model_lines.append(line)
+            self._plot_stats['molecules_rendered'] += 1
+            
+            print(f"Successfully rendered spectrum for {molecule_name} with {len(plot_flux)} data points")
             return True
             
         except Exception as e:
             print(f"Error plotting molecule {self._get_molecule_display_name(molecule)}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def get_intensity_data(self, molecule: 'Molecule') -> Optional[pd.DataFrame]:
         """
-        Get intensity table leveraging molecule's internal caching system.
+        Get intensity table directly from molecule's caching system.
         
-        This method uses the molecule's internal intensity caching and validation
-        to avoid redundant intensity calculations.
+        Fixed to properly access molecule's intensity object using standard methods.
         
         Parameters
         ----------
@@ -1036,146 +993,130 @@ class PlotRenderer:
             if not hasattr(molecule, 'intensity') or molecule.intensity is None:
                 return None
                 
+            molecule_name = self._get_molecule_display_name(molecule)
             intensity_obj = molecule.intensity
             
-            # Use molecule's intelligent intensity calculation (leverages internal caching)
-            if hasattr(molecule, 'calculate_intensity'):
-                molecule.calculate_intensity()  # This uses molecule's internal caching
-            elif hasattr(molecule, '_ensure_intensity_initialized'):
-                molecule._ensure_intensity_initialized()
+            # Track cache stats to see if molecule computation was cached
+            initial_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
             
-            # Method 1: Use get_table property/method
+            # Ensure intensity is calculated (this uses molecule's internal caching)
+            if hasattr(molecule, 'calculate_intensity'):
+                molecule.calculate_intensity()
+            
+            # Check if cache was used
+            final_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
+            used_cache = final_cache_hits > initial_cache_hits
+            cache_status = "from cache" if used_cache else "newly computed"
+            
+            # Get the intensity table from the intensity object
             if hasattr(intensity_obj, 'get_table'):
                 table = intensity_obj.get_table
                 if table is not None:
                     # Reset index for consistent access
                     if hasattr(table, 'index'):
                         table.index = range(len(table.index))
+                    print(f"Retrieved intensity table for {molecule_name} ({cache_status})")
                     return table
             
-            # Method 2: Build from MoleculeLineList and intensity arrays
-            if hasattr(molecule, 'lines') and molecule.lines is not None:
-                lines = molecule.lines
-                
-                # Get line data efficiently
-                if hasattr(lines, 'get_pandas_table'):
-                    line_df = lines.get_pandas_table()
-                    if line_df is not None:
-                        # Add intensity data
-                        if hasattr(intensity_obj, 'intensity') and intensity_obj.intensity is not None:
-                            line_df = line_df.copy()
-                            line_df['intens'] = intensity_obj.intensity[:len(line_df)]
-                            
-                            # Add tau if available
-                            if hasattr(intensity_obj, 'tau') and intensity_obj.tau is not None:
-                                line_df['tau'] = intensity_obj.tau[:len(line_df)]
-                            
-                            return line_df
-                
-                # Fallback: Build from lines_as_namedtuple
-                elif hasattr(lines, 'lines_as_namedtuple'):
-                    line_data = lines.lines_as_namedtuple
-                    if line_data is not None and hasattr(intensity_obj, 'intensity'):
-                        intensity_array = intensity_obj.intensity
-                        tau_array = getattr(intensity_obj, 'tau', None)
-                        
-                        # Build DataFrame
-                        data = {
-                            'lam': line_data.lam,
-                            'intens': intensity_array[:len(line_data.lam)],
-                            'a_stein': line_data.a_stein,
-                            'g_up': line_data.g_up,
-                            'e_up': line_data.e_up,
-                            'e_low': getattr(line_data, 'e_low', None),
-                            'g_low': getattr(line_data, 'g_low', None)
-                        }
-                        
-                        if tau_array is not None:
-                            data['tau'] = tau_array[:len(line_data.lam)]
-                        
-                        return pd.DataFrame(data)
-            
             return None
             
         except Exception as e:
-            print(f"Error getting intensity table: {e}")
+            print(f"Error getting intensity table for {self._get_molecule_display_name(molecule)}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
         
-    def validate_cache_coherence(self, molecule: 'Molecule') -> bool:
-        try:
-            if molecule is None:
-                return True
-                
-            molecule_name = self._get_molecule_display_name(molecule)
-            
-            if hasattr(molecule, 'is_cache_valid') and not molecule.is_cache_valid('spectrum'):
-                if molecule_name in self._plot_cache['spectrum_plots']:
-                    del self._plot_cache['spectrum_plots'][molecule_name]
-                return False
-            
-            return True
-        except Exception as e:
-            print(f"Error validating cache coherence: {e}")
-            return False
-    
-    def sync_molecule_cache(self, molecule: 'Molecule') -> None:
-        try:
-            if molecule is None:
-                return
-                
-            molecule_name = self._get_molecule_display_name(molecule)
-            
-            if not self.validate_cache_coherence(molecule):
-                current_hash = self._get_molecule_parameters_hash(molecule)
-                self._plot_cache['spectrum_plots'][molecule_name] = current_hash
-                
-                pop_cache = self._plot_cache['population_diagram']
-                if pop_cache['molecule_id'] == molecule_name:
-                    pop_cache['param_hash'] = current_hash
-                
-        except Exception as e:
-            print(f"Error syncing with molecule cache: {e}")
-            
-    def get_cache_debug_info(self, molecule: 'Molecule' = None) -> Dict[str, Any]:
-        """
-        Get detailed cache debugging information.
-        
-        Parameters
-        ----------
-        molecule : Molecule, optional
-            Specific molecule to get debug info for
-            
-        Returns
-        -------
-        Dict[str, Any]
-            Debug information about cache states
-        """
-        debug_info = {
-            'plot_cache_stats': self.get_plot_performance_stats(),
-            'population_diagram_cache': self._plot_cache['population_diagram'].copy(),
-            'spectrum_plots_cache': self._plot_cache['spectrum_plots'].copy(),
-            'line_threshold_settings': {
-                'threshold_percent': self.get_line_intensity_threshold() * 100,
-                'threshold_value': self.get_line_intensity_threshold()
-            }
+    def get_plot_performance_stats(self) -> Dict[str, Any]:
+        """Get simplified performance statistics"""
+        return {
+            'model_lines_count': len(self.model_lines),
+            'active_lines_count': len(self.active_lines),
+            'total_renders': self._plot_stats.get('renders_count', 0),
+            'molecules_rendered': self._plot_stats.get('molecules_rendered', 0),
+            'caching_strategy': 'molecule_only'  # Document our strategy
         }
+    
+    def debug_molecule_cache_status(self, molecule: 'Molecule') -> Dict[str, Any]:
+        """
+        Debug the cache status of a molecule to understand why plots aren't updating.
         
-        if molecule is not None:
+        This helps diagnose issues like 850°→950°→850° not updating correctly.
+        """
+        if molecule is None:
+            return {'error': 'No molecule provided'}
+        
+        try:
             molecule_name = self._get_molecule_display_name(molecule)
-            debug_info['molecule_specific'] = {
-                'name': molecule_name,
-                'current_param_hash': self._get_molecule_parameters_hash(molecule),
-                'cached_param_hash': self._plot_cache['spectrum_plots'].get(molecule_name),
-                'cache_coherent': self.validate_cache_coherence(molecule),
-                'molecule_spectrum_valid': getattr(molecule, '_spectrum_valid', 'unknown'),
-                'molecule_intensity_valid': getattr(molecule, '_intensity_valid', 'unknown'),
-                'molecule_has_plot_data': (
-                    hasattr(molecule, 'plot_lam') and molecule.plot_lam is not None and
-                    hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None
-                )
+            debug_info = {
+                'molecule_name': molecule_name,
+                'molecule_id': id(molecule),
+                'has_intensity': hasattr(molecule, 'intensity') and molecule.intensity is not None,
+                'has_spectrum': hasattr(molecule, 'spectrum') and molecule.spectrum is not None,
+                'has_lines': hasattr(molecule, 'lines') and molecule.lines is not None,
             }
             
-        return debug_info
+            # Check parameter hash methods
+            debug_info['parameter_hash_methods'] = []
+            if hasattr(molecule, 'get_parameter_hash'):
+                debug_info['parameter_hash_methods'].append('get_parameter_hash')
+                try:
+                    debug_info['current_spectrum_hash'] = molecule.get_parameter_hash('spectrum')
+                    debug_info['current_intensity_hash'] = molecule.get_parameter_hash('intensity')
+                    debug_info['current_full_hash'] = molecule.get_parameter_hash('full')
+                except Exception as e:
+                    debug_info['hash_error'] = str(e)
+            
+            if hasattr(molecule, '_compute_spectrum_parameter_hash'):
+                debug_info['parameter_hash_methods'].append('_compute_spectrum_parameter_hash')
+            if hasattr(molecule, '_compute_intensity_parameter_hash'):
+                debug_info['parameter_hash_methods'].append('_compute_intensity_parameter_hash')
+            
+            # Check cache attributes
+            debug_info['cache_attributes'] = []
+            if hasattr(molecule, '_flux_cache'):
+                debug_info['cache_attributes'].append('_flux_cache')
+                debug_info['flux_cache_size'] = len(molecule._flux_cache) if molecule._flux_cache else 0
+                if molecule._flux_cache:
+                    debug_info['flux_cache_keys'] = list(molecule._flux_cache.keys())
+            
+            if hasattr(molecule, '_wave_data_cache'):
+                debug_info['cache_attributes'].append('_wave_data_cache')
+                debug_info['wave_data_cache_size'] = len(molecule._wave_data_cache) if molecule._wave_data_cache else 0
+                if molecule._wave_data_cache:
+                    debug_info['wave_data_cache_keys'] = list(molecule._wave_data_cache.keys())
+            
+            if hasattr(molecule, '_intensity_cache'):
+                debug_info['cache_attributes'].append('_intensity_cache')
+                debug_info['intensity_cache_size'] = len(molecule._intensity_cache) if molecule._intensity_cache else 0
+                if molecule._intensity_cache:
+                    debug_info['intensity_cache_keys'] = list(molecule._intensity_cache.keys())
+            
+            if hasattr(molecule, '_spectrum_cache'):
+                debug_info['cache_attributes'].append('_spectrum_cache')
+                debug_info['spectrum_cache_size'] = len(molecule._spectrum_cache) if molecule._spectrum_cache else 0
+                if molecule._spectrum_cache:
+                    debug_info['spectrum_cache_keys'] = list(molecule._spectrum_cache.keys())
+            
+            # Check current parameter values
+            debug_info['current_parameters'] = {}
+            for param in ['temp', 'radius', 'n_mol', 'distance', 'fwhm', 'broad']:
+                if hasattr(molecule, param):
+                    debug_info['current_parameters'][param] = getattr(molecule, param)
+            
+            # Check if molecule reports its cache as valid
+            debug_info['cache_validity'] = {}
+            if hasattr(molecule, 'is_cache_valid'):
+                try:
+                    debug_info['cache_validity']['spectrum'] = molecule.is_cache_valid('spectrum')
+                    debug_info['cache_validity']['intensity'] = molecule.is_cache_valid('intensity')
+                    debug_info['cache_validity']['full'] = molecule.is_cache_valid('full')
+                except Exception as e:
+                    debug_info['cache_validity']['error'] = str(e)
+            
+            return debug_info
+            
+        except Exception as e:
+            return {'error': f"Error debugging molecule cache: {e}"}
     
     def get_line_intensity_threshold(self) -> float:
         """

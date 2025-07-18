@@ -97,7 +97,8 @@ class Molecule:
         
         if parameter_name in self.FLUX_AFFECTING_PARAMS:
             self._flux_cache.clear()
-            self._wave_data_cache.clear()
+            # DO NOT clear _wave_data_cache - it uses parameter hashes for validation
+            # and should persist across parameter changes to enable cache restoration
     
     def __init__(self, **kwargs):
         self._initialize_caching_system()
@@ -377,9 +378,8 @@ class Molecule:
 
     def _clear_flux_caches(self):
         self._flux_cache.clear()
-        self._wave_data_cache.clear()
-        self.plot_lam = None
-        self.plot_flux = None
+        # DO NOT clear _wave_data_cache - it uses parameter hashes for validation
+        # and should persist across parameter changes to enable cache restoration
         self.plot_lam = None
         self.plot_flux = None
 
@@ -437,24 +437,26 @@ class Molecule:
     def prepare_plot_data(self, wave_data):
         """Prepare plot data for given wavelength array, using caching for efficiency"""
         wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        current_param_hash = self._compute_full_parameter_hash()
         
-        if wave_data_hash in self._wave_data_cache:
-            cached_entry = self._wave_data_cache[wave_data_hash]
-            if cached_entry['param_hash'] == self._compute_full_parameter_hash():
-                self.plot_lam = cached_entry['lam']
-                self.plot_flux = cached_entry['flux']
-                self._cache_stats['hits'] += 1
-                return (self.plot_lam, self.plot_flux)
+        # Create composite cache key from both wavelength and parameters
+        cache_key = (wave_data_hash, current_param_hash)
+        
+        if cache_key in self._wave_data_cache:
+            cached_entry = self._wave_data_cache[cache_key]
+            self.plot_lam = cached_entry['lam']
+            self.plot_flux = cached_entry['flux']
+            self._cache_stats['hits'] += 1
+            return (self.plot_lam, self.plot_flux)
         
         flux = self.get_flux(wave_data)
         
         self.plot_lam = wave_data.copy()
         self.plot_flux = flux
         
-        self._wave_data_cache[wave_data_hash] = {
+        self._wave_data_cache[cache_key] = {
             'lam': self.plot_lam,
-            'flux': self.plot_flux,
-            'param_hash': self._compute_full_parameter_hash()
+            'flux': self.plot_flux
         }
         
         if len(self._wave_data_cache) > 20:
