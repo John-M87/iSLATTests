@@ -449,35 +449,22 @@ class MoleculeWindow:
                 if "color_btn" in props:
                     props["color_btn"].config(bg=mol_obj.color)
         
+        # Force cache invalidation for flux calculations
+        if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            # Clear all flux caches since molecules may have changed
+            self.islat.molecules_dict._summed_flux_cache.clear()
+            self.islat.molecules_dict.fluxes.clear()
+        
         # Update the model spectrum and plots using coordinator
         if hasattr(self.islat, 'request_update'):
             self.islat.request_update('model_spectrum')
             self.islat.request_update('plots')
+            self.islat.request_update('population_diagram')
+            print("Hey!")
         else:
-            # Fallback to direct update
+            # Fallback to direct update - ensure all three plots are updated
             self.islat.update_model_spectrum()
             self.plot.update_all_plots()
-
-    def apply_theme(self, theme=None):
-        """Public method to apply theme to the molecule window and all its widgets"""
-        if theme:
-            self.theme = theme
-            
-        # Apply theme to main frame
-        self._apply_theme_to_frame()
-        
-        # Apply theme to canvas and scrollbar
-        self._apply_theme_to_canvas_and_scrollbar()
-        
-        # Apply theme to all widgets in the scrollable frame
-        if hasattr(self, 'scrollable_frame'):
-            self._apply_theme_to_widget(self.scrollable_frame)
-
-    def _ensure_molecule_colors_initialized(self):
-        """Ensure all molecules have colors assigned"""
-        default_colors = self.theme.get("default_molecule_colors", ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7"])
-        
-        for i, (mol_name, mol_obj) in enumerate(self.islat.molecules_dict.items()):
-            if not hasattr(mol_obj, 'color') or mol_obj.color is None:
-                color = default_colors[i % len(default_colors)]
-                mol_obj.color = color
+            # Explicitly trigger population diagram update for active molecule
+            if hasattr(self.plot, 'on_active_molecule_changed'):
+                self.plot.on_active_molecule_changed()

@@ -463,3 +463,39 @@ def load_input_line_list(file_path=None, file_name=None):
         return
     
     return file_path, file_name
+
+def load_control_panel_fields_config(file_path=None, file_name="ControlPanelFields.json"):
+    """
+    load_control_panel_fields_config() loads the control panel field definitions from the ControlPanelFields.json file.
+    Returns a dictionary containing global_fields and molecule_fields configurations.
+    """
+    if file_path is None:
+        # Get the directory of this module and construct the path to the config directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # Go up to iSLAT directory and then to DATAFILES/CONFIG
+        file_path = os.path.join(current_dir, "..", "..", "DATAFILES", "CONFIG")
+    
+    file = os.path.join(file_path, file_name)
+    try:
+        with open(file, 'r') as f:
+            config = json.load(f)
+        
+        # Convert string datatype names to actual types
+        for field_dict in [config.get('global_fields', {}), config.get('molecule_fields', {})]:
+            for field_key, field_config in field_dict.items():
+                # Skip documentation fields that start with underscore
+                if 'datatype' in field_config:
+                    datatype_str = field_config['datatype']
+                    if datatype_str == 'float':
+                        field_config['datatype'] = float
+                    elif datatype_str == 'int':
+                        field_config['datatype'] = int
+                    elif datatype_str == 'str':
+                        field_config['datatype'] = str
+                    # Add other datatypes as needed
+        
+        return config
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading control panel fields config: {e}")
+        # Return default configuration if file is missing or invalid
+        return {"global_fields": {}, "molecule_fields": {}}

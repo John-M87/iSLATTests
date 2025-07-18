@@ -35,38 +35,27 @@ class Molecule:
     """
     Optimized Molecule class with enhanced caching and performance improvements.
     """
-    # Class-level optimizations
     __slots__ = (
-        # Core attributes
         'name', 'filepath', 'displaylabel', 'color', 'is_visible', 'stellar_rv',
         'user_save_data', 'hitran_data', 'initial_molecule_parameters',
         'lines', 'intensity', 'spectrum',
-        
-        # Physical parameters (private)
         '_temp', '_radius', '_n_mol', '_distance', '_fwhm', '_broad',
-        
-        # Temporary attributes for initialization
         '_temp_val', '_radius_val', '_n_mol_val', '_distance_val', '_fwhm_val', '_broad_val',
         '_lines_filepath',
-        
-        # Derived parameters
         't_kin', 'scale_exponent', 'scale_number', 'radius_init', 'n_mol_init',
         'wavelength_range', 'model_pixel_res', 'model_line_width',
-        
-        # Plot data
         'plot_lam', 'plot_flux',
-        
-        # Caching and validation
-        '_flux_cache', '_spectrum_valid', '_intensity_valid', '_interpolated_flux_cache',
-        '_parameter_hash', '_last_wave_data_hash'
+        '_intensity_cache', '_spectrum_cache', '_flux_cache', '_wave_data_cache',
+        '_param_hash_cache', '_dirty_flags', '_cache_stats'
     )
     
-    # Callbacks to notify when individual molecule parameters change
     _molecule_parameter_change_callbacks = []
-    
-    # Cache for expensive calculations shared across molecules
     _shared_calculation_cache = {}
     _cache_lock = threading.Lock()
+    
+    INTENSITY_AFFECTING_PARAMS = {'temp', 'n_mol', 'broad'}
+    SPECTRUM_AFFECTING_PARAMS = {'distance', 'fwhm', 'stellar_rv'}
+    FLUX_AFFECTING_PARAMS = INTENSITY_AFFECTING_PARAMS | SPECTRUM_AFFECTING_PARAMS
     
     @classmethod
     def add_molecule_parameter_change_callback(cls, callback):
@@ -89,28 +78,33 @@ class Molecule:
                 print(f"Error in molecule parameter change callback: {e}")
     
     def _notify_my_parameter_change(self, parameter_name, old_value, new_value):
-        """Notify that this specific molecule's parameter has changed"""
-        self._invalidate_parameter_hash()  # Invalidate parameter hash
+        if old_value == new_value:
+            return
+        
+        self._invalidate_caches_for_parameter(parameter_name)
         self.__class__._notify_molecule_parameter_change(self.name, parameter_name, old_value, new_value)
     
-    def __init__(self, **kwargs):
-        """
-        Initialize a molecule with its parameters.
-        Optimized with better caching and lazy initialization.
-        """
-        # Initialize caching system with enhanced features
-        self._flux_cache = {}
-        self._spectrum_valid = False
-        self._intensity_valid = False
-        self._interpolated_flux_cache = {}
-        self._parameter_hash = None
-        self._last_wave_data_hash = None
+    def _invalidate_caches_for_parameter(self, parameter_name):
+        if parameter_name in self.INTENSITY_AFFECTING_PARAMS:
+            self._dirty_flags['intensity'] = True
+            self._dirty_flags['spectrum'] = True
+            self._dirty_flags['flux'] = True
+        elif parameter_name in self.SPECTRUM_AFFECTING_PARAMS:
+            self._dirty_flags['spectrum'] = True
+            self._dirty_flags['flux'] = True
+        else:
+            self._dirty_flags['flux'] = True
         
-        # Initialize plot data as None (lazy loading)
+        if parameter_name in self.FLUX_AFFECTING_PARAMS:
+            self._flux_cache.clear()
+            self._wave_data_cache.clear()
+    
+    def __init__(self, **kwargs):
+        self._initialize_caching_system()
+        
         self.plot_lam = None
         self.plot_flux = None
         
-        # Load user saved data if provided
         if 'hitran_data' in kwargs:
             print("Generating new molecule from default parameters.")
             self.user_save_data = None
@@ -125,7 +119,6 @@ class Molecule:
 
         self.initial_molecule_parameters = kwargs.get('initial_molecule_parameters', {})
 
-        # Initialize default values first to ensure all attributes exist
         self._temp_val = None
         self._radius_val = None  
         self._n_mol_val = None
@@ -133,21 +126,16 @@ class Molecule:
         self._fwhm_val = None
         self._broad_val = None
 
-        # Process user save data or use kwargs
         if self.user_save_data is not None:
             self._load_from_user_save_data(kwargs)
         else:
             self._load_from_kwargs(kwargs)
 
-        # Set all instance-level parameters
-        # Load molecular line data from file (lazy loading)
-        self.lines = None  # Will be loaded when needed
+        self.lines = None
         self._lines_filepath = self.filepath
         
-        # Calculate derived parameters
         self.n_mol_init = float(self.scale_number * (10 ** self.scale_exponent))
         
-        # Initialize private attributes for properties with safe defaults
         self._temp = float(self._temp_val if self._temp_val is not None else self.t_kin)
         self._radius = float(self._radius_val if self._radius_val is not None else self.radius_init)
         self._n_mol = float(self._n_mol_val if self._n_mol_val is not None else self.n_mol_init)
@@ -159,12 +147,43 @@ class Molecule:
         self.model_pixel_res = kwargs.get('model_pixel_res', c.MODEL_PIXEL_RESOLUTION)
         self.model_line_width = kwargs.get('model_line_width', c.MODEL_LINE_WIDTH)
 
-        # Defer intensity and spectrum creation until needed (lazy loading)
         self.intensity = None
         self.spectrum = None
         
-        # Calculate initial parameter hash
-        self._calculate_parameter_hash()
+        self._calculate_initial_parameter_hashes()
+    
+    def _initialize_caching_system(self):
+        self._intensity_cache = {'data': None, 'hash': None}
+        self._spectrum_cache = {'data': None, 'hash': None}
+        self._flux_cache = {}
+        self._wave_data_cache = {}
+        self._param_hash_cache = {}
+        self._dirty_flags = {
+            'intensity': True,
+            'spectrum': True, 
+            'flux': True
+        }
+        self._cache_stats = {
+            'hits': 0,
+            'misses': 0,
+            'invalidations': 0
+        }
+    
+    def _calculate_initial_parameter_hashes(self):
+        self._param_hash_cache = {
+            'intensity': self._compute_intensity_hash(),
+            'spectrum': self._compute_spectrum_hash(),
+            'full': self._compute_full_parameter_hash()
+        }
+    
+    def _compute_intensity_hash(self):
+        return hash((self._temp, self._n_mol, self._broad))
+    
+    def _compute_spectrum_hash(self):
+        return hash((self._distance, self._fwhm, self.stellar_rv, self._compute_intensity_hash()))
+    
+    def _compute_full_parameter_hash(self):
+        return hash((self._compute_spectrum_hash(), self._radius))
 
     def _load_from_user_save_data(self, kwargs):
         """Load parameters from user save data"""
@@ -214,7 +233,6 @@ class Molecule:
         self.radius_init = self.initial_molecule_parameters.get('radius_init', self._radius_val if self._radius_val is not None else 1.0)
         
     def _ensure_lines_loaded(self):
-        """Ensure molecular line data is loaded (lazy loading)"""
         if self.lines is None:
             if self._lines_filepath:
                 print("Loading lines from filepath:", self._lines_filepath)
@@ -223,34 +241,112 @@ class Molecule:
                 print("Creating empty line list")
                 self.lines = MoleculeLineList(molecule_id=self.name)
     
-    def _ensure_intensity_initialized(self):
-        """Ensure intensity object is initialized (lazy loading)"""
+    def _ensure_intensity_calculated(self):
+        if self._dirty_flags['intensity'] or self._intensity_cache['data'] is None:
+            self._calculate_intensity_with_caching()
+    
+    def _ensure_spectrum_calculated(self):
+        self._ensure_intensity_calculated()
+        if self._dirty_flags['spectrum'] or self._spectrum_cache['data'] is None:
+            self._calculate_spectrum_with_caching()
+    
+    def _calculate_intensity_with_caching(self):
+        current_hash = self._compute_intensity_hash()
+        
+        if (self._intensity_cache['hash'] == current_hash and 
+            self._intensity_cache['data'] is not None):
+            self._cache_stats['hits'] += 1
+            return
+        
+        cache_key = (self.name, current_hash)
+        with self._cache_lock:
+            if cache_key in self._shared_calculation_cache:
+                cached_data = self._shared_calculation_cache[cache_key]
+                self._intensity_cache = {
+                    'data': cached_data,
+                    'hash': current_hash
+                }
+                self._cache_stats['hits'] += 1
+                return
+        
+        self._ensure_lines_loaded()
+        
         if self.intensity is None:
-            self._ensure_lines_loaded()
             Intensity = _get_intensity_module()
             self.intensity = Intensity(self.lines)
-            self._intensity_valid = False  # Mark as needing calculation
+        
+        print(f"Calculating intensity for {self.name}: T={self._temp}K, N_mol={self._n_mol:.2e}, dv={self._broad}")
+        
+        self.intensity.calc_intensity(
+            t_kin=self._temp,
+            n_mol=self._n_mol,
+            dv=self._broad
+        )
+        
+        intensity_data = {
+            'intensity_array': self.intensity._intensity.copy() if self.intensity._intensity is not None else None,
+            'tau_array': self.intensity._tau.copy() if self.intensity._tau is not None else None
+        }
+        
+        self._intensity_cache = {
+            'data': intensity_data,
+            'hash': current_hash
+        }
+        
+        with self._cache_lock:
+            self._shared_calculation_cache[cache_key] = intensity_data
+            if len(self._shared_calculation_cache) > 100:
+                oldest_keys = list(self._shared_calculation_cache.keys())[:10]
+                for key in oldest_keys:
+                    del self._shared_calculation_cache[key]
+        
+        self._dirty_flags['intensity'] = False
+        self._param_hash_cache['intensity'] = current_hash
+        self._cache_stats['misses'] += 1
     
-    def _ensure_spectrum_initialized(self):
-        """Ensure spectrum object is initialized (lazy loading)"""
-        if self.spectrum is None:
-            self._ensure_intensity_initialized()
-            Spectrum = _get_spectrum_module()
-            self.spectrum = Spectrum(
-                lam_min=self.wavelength_range[0],
-                lam_max=self.wavelength_range[1],
-                dlambda=self.model_pixel_res,
-                R=self.model_line_width,
-                distance=self._distance
-            )
-            self._spectrum_valid = False  # Mark as needing update
+    def _calculate_spectrum_with_caching(self):
+        current_hash = self._compute_spectrum_hash()
+        
+        if (self._spectrum_cache['hash'] == current_hash and 
+            self._spectrum_cache['data'] is not None):
+            self._cache_stats['hits'] += 1
+            return
+            
+        self._ensure_intensity_calculated()
+        
+        # Always recreate spectrum when parameters change
+        Spectrum = _get_spectrum_module()
+        mean_wavelength = (self.wavelength_range[0] + self.wavelength_range[1]) / 2.0
+        delta_lambda = mean_wavelength * (self._fwhm / 299792.458)
+        spectral_resolution = mean_wavelength / delta_lambda if delta_lambda > 0 else self.model_line_width
+        
+        self.spectrum = Spectrum(
+            lam_min=self.wavelength_range[0],
+            lam_max=self.wavelength_range[1],
+            dlambda=self.model_pixel_res,
+            R=spectral_resolution,
+            distance=self._distance
+        )
+        
+        area = np.pi * (self._radius) ** 2  # Area in AU^2 as expected by add_intensity
+        self.spectrum.add_intensity(self.intensity, area)
+        
+        self._spectrum_cache = {
+            'data': self.spectrum,
+            'hash': current_hash
+        }
+        
+        self._dirty_flags['spectrum'] = False
+        self._param_hash_cache['spectrum'] = current_hash
+        self._cache_stats['misses'] += 1
     
     def _calculate_parameter_hash(self):
         """Calculate a hash of current parameters for cache validation"""
         param_tuple = (
             self._temp, self._radius, self._n_mol, self._distance, 
             self._fwhm, self._broad, self.wavelength_range, 
-            self.model_pixel_res, self.model_line_width
+            self.model_pixel_res, self.model_line_width,
+            getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)  # Include stellar RV in hash
         )
         self._parameter_hash = hash(param_tuple)
     
@@ -259,177 +355,111 @@ class Molecule:
         self._parameter_hash = None
 
     def calculate_intensity(self):
-        """Calculate intensity only if not cached or if parameters changed"""
-        if self._intensity_valid and self._parameter_hash is not None:
-            return
-            
-        self._ensure_intensity_initialized()
-        
-        # Calculate current parameter hash
-        current_hash = self._get_current_parameter_hash()
-        
-        # Check if we can use cached calculation
-        cache_key = (self.name, current_hash)
-        with self._cache_lock:
-            if cache_key in self._shared_calculation_cache:
-                cached_result = self._shared_calculation_cache[cache_key]
-                # Copy cached intensity data
-                self.intensity._intensity = cached_result['intensity'].copy() if cached_result['intensity'] is not None else None
-                self.intensity._tau = cached_result['tau'].copy() if cached_result['tau'] is not None else None
-                self._intensity_valid = True
-                self._spectrum_valid = False
-                self._clear_flux_caches()
-                return
-            
-        t_kin = getattr(self, '_temp', self.t_kin)
-        n_mol = getattr(self, '_n_mol', self.n_mol_init)
-        dv = getattr(self, '_fwhm', c.FWHM_TOLERANCE)
-        
-        self.intensity.calc_intensity(
-            t_kin=t_kin,
-            n_mol=n_mol,
-            dv=dv
-        )
-        
-        # Cache the result for other molecules with same parameters
-        with self._cache_lock:
-            self._shared_calculation_cache[cache_key] = {
-                'intensity': self.intensity._intensity.copy() if self.intensity._intensity is not None else None,
-                'tau': self.intensity._tau.copy() if self.intensity._tau is not None else None
-            }
-            # Limit cache size to prevent memory issues
-            if len(self._shared_calculation_cache) > 100:
-                # Remove oldest entries
-                keys_to_remove = list(self._shared_calculation_cache.keys())[:10]
-                for key in keys_to_remove:
-                    del self._shared_calculation_cache[key]
-        
-        # Mark intensity as valid and invalidate spectrum
-        self._intensity_valid = True
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
-        # Update parameter hash
-        self._parameter_hash = current_hash
-        
-        # Notify that intensity has been recalculated
-        self._notify_my_parameter_change('intensity_recalculated', None, None)
+        self._ensure_intensity_calculated()
+    
+    def get_parameter_hash(self, cache_type='full'):
+        if cache_type in self._param_hash_cache:
+            return self._param_hash_cache[cache_type]
+        return self._compute_full_parameter_hash()
 
     def _get_current_parameter_hash(self):
         """Get hash of current parameters for intensity calculation"""
         param_tuple = (
             getattr(self, '_temp', self.t_kin),
             getattr(self, '_n_mol', self.n_mol_init),
-            getattr(self, '_fwhm', c.FWHM_TOLERANCE),
+            getattr(self, '_broad', c.INTRINSIC_LINE_WIDTH),  # Use broad for intensity dv parameter
+            getattr(self, '_fwhm', c.DEFAULT_FWHM),  # Include FWHM for spectrum resolution
+            getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV),  # Include stellar RV
             # Include line data hash if available
             hash(str(self.lines.molecule_id)) if self.lines else 0
         )
         return hash(param_tuple)
 
     def _clear_flux_caches(self):
-        """Clear all cached flux data"""
         self._flux_cache.clear()
-        self._interpolated_flux_cache.clear()
-        # Reset plot data
+        self._wave_data_cache.clear()
+        self.plot_lam = None
+        self.plot_flux = None
         self.plot_lam = None
         self.plot_flux = None
 
     def get_flux(self, wavelength_array):
-        """Get flux with enhanced caching for performance"""
-        # Create a cache key from the wavelength array
+        """Get flux for given wavelength array with improved caching"""
         try:
             cache_key = hash(wavelength_array.tobytes()) if hasattr(wavelength_array, 'tobytes') else str(wavelength_array)
-        except (TypeError, ValueError) as e:
-            # If hashing fails, use string representation as fallback
+        except (TypeError, ValueError):
             cache_key = f"fallback_{id(wavelength_array)}"
         
-        # Check parameter hash for cache validity
-        current_param_hash = self._get_current_parameter_hash()
-        cache_entry = self._interpolated_flux_cache.get(cache_key)
+        current_param_hash = self._compute_full_parameter_hash()
+        cache_entry = self._flux_cache.get(cache_key)
         
         if (cache_entry is not None and 
-            cache_entry.get('param_hash') == current_param_hash and 
-            self._spectrum_valid):
+            cache_entry.get('param_hash') == current_param_hash):
+            self._cache_stats['hits'] += 1
             return cache_entry['flux']
         
-        # Ensure spectrum is valid
-        self._ensure_spectrum_valid()
+        # Ensure we have a valid spectrum
+        self._ensure_spectrum_calculated()
         
+        if self.spectrum is None:
+            print(f"Warning: No spectrum available for molecule {self.name}")
+            return np.zeros_like(wavelength_array)
+        
+        # Get the spectrum data
         lam_grid = self.spectrum._lamgrid
-        flux_grid = self.spectrum.flux
-        interpolated_flux = np.interp(wavelength_array, lam_grid, flux_grid)
+        flux_grid = self.spectrum.flux_jy  # Use Jy units for consistency with observed data
         
-        # Cache the result with parameter hash
-        self._interpolated_flux_cache[cache_key] = {
+        if lam_grid is None or flux_grid is None:
+            print(f"Warning: Invalid spectrum data for molecule {self.name}")
+            return np.zeros_like(wavelength_array)
+        
+        # Interpolate to the requested wavelength grid
+        interpolated_flux = np.interp(wavelength_array, lam_grid, flux_grid, left=0, right=0)
+        
+        # Cache the result
+        self._flux_cache[cache_key] = {
             'flux': interpolated_flux,
             'param_hash': current_param_hash
         }
         
         # Limit cache size
-        if len(self._interpolated_flux_cache) > 50:
-            # Remove oldest entries (simple FIFO)
-            keys_to_remove = list(self._interpolated_flux_cache.keys())[:10]
-            for key in keys_to_remove:
-                del self._interpolated_flux_cache[key]
-        
-        return interpolated_flux
-    
-    def _ensure_spectrum_valid(self):
-        """Ensure spectrum is calculated and up to date"""
-        if not self._spectrum_valid:
-            if not self._intensity_valid:
-                self.calculate_intensity()
-            self._update_spectrum()
-            self._spectrum_valid = True
-    
-    def prepare_plot_data(self, wave_data):
-        """
-        Prepares wavelength and flux data aligned to the global observational wavelength grid.
-        Uses enhanced caching for performance.
-
-        Args:
-            wave_data (np.ndarray): The wavelength grid (microns) used for observational data and plots.
-
-        Returns:
-            tuple: (wavelength array, flux array) matching wave_data
-        """
-        self._ensure_spectrum_initialized()
-        
-        # Create cache key for this wave_data
-        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
-        current_param_hash = self._get_current_parameter_hash()
-        
-        # Check if we have cached data that's still valid
-        cache_entry = self._flux_cache.get(wave_data_hash)
-        if (cache_entry is not None and 
-            cache_entry.get('param_hash') == current_param_hash and 
-            self._spectrum_valid):
-            self.plot_lam, self.plot_flux = cache_entry['data']
-            return (self.plot_lam, self.plot_flux)
-        
-        # Ensure spectrum is valid before interpolation
-        self._ensure_spectrum_valid()
-        
-        # Interpolate molecule flux onto the global wavelength grid
-        interpolated_flux = np.interp(wave_data, self.spectrum.lamgrid, self.spectrum.flux_jy, left=0, right=0)
-        
-        # Store results
-        self.plot_lam = wave_data
-        self.plot_flux = interpolated_flux
-        
-        # Cache the results with parameter hash
-        self._flux_cache[wave_data_hash] = {
-            'data': (self.plot_lam, self.plot_flux),
-            'param_hash': current_param_hash
-        }
-        
-        # Limit cache size
-        if len(self._flux_cache) > 20:
-            # Remove oldest entries
-            keys_to_remove = list(self._flux_cache.keys())[:5]
-            for key in keys_to_remove:
+        if len(self._flux_cache) > 50:
+            oldest_keys = list(self._flux_cache.keys())[:10]
+            for key in oldest_keys:
                 del self._flux_cache[key]
         
+        self._cache_stats['misses'] += 1
+        return interpolated_flux
+    
+    def prepare_plot_data(self, wave_data):
+        """Prepare plot data for given wavelength array, using caching for efficiency"""
+        wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else str(wave_data)
+        
+        if wave_data_hash in self._wave_data_cache:
+            cached_entry = self._wave_data_cache[wave_data_hash]
+            if cached_entry['param_hash'] == self._compute_full_parameter_hash():
+                self.plot_lam = cached_entry['lam']
+                self.plot_flux = cached_entry['flux']
+                self._cache_stats['hits'] += 1
+                return (self.plot_lam, self.plot_flux)
+        
+        flux = self.get_flux(wave_data)
+        
+        self.plot_lam = wave_data.copy()
+        self.plot_flux = flux
+        
+        self._wave_data_cache[wave_data_hash] = {
+            'lam': self.plot_lam,
+            'flux': self.plot_flux,
+            'param_hash': self._compute_full_parameter_hash()
+        }
+        
+        if len(self._wave_data_cache) > 20:
+            oldest_keys = list(self._wave_data_cache.keys())[:5]
+            for key in oldest_keys:
+                del self._wave_data_cache[key]
+        
+        self._cache_stats['misses'] += 1
         return (self.plot_lam, self.plot_flux)
 
     @property
@@ -439,175 +469,108 @@ class Molecule:
     
     @temp.setter
     def temp(self, value):
-        """Temperature setter - recalculates intensity when changed"""
         old_value = self._temp
         self._temp = float(value)
         self.t_kin = self._temp
-        
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
         self._notify_my_parameter_change('temp', old_value, self._temp)
     
     @property
     def radius(self):
-        """Radius getter"""
         return self._radius
     
     @radius.setter
     def radius(self, value):
-        """Radius setter - updates spectrum area when changed"""
         old_value = self._radius
         self._radius = float(value)
-        
-        # Invalidate spectrum cache (but not intensity)
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
         self._notify_my_parameter_change('radius', old_value, self._radius)
     
     @property
     def n_mol(self):
-        """Column density getter"""
         return self._n_mol
     
     @n_mol.setter
     def n_mol(self, value):
-        """Column density setter - recalculates intensity when changed"""
         if value is None:
-            # If None is passed, use the computed n_mol_init
             value = getattr(self, 'n_mol_init', 1e17)
         old_value = self._n_mol
         self._n_mol = float(value)
-        
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
         self._notify_my_parameter_change('n_mol', old_value, self._n_mol)
     
     @property
     def distance(self):
-        """Distance getter"""
         return self._distance
     
     @distance.setter
     def distance(self, value):
-        """Distance setter - updates spectrum when changed"""
         old_value = self._distance
         self._distance = float(value)
-        
-        # Distance changes require spectrum recreation
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
         self._notify_my_parameter_change('distance', old_value, self._distance)
     
     @property
     def fwhm(self):
-        """FWHM getter"""
         return self._fwhm
     
     @fwhm.setter
     def fwhm(self, value):
-        """FWHM setter - recalculates intensity when changed"""
         old_value = self._fwhm
         self._fwhm = float(value)
-        
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
+        self.spectrum = None
         self._notify_my_parameter_change('fwhm', old_value, self._fwhm)
 
     def bulk_update_parameters(self, parameter_dict: Dict[str, Any], skip_notification: bool = False):
-        """
-        Bulk update multiple parameters efficiently.
-        
-        Args:
-            parameter_dict: Dictionary of parameter names and values
-            skip_notification: If True, skip individual parameter change notifications
-        """
-        # Store old values for notification
         old_values = {}
+        affected_params = set()
         
-        # Update all parameters without triggering individual cache invalidations
         for param_name, value in parameter_dict.items():
             if hasattr(self, f'_{param_name}'):
                 old_values[param_name] = getattr(self, f'_{param_name}')
                 setattr(self, f'_{param_name}', float(value))
+                affected_params.add(param_name)
             elif param_name == 'intrinsic_line_width':
                 old_values[param_name] = self._broad
                 self._broad = float(value)
+                affected_params.add('broad')
             elif hasattr(self, param_name):
                 old_values[param_name] = getattr(self, param_name)
                 setattr(self, param_name, value)
+                affected_params.add(param_name)
         
-        # Invalidate all caches once
-        if any(param in parameter_dict for param in ['temp', 'n_mol', 'fwhm', 'intrinsic_line_width']):
-            self._intensity_valid = False
+        for param in affected_params:
+            self._invalidate_caches_for_parameter(param)
         
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
-        # Send notifications if not skipped
         if not skip_notification:
             for param_name, value in parameter_dict.items():
                 old_value = old_values.get(param_name)
-                self._notify_my_parameter_change(param_name, old_value, value)
+                if old_value != value:
+                    self._notify_my_parameter_change(param_name, old_value, value)
 
     @property
     def star_rv(self):
-        """Stellar RV getter"""
         return getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)
     
     @star_rv.setter
     def star_rv(self, value):
-        """Stellar RV setter"""
         old_value = getattr(self, 'stellar_rv', c.DEFAULT_STELLAR_RV)
         self.stellar_rv = float(value)
         self._notify_my_parameter_change('stellar_rv', old_value, self.stellar_rv)
     
     @property
     def broad(self):
-        """Intrinsic line width getter"""
-        return self._broad_val
+        return self._broad
     
     @broad.setter
     def broad(self, value):
-        """Intrinsic line width setter"""
-        old_value = self._broad_val
-        self._broad_val = float(value)
-
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-
-        self._notify_my_parameter_change('broad', old_value, self._broad_val)
+        old_value = self._broad
+        self._broad = float(value)
+        self._notify_my_parameter_change('broad', old_value, self._broad)
 
     @property
     def intrinsic_line_width(self):
-        """Intrinsic line width getter"""
-        return self._broad
-
+        return self.broad
+    
     @intrinsic_line_width.setter
     def intrinsic_line_width(self, value):
-        """Intrinsic line width setter"""
-        self.broad = value  # Reuse the broad setter to handle caching and notifications
-        '''old_value = self.broad
-        self.broad = float(value)
-        
-        # Invalidate caches
-        self._intensity_valid = False
-        self._spectrum_valid = False
-        self._clear_flux_caches()
-        
-        self._notify_my_parameter_change('intrinsic_line_width', old_value, self.broad)'''
+        self.broad = value
     
     def _update_spectrum(self):
         """Update the spectrum with current intensity and area"""
@@ -624,7 +587,7 @@ class Molecule:
             # Add updated intensity with current radius
             self.spectrum.add_intensity(
                 intensity=self.intensity,
-                dA=self._radius ** 2 * np.pi
+                dA=self.radius ** 2 * np.pi  # Use property to get correct value
             )
             
             # Mark spectrum as valid and clear flux caches
@@ -633,33 +596,33 @@ class Molecule:
     
     def _recreate_spectrum(self):
         """Recreate the spectrum when distance or other fundamental parameters change"""
-        if hasattr(self, 'intensity'):
-            # Ensure intensity is valid first
-            if not self._intensity_valid:
-                self.calculate_intensity()
-                
-            Spectrum = _get_spectrum_module()
-            self.spectrum = Spectrum(
-                lam_min=self.wavelength_range[0],
-                lam_max=self.wavelength_range[1],
-                dlambda=self.model_pixel_res,
-                R=self.model_line_width,
-                distance=self.distance  # Use the property which handles instance vs class values
-            )
-            
-            self.spectrum.add_intensity(
-                intensity=self.intensity,
-                dA=self._radius ** 2 * np.pi
-            )
-            
-            # Mark spectrum as valid and clear flux caches
-            self._spectrum_valid = True
-            self._clear_flux_caches()
+    def force_recalculate(self):
+        self.clear_all_caches()
+        self._ensure_intensity_calculated()
+        self._ensure_spectrum_calculated()
+    
+    def get_cache_stats(self):
+        return self._cache_stats.copy()
+    
+    def clear_all_caches(self):
+        self._intensity_cache = {'data': None, 'hash': None}
+        self._spectrum_cache = {'data': None, 'hash': None}
+        self._flux_cache.clear()
+        self._wave_data_cache.clear()
+        self._dirty_flags = {'intensity': True, 'spectrum': True, 'flux': True}
+        self._cache_stats['invalidations'] += 1
+    
+    def is_cache_valid(self, cache_type='full'):
+        if cache_type == 'intensity':
+            return not self._dirty_flags['intensity'] and self._intensity_cache['data'] is not None
+        elif cache_type == 'spectrum':
+            return not self._dirty_flags['spectrum'] and self._spectrum_cache['data'] is not None
+        elif cache_type == 'flux':
+            return not self._dirty_flags['flux'] and len(self._flux_cache) > 0
+        else:
+            return (self.is_cache_valid('intensity') and 
+                   self.is_cache_valid('spectrum') and 
+                   self.is_cache_valid('flux'))
 
     def __str__(self):
-        attrs = vars(self)
-        def truncate(val):
-            s = str(val)
-            return s if len(s) <= 3000 else s[:3000] + '...<truncated>'
-        attr_str = '\n'.join(f"{key}={truncate(value)}" for key, value in attrs.items())
-        return f"Molecule(\n{attr_str}\n)"
+        return f"Molecule(name={self.name}, temp={self._temp}, radius={self._radius}, n_mol={self._n_mol})"
