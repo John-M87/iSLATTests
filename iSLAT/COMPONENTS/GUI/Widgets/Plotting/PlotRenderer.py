@@ -6,6 +6,44 @@ from matplotlib.lines import Line2D
 from matplotlib.collections import PolyCollection
 import iSLAT.Constants as c
 
+# Import debug configuration
+try:
+    from iSLAT.COMPONENTS.Debug import debug_config, DebugLevel
+except ImportError:
+    # Fallback if debug module is not available
+    class DebugLevel:
+        NONE = 0
+        ERROR = 1
+        WARNING = 2
+        INFO = 3
+        VERBOSE = 4
+        TRACE = 5
+    
+    class FallbackDebugConfig:
+        def __init__(self):
+            self.level = DebugLevel.WARNING
+        
+        def should_log(self, component, level):
+            return level <= self.level
+        
+        def log(self, component, level, message, **kwargs):
+            if self.should_log(component, level):
+                print(f"[{component.upper()}] {message}")
+        
+        def verbose(self, component, message, **kwargs):
+            self.log(component, DebugLevel.VERBOSE, message, **kwargs)
+        
+        def info(self, component, message, **kwargs):
+            self.log(component, DebugLevel.INFO, message, **kwargs)
+        
+        def warning(self, component, message, **kwargs):
+            self.log(component, DebugLevel.WARNING, message, **kwargs)
+        
+        def error(self, component, message, **kwargs):
+            self.log(component, DebugLevel.ERROR, message, **kwargs)
+    
+    debug_config = FallbackDebugConfig()
+
 # Import actual data types for proper type hinting
 if TYPE_CHECKING:
     from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
@@ -97,7 +135,7 @@ class PlotRenderer:
         try:
             return getattr(molecule, attr_name, default_value)
         except Exception as e:
-            print(f"Error accessing {attr_name} for molecule {self._get_molecule_display_name(molecule)}: {e}")
+            debug_config.error("plot_renderer", f"Error accessing {attr_name} for molecule {self._get_molecule_display_name(molecule)}: {e}")
             return default_value
     
     def cleanup_callbacks(self) -> None:
@@ -311,7 +349,7 @@ class PlotRenderer:
                 self.ax3.set_title(f"{mol_label} - No valid data for population diagram")
             
         except Exception as e:
-            print(f"Error rendering population diagram: {e}")
+            debug_config.error("plot_renderer", f"Error rendering population diagram: {e}")
             mol_label = self._get_molecule_display_name(molecule)
             self.ax3.set_title(f"{mol_label} - Error in calculation")
     
@@ -390,20 +428,20 @@ class PlotRenderer:
     def get_visible_molecules(self, molecules: Union['MoleculeDict', List['Molecule']]) -> List['Molecule']:
         """Get visible molecules using the most efficient method available"""
         
-        print(f"PlotRenderer: molecules type = {type(molecules)}")
-        print(f"PlotRenderer: hasattr(molecules, 'get_visible_molecules_fast') = {hasattr(molecules, 'get_visible_molecules_fast')}")
-        print(f"PlotRenderer: hasattr(molecules, 'values') = {hasattr(molecules, 'values')}")
-        print(f"PlotRenderer: hasattr(molecules, '__iter__') = {hasattr(molecules, '__iter__')}")
+        debug_config.trace("plot_renderer", f"molecules type = {type(molecules)}")
+        debug_config.trace("plot_renderer", f"hasattr(molecules, 'get_visible_molecules_fast') = {hasattr(molecules, 'get_visible_molecules_fast')}")
+        debug_config.trace("plot_renderer", f"hasattr(molecules, 'values') = {hasattr(molecules, 'values')}")
+        debug_config.trace("plot_renderer", f"hasattr(molecules, '__iter__') = {hasattr(molecules, '__iter__')}")
         
         if hasattr(molecules, 'get_visible_molecules_fast'):
             # MoleculeDict with fast access
             visible_names = molecules.get_visible_molecules_fast()
             visible_molecules = [molecules[name] for name in visible_names if name in molecules]
-            print(f"PlotRenderer: get_visible_molecules_fast(): {len(visible_molecules)}/{len(molecules)} molecules visible: {visible_names}")
+            debug_config.trace("plot_renderer", f"get_visible_molecules_fast(): {len(visible_molecules)}/{len(molecules)} molecules visible: {visible_names}")
             return visible_molecules
         elif hasattr(molecules, 'values'):
             # Regular dict-like object - check each molecule's is_visible attribute
-            print("PlotRenderer: Using values() path for dict-like object")
+            debug_config.trace("plot_renderer", "Using values() path for dict-like object")
             visible_molecules = []
             for mol in molecules.values():
                 is_visible_raw = getattr(mol, 'is_visible', False)
@@ -412,14 +450,14 @@ class PlotRenderer:
                 # Use consolidated conversion method
                 is_visible = self._convert_visibility_to_bool(is_visible_raw)
                     
-                print(f"PlotRenderer: Checking {mol_name}: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible}")
+                debug_config.trace("plot_renderer", f"Checking {mol_name}: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible}")
                 if is_visible:
                     visible_molecules.append(mol)
-            print(f"PlotRenderer: values() path result: {len(visible_molecules)}/{len(molecules)} molecules visible")
+            debug_config.trace("plot_renderer", f"values() path result: {len(visible_molecules)}/{len(molecules)} molecules visible")
             return visible_molecules
         elif hasattr(molecules, '__iter__'):
             # List-like object
-            print("PlotRenderer: Using __iter__ path for list-like object")
+            debug_config.trace("plot_renderer", "Using __iter__ path for list-like object")
             visible_molecules = []
             total_count = 0
             for mol in molecules:
@@ -431,16 +469,16 @@ class PlotRenderer:
                 # Use consolidated conversion method
                 is_visible = self._convert_visibility_to_bool(is_visible_raw)
                 
-                print(f"PlotRenderer: Checking {mol_name} (id:{mol_id}): is_visible_raw = {is_visible_raw} (type: {type(is_visible_raw)}) -> is_visible = {is_visible}")
+                debug_config.trace("plot_renderer", f"Checking {mol_name} (id:{mol_id}): is_visible_raw = {is_visible_raw} (type: {type(is_visible_raw)}) -> is_visible = {is_visible}")
                 
                 if is_visible:
                     visible_molecules.append(mol)
-                    print(f"PlotRenderer: ADDED {mol_name} to visible_molecules list (list length now: {len(visible_molecules)})")
+                    debug_config.trace("plot_renderer", f"ADDED {mol_name} to visible_molecules list (list length now: {len(visible_molecules)})")
                 else:
-                    print(f"PlotRenderer: SKIPPED {mol_name} (not visible)")
+                    debug_config.trace("plot_renderer", f"SKIPPED {mol_name} (not visible)")
                 
-            print(f"PlotRenderer: Final visible_molecules list length: {len(visible_molecules)}")
-            print(f"PlotRenderer: __iter__ path result: {len(visible_molecules)}/{total_count} molecules visible")
+            debug_config.trace("plot_renderer", f"Final visible_molecules list length: {len(visible_molecules)}")
+            debug_config.trace("plot_renderer", f"__iter__ path result: {len(visible_molecules)}/{total_count} molecules visible")
             return visible_molecules
         else:
             # Single molecule
@@ -450,7 +488,7 @@ class PlotRenderer:
             is_visible = self._convert_visibility_to_bool(is_visible_raw)
                 
             result = [molecules] if is_visible else []
-            print(f"PlotRenderer: Single molecule visibility: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible} -> {'visible' if is_visible else 'hidden'}")
+            debug_config.trace("plot_renderer", f"Single molecule visibility: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible} -> {'visible' if is_visible else 'hidden'}")
             return result
     
     def render_visible_molecules(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
@@ -476,7 +514,7 @@ class PlotRenderer:
                 # built-in caching via get_flux() which respects parameter hash validation
                 success = self.render_individual_molecule_spectrum(mol, wave_data)
                 if not success:
-                    print(f"Warning: Could not render molecule {mol_name}")
+                    debug_config.warning("plot_renderer", f"Could not render molecule {mol_name}")
             except Exception as e:
                 print(f"Error rendering molecule {mol_name}: {e}")
                 continue
@@ -817,25 +855,28 @@ class PlotRenderer:
             return None, None
         
         try:
-            # Track cache stats to see if we're hitting or missing
-            initial_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
+            # Check wave_data_cache size before and after to detect cache hits
+            initial_wave_cache_size = len(molecule._wave_data_cache) if hasattr(molecule, '_wave_data_cache') and molecule._wave_data_cache else 0
             
             # Use prepare_plot_data which has parameter-hash-aware caching
             # This method checks parameter hash and reuses cached data when parameters return to previous values
             result = molecule.prepare_plot_data(wave_data)
             
-            # Check if cache was hit or missed
-            final_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
-            used_cache = final_cache_hits > initial_cache_hits
+            # Check if cache was used by seeing if a new entry was added
+            final_wave_cache_size = len(molecule._wave_data_cache) if hasattr(molecule, '_wave_data_cache') and molecule._wave_data_cache else 0
+            used_cache = final_wave_cache_size == initial_wave_cache_size  # No new entry = cache hit
             
             if result is not None and len(result) == 2:
                 plot_lam, plot_flux = result
                 if plot_lam is not None and plot_flux is not None and len(plot_flux) > 0:
                     cache_status = "from cache" if used_cache else "newly computed"
-                    print(f"Retrieved flux data for {self._get_molecule_display_name(molecule)} ({cache_status})")
+                    debug_config.verbose("plot_renderer", 
+                                       f"Retrieved flux data for {self._get_molecule_display_name(molecule)} ({cache_status})",
+                                       cache_hit=used_cache,
+                                       data_points=len(plot_flux))
                     return plot_lam, plot_flux
             
-            print(f"No flux data available for {self._get_molecule_display_name(molecule)}")
+            debug_config.warning("plot_renderer", f"No flux data available for {self._get_molecule_display_name(molecule)}")
             return None, None
                 
         except Exception as e:
@@ -926,12 +967,13 @@ class PlotRenderer:
             # Debug cache status before attempting to get spectrum data
             cache_debug = self.debug_molecule_cache_status(molecule)
             wave_cache_size = cache_debug.get('wave_data_cache_size', 0)
-            print(f"Rendering {molecule_name} - Cache debug: flux_cache_size={cache_debug.get('flux_cache_size', 0)}, "
-                  f"wave_data_cache_size={wave_cache_size}, "
-                  f"spectrum_cache_size={cache_debug.get('spectrum_cache_size', 0)}, "
-                  f"intensity_cache_size={cache_debug.get('intensity_cache_size', 0)}")
+            debug_config.trace("plot_renderer", 
+                             f"Rendering {molecule_name} - Cache debug: flux_cache_size={cache_debug.get('flux_cache_size', 0)}, "
+                             f"wave_data_cache_size={wave_cache_size}, "
+                             f"spectrum_cache_size={cache_debug.get('spectrum_cache_size', 0)}, "
+                             f"intensity_cache_size={cache_debug.get('intensity_cache_size', 0)}")
             if wave_cache_size > 0:
-                print(f"  Wave data cache contains {wave_cache_size} entries with parameter hashes")
+                debug_config.trace("plot_renderer", f"  Wave data cache contains {wave_cache_size} entries with parameter hashes")
             
             # Get spectrum data directly from molecule's caching system
             plot_lam, plot_flux = self.get_molecule_spectrum_data(molecule, wave_data)
@@ -996,17 +1038,17 @@ class PlotRenderer:
             molecule_name = self._get_molecule_display_name(molecule)
             intensity_obj = molecule.intensity
             
-            # Track cache stats to see if molecule computation was cached
-            initial_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
+            # Check if intensity data is already computed (cache hit indicator)
+            has_computed_data = (hasattr(intensity_obj, 'intensity') and 
+                               intensity_obj.intensity is not None and 
+                               len(intensity_obj.intensity) > 0)
             
             # Ensure intensity is calculated (this uses molecule's internal caching)
             if hasattr(molecule, 'calculate_intensity'):
                 molecule.calculate_intensity()
             
-            # Check if cache was used
-            final_cache_hits = molecule._cache_stats.get('hits', 0) if hasattr(molecule, '_cache_stats') else 0
-            used_cache = final_cache_hits > initial_cache_hits
-            cache_status = "from cache" if used_cache else "newly computed"
+            # Check if data was already computed (cache hit) or newly computed
+            cache_status = "from cache" if has_computed_data else "newly computed"
             
             # Get the intensity table from the intensity object
             if hasattr(intensity_obj, 'get_table'):
@@ -1015,13 +1057,16 @@ class PlotRenderer:
                     # Reset index for consistent access
                     if hasattr(table, 'index'):
                         table.index = range(len(table.index))
-                    print(f"Retrieved intensity table for {molecule_name} ({cache_status})")
+                    debug_config.verbose("plot_renderer", 
+                                       f"Retrieved intensity table for {molecule_name} ({cache_status})",
+                                       cache_hit=has_computed_data,
+                                       table_rows=len(table))
                     return table
             
             return None
             
         except Exception as e:
-            print(f"Error getting intensity table for {self._get_molecule_display_name(molecule)}: {e}")
+            debug_config.error("plot_renderer", f"Error getting intensity table for {self._get_molecule_display_name(molecule)}: {e}")
             import traceback
             traceback.print_exc()
             return None
@@ -1083,7 +1128,15 @@ class PlotRenderer:
                 debug_info['cache_attributes'].append('_wave_data_cache')
                 debug_info['wave_data_cache_size'] = len(molecule._wave_data_cache) if molecule._wave_data_cache else 0
                 if molecule._wave_data_cache:
-                    debug_info['wave_data_cache_keys'] = list(molecule._wave_data_cache.keys())
+                    # Show composite keys and their parameter hashes
+                    cache_info = []
+                    for cache_key in molecule._wave_data_cache.keys():
+                        if isinstance(cache_key, tuple) and len(cache_key) == 2:
+                            wave_hash, param_hash = cache_key
+                            cache_info.append(f"wave:{wave_hash}, params:{param_hash}")
+                        else:
+                            cache_info.append(str(cache_key))
+                    debug_info['wave_data_cache_keys'] = cache_info
             
             if hasattr(molecule, '_intensity_cache'):
                 debug_info['cache_attributes'].append('_intensity_cache')

@@ -13,6 +13,24 @@ from .PlotRenderer import PlotRenderer
 from iSLAT.COMPONENTS.DataProcessing.DataProcessor import DataProcessor
 from iSLAT.COMPONENTS.GUI.InteractionHandler import InteractionHandler
 from iSLAT.COMPONENTS.DataProcessing.FittingEngine import FittingEngine
+
+# Import debug configuration with fallback
+try:
+    from iSLAT.COMPONENTS.Debug import debug_config
+except ImportError:
+    # Fallback to a simple debug class for compatibility
+    class FallbackDebugConfig:
+        def verbose(self, component, message, **kwargs):
+            pass
+        def info(self, component, message, **kwargs):
+            pass
+        def warning(self, component, message, **kwargs):
+            print(f"[{component.upper()}] WARNING: {message}")
+        def error(self, component, message, **kwargs):
+            print(f"[{component.upper()}] ERROR: {message}")
+        def trace(self, component, message, **kwargs):
+            pass
+    debug_config = FallbackDebugConfig()
 from iSLAT.COMPONENTS.DataProcessing.LineAnalyzer import LineAnalyzer
 
 class iSLATPlot:
@@ -162,7 +180,7 @@ class iSLATPlot:
                     pass
                     
         except Exception as e:
-            print(f"Could not apply plot theming: {e}")
+            debug_config.error("main_plot", f"Could not apply plot theming: {e}")
 
     def _convert_visibility_to_bool(self, is_visible_raw):
         """Convert various visibility representations to boolean"""
@@ -293,7 +311,7 @@ class iSLATPlot:
             except Exception as e:
                 # Continue with other molecules if one fails
                 mol_name = self._get_molecule_display_name(molecule)
-                print(f"Warning: Could not get flux for molecule {mol_name}: {e}")
+                debug_config.warning("main_plot", f"Could not get flux for molecule {mol_name}: {e}")
                 continue
         
         # Delegate rendering to PlotRenderer for clean separation of concerns
@@ -361,7 +379,7 @@ class iSLATPlot:
                 self.canvas.draw_idle()
                 return
         except Exception as e:
-            print(f"Warning: Could not get line data: {e}")
+            debug_config.warning("main_plot", f"Could not get line data: {e}")
             # Clear active lines and update population diagram even if no lines in range
             self.clear_active_lines()
             self.plot_renderer.render_population_diagram(self.islat.active_molecule)
@@ -434,7 +452,7 @@ class iSLATPlot:
             
             return line_info
         except Exception as e:
-            print(f"Warning: Could not find strongest line: {e}")
+            debug_config.warning("main_plot", f"Could not find strongest line: {e}")
             return None
 
     def flux_integral_basic(self, wave_data, flux_data, err_data, xmin, xmax):
@@ -567,7 +585,7 @@ class iSLATPlot:
                     self.canvas.draw_idle()
                     return
             except Exception as e:
-                print(f"Warning: Could not get line data: {e}")
+                debug_config.warning("main_plot", f"Could not get line data: {e}")
                 self.ax2.clear()
                 self.canvas.draw_idle()
                 return
@@ -657,7 +675,7 @@ class iSLATPlot:
                                          linewidth=1, label=label)
             except Exception as e:
                 mol_name = self._get_molecule_display_name(active_molecule)
-                print(f"Warning: Could not get model data for molecule {mol_name}: {e}")
+                debug_config.warning("main_plot", f"Could not get model data for molecule {mol_name}: {e}")
 
         # Calculate max_y for plot scaling
         max_y = np.nanmax(observed_flux) if len(observed_flux) > 0 else 1.0
@@ -885,7 +903,7 @@ class iSLATPlot:
         Called when any molecule parameter changes.
         Since we rely entirely on molecule caching, we just need to trigger plot updates.
         """
-        print(f"Parameter change: {molecule_name}.{parameter_name}: {old_value} → {new_value}")
+        debug_config.info("main_plot", f"Parameter change: {molecule_name}.{parameter_name}: {old_value} → {new_value}")
         
         # Debug cache status before and after parameter change
         if (hasattr(self.islat, 'molecules_dict') and 
@@ -896,7 +914,7 @@ class iSLATPlot:
             # Debug molecule cache status
             if hasattr(self.plot_renderer, 'debug_molecule_cache_status'):
                 cache_debug = self.plot_renderer.debug_molecule_cache_status(molecule)
-                print(f"Cache debug for {molecule_name}: {cache_debug}")
+                debug_config.trace("main_plot", f"Cache debug for {molecule_name}: {cache_debug}")
         
         # Check if this molecule is visible - if so, we need to update the main spectrum plot
         if (hasattr(self.islat, 'molecules_dict') and 
@@ -1021,7 +1039,7 @@ class iSLATPlot:
             self.fit_result = fit_result, fitted_wave, fitted_flux
             return self.fit_result
         except Exception as e:
-            print(f"Error in fitting: {str(e)}")
+            debug_config.error("main_plot", f"Error in fitting: {str(e)}")
             return None
     
     def find_single_lines(self, xmin=None, xmax=None):
@@ -1072,7 +1090,7 @@ class iSLATPlot:
             
             return self.single_lines_list
         except Exception as e:
-            print(f"Error in line detection: {str(e)}")
+            debug_config.error("main_plot", f"Error in line detection: {str(e)}")
             return []
     
     def plot_single_lines(self):
@@ -1180,7 +1198,7 @@ class iSLATPlot:
         if not molecules_dict:
             return
         
-        print(f"Loading cached data for {len(molecules_dict)} molecules - using molecule cached calculations")
+        debug_config.verbose("main_plot", f"Loading cached data for {len(molecules_dict)} molecules - using molecule cached calculations")
         
         # No cache clearing needed - just refresh plots to show molecule cached data
         self.update_all_plots()
@@ -1195,7 +1213,7 @@ class iSLATPlot:
             self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
         
         self.canvas.draw_idle()
-        print(f"Plot refresh completed - displaying cached molecular data")
+        debug_config.verbose("main_plot", "Plot refresh completed - displaying cached molecular data")
         
         # If we have an active molecule, ensure its population diagram is updated
         if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
@@ -1207,7 +1225,7 @@ class iSLATPlot:
             self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
         
         self.canvas.draw_idle()
-        print(f"Plot refresh completed - should now display cached molecular data")
+        debug_config.verbose("main_plot", "Plot refresh completed - should now display cached molecular data")
     
     def validate_molecule_caches(self):
         """
@@ -1234,12 +1252,12 @@ class iSLATPlot:
                         molecules_needing_update.append(molecule_name)
                         
             except Exception as e:
-                print(f"Warning: Error checking cache for molecule {molecule_name}: {e}")
+                debug_config.warning("main_plot", f"Error checking cache for molecule {molecule_name}: {e}")
                 continue
         
         # Update plots only if there are molecules needing updates
         if molecules_needing_update:
-            print(f"Updating plots for molecules with invalid caches: {molecules_needing_update}")
+            debug_config.info("main_plot", f"Updating plots for molecules with invalid caches: {molecules_needing_update}")
             self.update_all_plots()
         
         return molecules_needing_update
