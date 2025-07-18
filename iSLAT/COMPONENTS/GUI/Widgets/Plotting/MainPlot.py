@@ -370,7 +370,7 @@ class iSLATPlot:
 
         # Get lines in range using the MoleculeLine API
         try:
-            line_data = self.plot_renderer.get_molecule_lines_efficiently(self.islat.active_molecule, xmin, xmax)
+            line_data = self.plot_renderer.get_molecule_line_data(self.islat.active_molecule, xmin, xmax)
             if not line_data:
                 # Clear active lines and update population diagram even if no lines in range
                 self.clear_active_lines()
@@ -561,7 +561,7 @@ class iSLATPlot:
         # Get line data using the molecular line API
         if line_data is None:
             try:
-                line_data = self.plot_renderer.get_molecule_lines_efficiently(self.islat.active_molecule, xmin, xmax)
+                line_data = self.plot_renderer.get_molecule_line_data(self.islat.active_molecule, xmin, xmax)
                 if not line_data:
                     self.ax2.clear()
                     self.canvas.draw_idle()
@@ -638,7 +638,7 @@ class iSLATPlot:
         active_molecule = self.islat.active_molecule
         if active_molecule is not None:
             # Use the optimized spectrum access from PlotRenderer
-            model_wave, model_flux = self.plot_renderer.get_molecule_spectrum_efficiently(active_molecule, self.islat.wave_data)
+            model_wave, model_flux = self.plot_renderer.get_molecule_spectrum_data(active_molecule, self.islat.wave_data)
             
             if model_wave is not None and model_flux is not None:
                 # Filter to selected range
@@ -800,7 +800,7 @@ class iSLATPlot:
         Optimize memory usage for plotting operations.
         Delegates to PlotRenderer for memory management.
         """
-        self.plot_renderer.optimize_plot_memory()
+        self.plot_renderer.optimize_plot_memory_usage()
     
     def get_plot_performance_stats(self):
         """
@@ -830,7 +830,7 @@ class iSLATPlot:
         Render molecules using available methods.
         Delegates to PlotRenderer for molecule rendering.
         """
-        self.plot_renderer.render_molecules_efficiently(wave_data, molecules)
+        self.plot_renderer.render_visible_molecules(wave_data, molecules)
         self.canvas.draw_idle()
     
     def update_plot_display(self):
