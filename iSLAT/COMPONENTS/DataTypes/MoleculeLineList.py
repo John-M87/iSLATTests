@@ -206,9 +206,9 @@ class MoleculeLineList:
         if self._lines_cache_valid and self._lines_cache is not None:
             return self._lines_cache
         
-        # Try to create from raw data first (faster) - use cached DataFrame
+        # Try to create from raw data first - use cached DataFrame
         if hasattr(self, '_raw_lines_data') and self._raw_lines_data:
-            # Use cached pandas DataFrame for ultra-fast extraction if available
+            # Use cached pandas DataFrame for extraction if available
             df = self._get_pandas_dataframe()
             if df is not None:
                 self._lines_cache = self._lines_type(
@@ -272,7 +272,7 @@ class MoleculeLineList:
         if self._wavelengths_cache is not None:
             return self._wavelengths_cache
         
-        # Ultra-fast path: get from cached DataFrame
+        # get from cached DataFrame
         if hasattr(self, '_raw_lines_data') and self._raw_lines_data:
             df = self._get_pandas_dataframe()
             if df is not None:
@@ -305,7 +305,7 @@ class MoleculeLineList:
         if self._frequencies_cache is not None:
             return self._frequencies_cache
         
-        # Ultra-fast path: get from cached DataFrame
+        # get from cached DataFrame
         if hasattr(self, '_raw_lines_data') and self._raw_lines_data:
             df = self._get_pandas_dataframe()
             if df is not None:

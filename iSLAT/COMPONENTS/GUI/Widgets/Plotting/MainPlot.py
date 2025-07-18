@@ -42,6 +42,8 @@ class iSLATPlot:
         self.active_lines = []  # List of (line, scatter) tuples for active molecular lines
 
         self.fig = plt.Figure(figsize=(10, 7))
+        # Adjust subplot parameters to minimize margins and maximize plot area
+        self.fig.subplots_adjust(left=0.08, bottom=0.08, right=0.98, top=0.95, wspace=0.15, hspace=0.25)
         gs = GridSpec(2, 2, height_ratios=[2, 3], figure=self.fig)
         self.ax1 = self.full_spectrum = self.fig.add_subplot(gs[0, :])
         self.ax2 = self.line_inspection = self.fig.add_subplot(gs[1, 0])
@@ -52,7 +54,7 @@ class iSLATPlot:
         self.ax3.set_title(f"{self.islat.active_molecule.displaylabel} Population diagram")
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent_frame)
-        self.toolbar = NavigationToolbar2Tk(self.canvas, parent_frame)
+        self.toolbar = NavigationToolbar2Tk(self.canvas, window = parent_frame)
         
         # Apply theme to matplotlib figure and toolbar
         self._apply_plot_theming()
@@ -71,8 +73,15 @@ class iSLATPlot:
         self.interaction_handler.set_span_select_callback(self.onselect)
         self.interaction_handler.set_click_callback(self.on_click)
         
-        self.toolbar.pack(side="top", fill="x")
-        self.canvas.get_tk_widget().pack(fill="both", expand=True)
+        self.toolbar.pack(side="top", fill="x", padx=0, pady=0)
+        self.canvas.get_tk_widget().pack(fill="both", expand=True, padx=0, pady=0)
+        
+        # Apply tight layout to maximize space usage
+        try:
+            self.fig.tight_layout(pad=0.5)
+        except:
+            pass  # Fallback if tight_layout fails
+            
         self.canvas.draw()
 
         self.selected_wave = None
@@ -126,8 +135,12 @@ class iSLATPlot:
                 for spine in ax.spines.values():
                     spine.set_color(self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")))
                     
+
+                if self.theme.get(f'ax{ax.get_gid()}_grid', False):
+                    #print(f"Applying grid to ax{ax.get_gid()}")
+                    ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
                 # Set grid colors if grid is enabled
-                ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
+                #ax.grid(True, color=self.theme.get("axis_text_label_color", self.theme.get("foreground", "#F0F0F0")), alpha=0.3, linestyle='-', linewidth=0.5)
             
             # Apply theme to toolbar if possible
             if hasattr(self.toolbar, 'configure'):
@@ -253,6 +266,10 @@ class iSLATPlot:
         Uses data processing through the molecular data structures.
         """
         #print("Debug: Updating model plot...")
+        
+        # Force update of molecule fluxes to ensure they reflect current parameters
+        if hasattr(self.islat.molecules_dict, 'update_molecule_fluxes'):
+            self.islat.molecules_dict.update_molecule_fluxes(self.islat.wave_data)
         
         # Calculate summed flux using MoleculeDict methods if available
         if hasattr(self.islat.molecules_dict, 'get_summed_flux_optimized'):
@@ -861,9 +878,20 @@ class iSLATPlot:
     def on_molecule_parameter_changed(self, molecule_name, parameter_name, old_value, new_value):
         """
         Called when any molecule parameter changes.
-        Refreshes displays if the changed molecule is the active one.
+        Refreshes displays and invalidates caches for the changed molecule.
         """
-        # Check if the changed molecule is the active one
+        # Invalidate the cache for the changed molecule
+        self.data_processor.invalidate_cache_for_molecule(molecule_name)
+        
+        # If this molecule is visible, we need to update the main spectrum plot
+        if (hasattr(self.islat, 'molecules_dict') and 
+            molecule_name in self.islat.molecules_dict and
+            self.islat.molecules_dict[molecule_name].is_visible):
+            
+            # Update the main spectrum plot to reflect parameter changes
+            self.update_model_plot()
+        
+        # Check if the changed molecule is the active one for additional updates
         if (hasattr(self.islat, 'active_molecule') and 
             self.islat.active_molecule and 
             hasattr(self.islat.active_molecule, 'name') and
