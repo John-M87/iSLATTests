@@ -422,9 +422,12 @@ class Molecule:
             'param_hash': current_param_hash
         }
         
+        flux_cache_limit = 12
+        flux_oldest_amount = 4
+
         # Limit cache size
-        if len(self._flux_cache) > 50:
-            oldest_keys = list(self._flux_cache.keys())[:10]
+        if len(self._flux_cache) > flux_cache_limit:
+            oldest_keys = list(self._flux_cache.keys())[:flux_oldest_amount]
             for key in oldest_keys:
                 del self._flux_cache[key]
         

@@ -56,17 +56,75 @@ class PlotRenderer:
             'cache_misses': 0
         }
         
-        self._setup_molecule_change_callbacks()
+        self._register_molecule_change_callbacks()
+    
+    # Helper methods for common operations
+    def _convert_visibility_to_bool(self, is_visible_raw: Any) -> bool:
+        """Convert various visibility representations to boolean"""
+        if isinstance(is_visible_raw, str):
+            return is_visible_raw.lower() in ('true', '1', 'yes', 'on')
+        return bool(is_visible_raw)
+    
+    def _get_molecule_display_name(self, molecule: 'Molecule') -> str:
+        """Get display name for a molecule"""
+        return getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'unknown'))
+    
+    def _get_molecule_identifier(self, molecule: 'Molecule') -> Optional[str]:
+        """Get unique identifier for a molecule"""
+        return getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
+    
+    def _get_theme_value(self, key: str, default: Any = None) -> Any:
+        """Get theme value with fallback"""
+        return self.theme.get(key, default)
+    
+    def _get_molecule_color(self, molecule: 'Molecule') -> str:
+        """Get color for molecule from theme or molecule properties"""
+        mol_name = self._get_molecule_display_name(molecule)
         
-    def _setup_molecule_change_callbacks(self) -> None:
+        # Check molecule's own color first
+        if hasattr(molecule, 'color') and molecule.color:
+            return molecule.color
+            
+        # Then check theme colors
+        molecule_colors = self._get_theme_value('molecule_colors', {})
+        if mol_name in molecule_colors:
+            return molecule_colors[mol_name]
+            
+        # Default fallback
+        return self._get_theme_value('default_molecule_color', 'blue')
+    
+    def _safe_get_molecule_attribute(self, molecule: 'Molecule', attr_name: str, default_value: Any = None) -> Any:
+        """Safely get molecule attribute with error handling"""
+        try:
+            return getattr(molecule, attr_name, default_value)
+        except Exception as e:
+            print(f"Error accessing {attr_name} for molecule {self._get_molecule_display_name(molecule)}: {e}")
+            return default_value
+    
+    def _is_cache_valid_for_molecule(self, molecule: 'Molecule', cache_type: str) -> bool:
+        """Check if cache is valid for a specific molecule and cache type"""
+        try:
+            if molecule is None:
+                return False
+                
+            if hasattr(molecule, 'is_cache_valid'):
+                return molecule.is_cache_valid(cache_type)
+            
+            # Fallback: assume cache is valid if no validation method exists
+            return True
+        except Exception as e:
+            print(f"Error validating {cache_type} cache: {e}")
+            return False
+        
+    def _register_molecule_change_callbacks(self) -> None:
         try:
             from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
             if hasattr(Molecule, 'add_molecule_parameter_change_callback'):
-                Molecule.add_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
+                Molecule.add_molecule_parameter_change_callback(self._handle_molecule_parameter_change)
         except Exception as e:
             print(f"Could not register for molecule parameter changes: {e}")
     
-    def _on_molecule_parameter_changed(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
+    def _handle_molecule_parameter_change(self, molecule_name: str, parameter_name: str, old_value: Any, new_value: Any) -> None:
         """Callback when a molecule parameter changes - invalidate relevant caches"""
         try:
             if old_value == new_value:
@@ -90,7 +148,7 @@ class PlotRenderer:
         try:
             from iSLAT.COMPONENTS.DataTypes.Molecule import Molecule
             if hasattr(Molecule, 'remove_molecule_parameter_change_callback'):
-                Molecule.remove_molecule_parameter_change_callback(self._on_molecule_parameter_changed)
+                Molecule.remove_molecule_parameter_change_callback(self._handle_molecule_parameter_change)
         except Exception:
             pass
     
@@ -136,7 +194,7 @@ class PlotRenderer:
         
         # Plot individual molecule spectra
         if molecules:
-            self.render_molecules_efficiently(wave_data, molecules)
+            self.render_visible_molecules(wave_data, molecules)
             
         # Plot summed spectrum
         if summed_flux is not None and len(summed_flux) > 0:
@@ -162,10 +220,10 @@ class PlotRenderer:
                     flux_data,
                     yerr=error_data,
                     fmt='-', 
-                    color=self.theme.get("foreground", "black"),
+                    color=self._get_theme_value("foreground", "black"),
                     linewidth=1,
                     label='Observed',
-                    zorder=self.theme.get("zorder_observed", 3),
+                    zorder=self._get_theme_value("zorder_observed", 3),
                     elinewidth=0.5,
                     capsize=0
                 )
@@ -174,10 +232,10 @@ class PlotRenderer:
                 self.ax1.plot(
                     wave_data, 
                     flux_data,
-                    color=self.theme.get("foreground", "black"),
+                    color=self._get_theme_value("foreground", "black"),
                     linewidth=1,
                     label='Observed',
-                    zorder=self.theme.get("zorder_observed", 3)
+                    zorder=self._get_theme_value("zorder_observed", 3)
                 )
     
     def _plot_summed_spectrum(self, wave_data: np.ndarray, summed_flux: np.ndarray) -> None:
@@ -187,10 +245,10 @@ class PlotRenderer:
                 wave_data,
                 0,
                 summed_flux,
-                color=self.theme.get("summed_spectra_color", "lightgray"),
+                color=self._get_theme_value("summed_spectra_color", "lightgray"),
                 alpha=1.0,
                 label='Sum',
-                zorder=self.theme.get("zorder_summed", 1)
+                zorder=self._get_theme_value("zorder_summed", 1)
             )
     
     def _configure_main_plot_appearance(self) -> None:
@@ -213,7 +271,7 @@ class PlotRenderer:
         if line_wave is not None and line_flux is not None:
             # Plot data in selected range
             self.ax2.plot(line_wave, line_flux, 
-                         color=self.theme.get("foreground", "black"), 
+                         color=self._get_theme_value("foreground", "black"), 
                          linewidth=1, 
                          label="Observed")
             
@@ -245,7 +303,7 @@ class PlotRenderer:
         self._plot_cache['population_diagram'] = {'molecule_id': None, 'param_hash': None, 'wave_range': None}
     
     def render_population_diagram(self, molecule: 'Molecule', wave_range: Optional[Tuple[float, float]] = None) -> None:
-        molecule_id = getattr(molecule, 'name', getattr(molecule, 'displaylabel', None)) if molecule else None
+        molecule_id = self._get_molecule_identifier(molecule)
         molecule_param_hash = self._get_molecule_parameters_hash(molecule)
         
         cache = self._plot_cache['population_diagram']
@@ -272,9 +330,10 @@ class PlotRenderer:
             return
             
         try:
-            int_pars = self.get_intensity_table_efficiently(molecule)
+            int_pars = self.get_intensity_data(molecule)
             if int_pars is None:
-                self.ax3.set_title(f"{getattr(molecule, 'displaylabel', 'Molecule')} - No intensity data")
+                mol_label = self._get_molecule_display_name(molecule)
+                self.ax3.set_title(f"{mol_label} - No intensity data")
                 return
 
             wavelength = int_pars['lam']
@@ -303,20 +362,20 @@ class PlotRenderer:
                 self.ax3.set_xlim(np.nanmin(eu) - 50, np.nanmax(valid_eu))
 
                 # Populating the population diagram graph with the lines
-                self.ax3.scatter(eu, rd_yax, s=0.5, color=self.theme.get("scatter_main_color", '#838B8B'))
+                self.ax3.scatter(eu, rd_yax, s=0.5, color=self._get_theme_value("scatter_main_color", '#838B8B'))
 
                 # Set labels
                 self.ax3.set_ylabel(r'ln(4πF/(hν$A_{u}$$g_{u}$))')
                 self.ax3.set_xlabel(r'$E_{u}$ (K)')
-                mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+                mol_label = self._get_molecule_display_name(molecule)
                 self.ax3.set_title(f'{mol_label} Population diagram', fontsize='medium')
             else:
-                mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+                mol_label = self._get_molecule_display_name(molecule)
                 self.ax3.set_title(f"{mol_label} - No valid data for population diagram")
             
         except Exception as e:
             print(f"Error rendering population diagram: {e}")
-            mol_label = getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'Molecule'))
+            mol_label = self._get_molecule_display_name(molecule)
             self.ax3.set_title(f"{mol_label} - Error in calculation")
     
     def plot_saved_lines(self, saved_lines: pd.DataFrame) -> None:
@@ -331,7 +390,7 @@ class PlotRenderer:
             if 'lam' in line:
                 self.ax1.axvline(
                     line['lam'], 
-                    color=self.theme.get("saved_line_color", self.theme.get("saved_line_color_one", "red")),
+                    color=self._get_theme_value("saved_line_color", self._get_theme_value("saved_line_color_one", "red")),
                     alpha=0.7, 
                     linestyle=':', 
                     label=f"Saved: {line.get('label', 'Line')}"
@@ -342,7 +401,7 @@ class PlotRenderer:
                     line['xmin'], 
                     line['xmax'], 
                     alpha=0.2, 
-                    color=self.theme.get("saved_line_color_two", "coral"),
+                    color=self._get_theme_value("saved_line_color_two", "coral"),
                     label=f"Saved Range: {line.get('label', 'Range')}"
                 )
         # make sure that a refresh of the plot is triggered
@@ -356,7 +415,7 @@ class PlotRenderer:
                 patch.remove()
         
         # Add new highlight
-        highlight = self.ax1.axvspan(xmin, xmax, alpha=0.3, color=self.theme.get("highlighted_line_color", "yellow"))
+        highlight = self.ax1.axvspan(xmin, xmax, alpha=0.3, color=self._get_theme_value("highlighted_line_color", "yellow"))
         highlight._islat_highlight = True
     
     def update_plot_display(self) -> None:
@@ -391,7 +450,7 @@ class PlotRenderer:
             self.ax2.scatter([wave], [height], color=color, s=20, 
                            alpha=0.8, picker=True, zorder=5)
     
-    def get_visible_molecules_efficiently(self, molecules: Union['MoleculeDict', List['Molecule']]) -> List['Molecule']:
+    def get_visible_molecules(self, molecules: Union['MoleculeDict', List['Molecule']]) -> List['Molecule']:
         """Get visible molecules using the most efficient method available"""
         
         print(f"PlotRenderer: molecules type = {type(molecules)}")
@@ -413,11 +472,8 @@ class PlotRenderer:
                 is_visible_raw = getattr(mol, 'is_visible', False)
                 mol_name = getattr(mol, 'name', 'unknown')
                 
-                # Convert string boolean to actual boolean
-                if isinstance(is_visible_raw, str):
-                    is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
-                else:
-                    is_visible = bool(is_visible_raw)
+                # Use consolidated conversion method
+                is_visible = self._convert_visibility_to_bool(is_visible_raw)
                     
                 print(f"PlotRenderer: Checking {mol_name}: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible}")
                 if is_visible:
@@ -435,11 +491,8 @@ class PlotRenderer:
                 mol_name = getattr(mol, 'name', 'unknown')
                 mol_id = id(mol)
                 
-                # Convert string boolean to actual boolean
-                if isinstance(is_visible_raw, str):
-                    is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
-                else:
-                    is_visible = bool(is_visible_raw)
+                # Use consolidated conversion method
+                is_visible = self._convert_visibility_to_bool(is_visible_raw)
                 
                 print(f"PlotRenderer: Checking {mol_name} (id:{mol_id}): is_visible_raw = {is_visible_raw} (type: {type(is_visible_raw)}) -> is_visible = {is_visible}")
                 
@@ -456,25 +509,22 @@ class PlotRenderer:
             # Single molecule
             is_visible_raw = getattr(molecules, 'is_visible', False)
             
-            # Convert string boolean to actual boolean
-            if isinstance(is_visible_raw, str):
-                is_visible = is_visible_raw.lower() in ('true', '1', 'yes', 'on')
-            else:
-                is_visible = bool(is_visible_raw)
+            # Use consolidated conversion method
+            is_visible = self._convert_visibility_to_bool(is_visible_raw)
                 
             result = [molecules] if is_visible else []
             print(f"PlotRenderer: Single molecule visibility: is_visible_raw = {is_visible_raw} -> is_visible = {is_visible} -> {'visible' if is_visible else 'hidden'}")
             return result
     
-    def render_molecules_efficiently(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
+    def render_visible_molecules(self, wave_data: np.ndarray, molecules: Union['MoleculeDict', List['Molecule']]) -> None:
         """Render molecules using available methods"""
         if not molecules:
             return
         
-        print(f"PlotRenderer: render_molecules_efficiently called with {len(molecules) if hasattr(molecules, '__len__') else 'unknown count'} molecules")
+        print(f"PlotRenderer: render_visible_molecules called with {len(molecules) if hasattr(molecules, '__len__') else 'unknown count'} molecules")
         
         # Get visible molecules
-        visible_molecules = self.get_visible_molecules_efficiently(molecules)
+        visible_molecules = self.get_visible_molecules(molecules)
         if not visible_molecules:
             print("PlotRenderer: No visible molecules, returning early")
             return
@@ -485,9 +535,9 @@ class PlotRenderer:
         for mol in visible_molecules:
             mol_name = getattr(mol, 'name', 'unknown')
             print(f"PlotRenderer: Rendering molecule: {mol_name}")
-            self.render_molecule_spectrum_optimized(mol, wave_data)
+            self.render_individual_molecule_spectrum(mol, wave_data)
     
-    def optimize_plot_memory(self) -> None:
+    def optimize_plot_memory_usage(self) -> None:
         """Optimize memory usage for plotting operations"""
         # Limit the number of cached model lines
         if len(self.model_lines) > 50:
@@ -609,7 +659,7 @@ class PlotRenderer:
                 
                 # Create scatter point
                 sc = self.ax3.scatter(line.e_up, rd_yax, s=30, 
-                                     color=self.theme.get("scatter_main_color", 'green'), 
+                                     color=self._get_theme_value("scatter_main_color", 'green'), 
                                      edgecolors='black', picker=True)
                 
                 # Store line information
@@ -679,14 +729,14 @@ class PlotRenderer:
             if lineheight > 0:
                 # Create vertical line
                 vline = self.ax2.vlines(line.lam, 0, lineheight,
-                                       color=self.theme.get("active_scatter_line_color", "green"), 
+                                       color=self._get_theme_value("active_scatter_line_color", "green"), 
                                        linestyle='dashed', linewidth=1, picker=True)
                 
                 # Add text label
                 text = self.ax2.text(line.lam, lineheight,
                                    f"{line.e_up:.0f},{line.a_stein:.3f}", 
                                    fontsize='x-small', 
-                                   color=self.theme.get("active_scatter_line_color", "green"), 
+                                   color=self._get_theme_value("active_scatter_line_color", "green"), 
                                    rotation=45)
                 
                 # Create value data for this line
@@ -805,14 +855,14 @@ class PlotRenderer:
         
         return picked_value
     
-    def get_molecule_spectrum_efficiently(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    def get_molecule_spectrum_data(self, molecule: 'Molecule', wave_data: np.ndarray) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
         """
         Get molecule spectrum data efficiently using the molecule's internal caching system.
         
         This method leverages the molecule's optimized caching to avoid redundant calculations.
         """
         try:
-            molecule_name = getattr(molecule, 'name', 'unknown')
+            molecule_name = self._get_molecule_display_name(molecule)
             
             # Method 1: Use molecule's prepare_plot_data method (preferred)
             if hasattr(molecule, 'prepare_plot_data') and callable(molecule.prepare_plot_data):
@@ -853,7 +903,7 @@ class PlotRenderer:
             print(f"Error getting molecule spectrum: {e}")
             return None, None
     
-    def get_molecule_lines_efficiently(self, molecule: 'Molecule', xmin: float, xmax: float) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
+    def get_molecule_line_data(self, molecule: 'Molecule', xmin: float, xmax: float) -> List[Tuple['MoleculeLine', float, Optional[float]]]:
         """
         Get molecule lines in wavelength range.
         
@@ -904,7 +954,7 @@ class PlotRenderer:
             print(f"Error getting molecule lines: {e}")
             return []
     
-    def render_molecule_spectrum_optimized(self, molecule: 'Molecule', wave_data: np.ndarray, 
+    def render_individual_molecule_spectrum(self, molecule: 'Molecule', wave_data: np.ndarray, 
                                          plot_name: Optional[str] = None) -> bool:
         """
         Render a single molecule spectrum leveraging intelligent caching.
@@ -928,10 +978,11 @@ class PlotRenderer:
         """
         try:
             # Validate and sync cache state with molecule
-            self.sync_with_molecule_cache(molecule)
+            self.sync_molecule_cache(molecule)
             
+            print("Hey whats up man")
             # Get spectrum data using enhanced caching
-            plot_lam, plot_flux = self.get_molecule_spectrum_efficiently(molecule, wave_data)
+            plot_lam, plot_flux = self.get_molecule_spectrum_data(molecule, wave_data)
             
             if plot_lam is None or plot_flux is None:
                 return False
@@ -941,8 +992,8 @@ class PlotRenderer:
                 return False
             
             # Get molecule properties
-            mol_name = plot_name or getattr(molecule, 'name', getattr(molecule, 'displaylabel', 'unknown'))
-            color = getattr(molecule, 'color', self.theme.get('molecule_colors', {}).get(mol_name, 'blue'))
+            mol_name = plot_name or self._get_molecule_display_name(molecule)
+            color = self._get_molecule_color(molecule)
             label = getattr(molecule, 'displaylabel', mol_name)
             
             # Plot the spectrum
@@ -952,19 +1003,19 @@ class PlotRenderer:
                 linestyle='--',
                 color=color,
                 alpha=0.7,
-                linewidth=self.theme.get("model_plot_line_width", 1.5),
+                linewidth=self._get_theme_value("model_plot_line_width", 1.5),
                 label=label,
-                zorder=self.theme.get("zorder_model", 2)
+                zorder=self._get_theme_value("zorder_model", 2)
             )
             
             self.model_lines.append(line)
             return True
             
         except Exception as e:
-            print(f"Error plotting molecule {getattr(molecule, 'name', 'unknown')}: {e}")
+            print(f"Error plotting molecule {self._get_molecule_display_name(molecule)}: {e}")
             return False
     
-    def get_intensity_table_efficiently(self, molecule: 'Molecule') -> Optional[pd.DataFrame]:
+    def get_intensity_data(self, molecule: 'Molecule') -> Optional[pd.DataFrame]:
         """
         Get intensity table leveraging molecule's internal caching system.
         
@@ -1055,7 +1106,7 @@ class PlotRenderer:
             if molecule is None:
                 return True
                 
-            molecule_name = getattr(molecule, 'name', 'unknown')
+            molecule_name = self._get_molecule_display_name(molecule)
             
             if hasattr(molecule, 'is_cache_valid') and not molecule.is_cache_valid('spectrum'):
                 if molecule_name in self._plot_cache['spectrum_plots']:
@@ -1067,12 +1118,12 @@ class PlotRenderer:
             print(f"Error validating cache coherence: {e}")
             return False
     
-    def sync_with_molecule_cache(self, molecule: 'Molecule') -> None:
+    def sync_molecule_cache(self, molecule: 'Molecule') -> None:
         try:
             if molecule is None:
                 return
                 
-            molecule_name = getattr(molecule, 'name', 'unknown')
+            molecule_name = self._get_molecule_display_name(molecule)
             
             if not self.validate_cache_coherence(molecule):
                 current_hash = self._get_molecule_parameters_hash(molecule)
@@ -1110,7 +1161,7 @@ class PlotRenderer:
         }
         
         if molecule is not None:
-            molecule_name = getattr(molecule, 'name', 'unknown')
+            molecule_name = self._get_molecule_display_name(molecule)
             debug_info['molecule_specific'] = {
                 'name': molecule_name,
                 'current_param_hash': self._get_molecule_parameters_hash(molecule),
