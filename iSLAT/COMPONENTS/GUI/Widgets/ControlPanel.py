@@ -68,7 +68,7 @@ class ControlPanel:
             elif hasattr(new_molecule, 'name'):
                 display_label = new_molecule.name
             elif isinstance(new_molecule, str):
-                display_label = new_molecule  # For "SUM", "ALL", etc.
+                display_label = new_molecule
             else:
                 display_label = str(new_molecule)
             
@@ -374,10 +374,6 @@ class ControlPanel:
         if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
             return ""
         
-        # For special cases like SUM/ALL, return N/A
-        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
-            return "N/A"
-            
         # Get the active molecule object
         active_mol = None
         if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
@@ -507,10 +503,6 @@ class ControlPanel:
         if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
             return
             
-        # Skip for special cases
-        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
-            return
-            
         # Get the active molecule object
         active_mol = self._get_active_molecule_object()
         if not active_mol:
@@ -540,10 +532,6 @@ class ControlPanel:
     def _on_color_button_clicked(self):
         """Handle color button clicks to open color chooser"""
         if not hasattr(self.islat, 'active_molecule') or not self.islat.active_molecule:
-            return
-            
-        # Skip for special cases
-        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
             return
             
         # Get the active molecule object
@@ -592,14 +580,7 @@ class ControlPanel:
         if not hasattr(self, 'color_button') or not hasattr(self, 'visibility_checkbox'):
             return
             
-        # For special cases like SUM/ALL, disable controls
-        if isinstance(self.islat.active_molecule, str) and self.islat.active_molecule in ["SUM", "ALL"]:
-            self.visibility_checkbox.configure(state='disabled')
-            self.color_button.configure(state='disabled')
-            self.visibility_var.set(False)
-            return
-        
-        # Enable controls for regular molecules
+        # Enable controls for molecules
         self.visibility_checkbox.configure(state='normal')
         self.color_button.configure(state='normal')
         
@@ -762,10 +743,7 @@ class ControlPanel:
         selected_label = self.molecule_var.get()
         
         try:
-            if selected_label in ["SUM", "ALL"]:
-                self.islat.active_molecule = selected_label
-                self._clear_molecule_parameter_fields()
-            elif hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
+            if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
                 for mol_name, mol_obj in self.islat.molecules_dict.items():
                     display_label = getattr(mol_obj, 'displaylabel', mol_name)
                     if display_label == selected_label:
@@ -785,13 +763,13 @@ class ControlPanel:
         if not hasattr(self, 'dropdown'):
             return
             
-        options = ["SUM", "ALL"]
+        options = []
         if hasattr(self.islat, 'molecules_dict') and self.islat.molecules_dict:
             molecule_options = [
                 getattr(mol_obj, 'displaylabel', mol_name) 
                 for mol_name, mol_obj in self.islat.molecules_dict.items()
             ]
-            options = molecule_options + options
+            options = molecule_options
         
         self.dropdown['values'] = options
         
@@ -899,14 +877,3 @@ class ControlPanel:
                     var.set(str(new_value))
             except (AttributeError, TypeError):
                 pass
-
-    def _clear_molecule_parameter_fields(self):
-        """Clear molecule-specific parameter fields for special cases like SUM/ALL"""
-        if not hasattr(self, '_molecule_parameter_entries'):
-            return
-            
-        for param_name, (entry, var) in self._molecule_parameter_entries.items():
-            var.set("N/A")
-        
-        # Also update color and visibility controls for special cases
-        self._update_color_and_visibility_controls()

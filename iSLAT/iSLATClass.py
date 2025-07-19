@@ -696,7 +696,6 @@ class iSLAT:
     def active_molecule(self, molecule):
         """
         Sets the active molecule based on the provided name or object.
-        Special handling for "SUM" and "ALL" without triggering errors.
         """
         old_molecule = getattr(self, '_active_molecule', None)
         old_name = getattr(old_molecule, 'name', old_molecule)
@@ -708,10 +707,7 @@ class iSLAT:
             if isinstance(molecule, Molecule):
                 self._active_molecule = molecule
             elif isinstance(molecule, str):
-                if molecule in ("SUM", "ALL"):
-                    # Store as string for special handling
-                    self._active_molecule = molecule
-                elif hasattr(self, 'molecules_dict') and molecule in self.molecules_dict:
+                if hasattr(self, 'molecules_dict') and molecule in self.molecules_dict:
                     self._active_molecule = self.molecules_dict[molecule]
                 else:
                     raise ValueError(f"Molecule '{molecule}' not found in the dictionary.")

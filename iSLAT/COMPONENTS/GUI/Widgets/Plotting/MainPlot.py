@@ -893,12 +893,8 @@ class iSLATPlot:
         
         # Update the population diagram title
         if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
-            if isinstance(self.islat.active_molecule, str):
-                self.ax3.set_title(f'{self.islat.active_molecule} - Population diagram not available')
-                debug_config.verbose("active_molecule", f"Set title for special molecule: {self.islat.active_molecule}")
-            else:
-                self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram')
-                debug_config.verbose("active_molecule", f"Set title for molecule: {self.islat.active_molecule.displaylabel}")
+            self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram')
+            debug_config.verbose("active_molecule", f"Set title for molecule: {self.islat.active_molecule.displaylabel}")
         
         # Clear active lines since they belong to the previous molecule
         debug_config.verbose("active_molecule", "Clearing active lines")
