@@ -40,6 +40,8 @@ class DebugConfig:
             'summed_flux': DebugLevel.WARNING,
             'intensity_calc': DebugLevel.WARNING,
             'spectrum_calc': DebugLevel.WARNING,
+            'active_molecule': DebugLevel.WARNING,
+            'line_inspection': DebugLevel.WARNING,
         })
     
     @property
@@ -176,3 +178,8 @@ def set_molecule_debug_level(level: DebugLevel) -> None:
     debug_config.set_component_level('parameter_changes', level)
     debug_config.set_component_level('intensity_calc', level)
     debug_config.set_component_level('spectrum_calc', level)
+
+def set_active_molecule_debug_level(level: DebugLevel) -> None:
+    """Set debug level for active molecule change tracking."""
+    debug_config.set_component_level('active_molecule', level)
+    debug_config.set_component_level('line_inspection', level)

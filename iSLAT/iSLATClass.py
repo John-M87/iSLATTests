@@ -14,6 +14,7 @@ import iSLAT.Constants as c
 from .COMPONENTS.GUI import *
 from .COMPONENTS.DataTypes.Molecule import Molecule
 from .COMPONENTS.DataTypes.MoleculeDict import MoleculeDict
+from .COMPONENTS.Debug.DebugConfig import debug_config
 
 class UpdateCoordinator:
     """Centralized update coordinator to manage and debounce plot updates"""
@@ -698,6 +699,10 @@ class iSLAT:
         Special handling for "SUM" and "ALL" without triggering errors.
         """
         old_molecule = getattr(self, '_active_molecule', None)
+        old_name = getattr(old_molecule, 'name', old_molecule)
+        new_name = getattr(molecule, 'name', molecule) if hasattr(molecule, 'name') else molecule
+        
+        debug_config.info("active_molecule", f"Setting active molecule from {old_name} to {new_name}")
         
         try:
             if isinstance(molecule, Molecule):
@@ -713,16 +718,13 @@ class iSLAT:
             else:
                 raise TypeError("Active molecule must be a Molecule object or a string representing the molecule name.")
             
-            # Notify callbacks of the change
+            # Only notify callbacks - let them handle plot updates
+            # This prevents double calls to plot update methods
+            debug_config.verbose("active_molecule", f"Notifying {len(self._active_molecule_change_callbacks)} callbacks of change")
             self._notify_active_molecule_change(old_molecule, self._active_molecule)
-            
-            # Only trigger plot updates for actual Molecule objects
-            if (hasattr(self, "GUI") and hasattr(self.GUI, "plot") 
-                and isinstance(self._active_molecule, Molecule)):
-                self.GUI.plot.update_all_plots()
                 
         except Exception as e:
-            print(f"Error setting active molecule: {e}")
+            debug_config.error("active_molecule", f"Error setting active molecule: {e}")
             # Don't change the active molecule if there's an error
         
     @property
@@ -754,11 +756,16 @@ class iSLAT:
     
     def _notify_active_molecule_change(self, old_molecule, new_molecule):
         """Notify all callbacks that the active molecule has changed"""
-        for callback in self._active_molecule_change_callbacks:
+        debug_config.verbose("active_molecule", f"Notifying {len(self._active_molecule_change_callbacks)} callbacks")
+        for i, callback in enumerate(self._active_molecule_change_callbacks):
             try:
+                callback_name = callback.__name__ if hasattr(callback, '__name__') else str(callback)
+                debug_config.trace("active_molecule", f"Calling callback {i+1}: {callback_name}")
                 callback(old_molecule, new_molecule)
+                debug_config.trace("active_molecule", f"Callback {i+1} completed successfully")
             except Exception as e:
-                print(f"Error in active molecule change callback: {e}")
+                debug_config.error("active_molecule", f"Error in callback {i+1}: {e}")
+        debug_config.verbose("active_molecule", "All callbacks completed")
     
     # Lazy loading properties for performance optimization
     @property

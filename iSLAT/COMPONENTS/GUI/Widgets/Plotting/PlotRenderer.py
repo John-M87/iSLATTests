@@ -162,6 +162,48 @@ class PlotRenderer:
             if line in self.ax1.lines:
                 line.remove()
         self.model_lines.clear()
+
+    def remove_molecule_lines(self, molecule_name: str) -> None:
+        """Remove lines associated with a specific molecule"""
+        lines_to_remove = []
+        for line in self.model_lines:
+            # Check if line belongs to this molecule (by stored metadata first)
+            if hasattr(line, '_molecule_name') and line._molecule_name == molecule_name:
+                lines_to_remove.append(line)
+            # Fallback: check by label if metadata not available
+            elif hasattr(line, 'get_label') and line.get_label():
+                label = line.get_label()
+                # Check both the molecule name and display label
+                if molecule_name in label or any(mol_part in label for mol_part in molecule_name.split('_')):
+                    lines_to_remove.append(line)
+        
+        # Remove lines from plot and list
+        for line in lines_to_remove:
+            if line in self.ax1.lines:
+                line.remove()
+            if line in self.model_lines:
+                self.model_lines.remove(line)
+
+    def update_summed_spectrum_only(self, wave_data: np.ndarray, summed_flux: np.ndarray) -> None:
+        """Update only the summed spectrum without affecting individual molecule plots"""
+        # Remove existing summed spectrum
+        for collection in self.ax1.collections:
+            if hasattr(collection, '_islat_summed'):
+                collection.remove()
+        
+        # Add new summed spectrum
+        if len(summed_flux) > 0 and np.any(summed_flux > 0):
+            fill = self.ax1.fill_between(
+                wave_data,
+                0,
+                summed_flux,
+                color=self._get_theme_value("summed_spectra_color", "lightgray"),
+                alpha=1.0,
+                label='Sum',
+                zorder=self._get_theme_value("zorder_summed", 1)
+            )
+            # Mark as summed spectrum for future removal
+            fill._islat_summed = True
         
     def render_main_spectrum_plot(self, wave_data: np.ndarray, flux_data: np.ndarray, 
                                  molecules: Union[List['Molecule'], 'MoleculeDict'], 
@@ -232,7 +274,7 @@ class PlotRenderer:
     def _plot_summed_spectrum(self, wave_data: np.ndarray, summed_flux: np.ndarray) -> None:
         """Plot the summed model spectrum"""
         if len(summed_flux) > 0 and np.any(summed_flux > 0):
-            self.ax1.fill_between(
+            fill = self.ax1.fill_between(
                 wave_data,
                 0,
                 summed_flux,
@@ -241,6 +283,8 @@ class PlotRenderer:
                 label='Sum',
                 zorder=self._get_theme_value("zorder_summed", 1)
             )
+            # Mark as summed spectrum for future removal
+            fill._islat_summed = True
     
     def _configure_main_plot_appearance(self) -> None:
         """Configure the appearance of the main plot"""
@@ -1002,6 +1046,9 @@ class PlotRenderer:
                 label=label,
                 zorder=self._get_theme_value("zorder_model", 2)
             )
+            
+            # Store molecule name in line metadata for selective removal
+            line._molecule_name = getattr(molecule, 'name', molecule_name)
             
             self.model_lines.append(line)
             self._plot_stats['molecules_rendered'] += 1

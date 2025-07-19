@@ -528,10 +528,14 @@ class ControlPanel:
         # Debug: Verify the visibility was actually set
         print(f"ControlPanel: Set {molecule_name} visibility to {new_visibility}, actual value: {getattr(active_mol, 'is_visible', 'UNDEFINED')}")
         
-        # Trigger plot refresh to show/hide the molecule
-        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+        # Trigger selective plot refresh to show/hide the molecule
+        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'on_molecule_visibility_changed'):
+            self.islat.GUI.plot.on_molecule_visibility_changed(molecule_name, new_visibility)
+            print(f"ControlPanel: Triggered selective plot refresh for visibility change")
+        elif hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'plot') and hasattr(self.islat.GUI.plot, 'update_all_plots'):
+            # Fallback to full refresh if selective rendering not available
             self.islat.GUI.plot.update_all_plots()
-            print(f"ControlPanel: Triggered plot refresh for visibility change")
+            print(f"ControlPanel: Triggered full plot refresh for visibility change")
 
     def _on_color_button_clicked(self):
         """Handle color button clicks to open color chooser"""
