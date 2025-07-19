@@ -357,6 +357,9 @@ class iSLATPlot:
         This method leverages the active molecule's intensity and line caching
         to avoid redundant calculations.
         """
+        debug_config.verbose("line_inspection", f"plot_spectrum_around_line called", 
+                           xmin=xmin, xmax=xmax, highlight_strongest=highlight_strongest)
+        
         if xmin is None:
             xmin = self.last_xmin if hasattr(self, 'last_xmin') else None
         if xmax is None:
@@ -364,16 +367,20 @@ class iSLATPlot:
 
         if xmin is None or xmax is None:
             # If no selection but we need to update population diagram due to molecule/parameter changes
+            debug_config.verbose("line_inspection", "No selection, updating population diagram only")
             self.plot_renderer.render_population_diagram(self.islat.active_molecule)
             self.canvas.draw_idle()
             return
 
+        debug_config.trace("line_inspection", f"Processing selection: {xmin:.3f} - {xmax:.3f}")
+        
         # Get lines in range using the molecule's built-in line caching
         try:
             # Use PlotRenderer which leverages molecule's internal caching
             line_data = self.plot_renderer.get_molecule_line_data(self.islat.active_molecule, xmin, xmax)
             if not line_data:
                 # Clear active lines and update population diagram even if no lines in range
+                debug_config.verbose("line_inspection", "No lines in range, clearing active lines")
                 self.clear_active_lines()
                 self.plot_renderer.render_population_diagram(self.islat.active_molecule)
                 self.canvas.draw_idle()
@@ -381,16 +388,19 @@ class iSLATPlot:
         except Exception as e:
             debug_config.warning("main_plot", f"Could not get line data: {e}")
             # Clear active lines and update population diagram even if no lines in range
+            debug_config.verbose("line_inspection", "Error getting line data, clearing active lines")
             self.clear_active_lines()
             self.plot_renderer.render_population_diagram(self.islat.active_molecule)
             self.canvas.draw_idle()
             return
 
         # Clear previous active_lines before plotting
+        debug_config.trace("line_inspection", f"Found {len(line_data)} lines, plotting line inspection and population diagram")
         self.clear_active_lines()
         self.plot_line_inspection(xmin, xmax, line_data, highlight_strongest=highlight_strongest)
         self.plot_population_diagram(line_data)
         self.canvas.mpl_connect('pick_event', self.on_pick_line)
+        debug_config.verbose("line_inspection", "plot_spectrum_around_line completed")
     
     def on_pick_line(self, event):
         """Handle line pick events by delegating to PlotRenderer."""
@@ -879,24 +889,33 @@ class iSLATPlot:
         Called when the active molecule changes.
         Updates plot titles and refreshes displays with current selection if available.
         """
+        debug_config.info("active_molecule", "on_active_molecule_changed() called")
+        
         # Update the population diagram title
         if hasattr(self.islat, 'active_molecule') and self.islat.active_molecule:
             if isinstance(self.islat.active_molecule, str):
                 self.ax3.set_title(f'{self.islat.active_molecule} - Population diagram not available')
+                debug_config.verbose("active_molecule", f"Set title for special molecule: {self.islat.active_molecule}")
             else:
                 self.ax3.set_title(f'{self.islat.active_molecule.displaylabel} Population diagram')
+                debug_config.verbose("active_molecule", f"Set title for molecule: {self.islat.active_molecule.displaylabel}")
         
         # Clear active lines since they belong to the previous molecule
+        debug_config.verbose("active_molecule", "Clearing active lines")
         self.clear_active_lines()
         
         # If we have a current selection, refresh the line inspection and population diagram
         if hasattr(self, 'current_selection') and self.current_selection:
             xmin, xmax = self.current_selection
+            debug_config.verbose("active_molecule", f"Refreshing line inspection for selection: {xmin:.3f} - {xmax:.3f}")
             self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
         else:
             # Just update the population diagram without active lines
+            debug_config.verbose("active_molecule", "Updating population diagram only")
             self.plot_renderer.render_population_diagram(self.islat.active_molecule)
             self.canvas.draw_idle()
+        
+        debug_config.info("active_molecule", "on_active_molecule_changed() completed")
 
     def on_molecule_parameter_changed(self, molecule_name, parameter_name, old_value, new_value):
         """
@@ -967,7 +986,7 @@ class iSLATPlot:
     
     def on_molecule_visibility_changed(self, molecule_name, is_visible):
         """
-        Handle molecule visibility changes.
+        Handle molecule visibility changes with selective rendering.
         
         Parameters
         ----------
@@ -976,8 +995,21 @@ class iSLATPlot:
         is_visible : bool
             New visibility state
         """
-        # Update model plot to reflect visibility changes
-        self.update_model_plot()
+        if not hasattr(self.islat, 'molecules_dict') or molecule_name not in self.islat.molecules_dict:
+            return
+        
+        molecule = self.islat.molecules_dict[molecule_name]
+        
+        if is_visible:
+            # Add this molecule's spectrum to the plot
+            self._add_molecule_to_plot(molecule)
+            # Update summed spectrum
+            self._update_summed_spectrum()
+        else:
+            # Remove this molecule's spectrum from the plot
+            self._remove_molecule_from_plot(molecule_name)
+            # Update summed spectrum
+            self._update_summed_spectrum()
         
         # If the active molecule's visibility changed, update line inspection
         if (hasattr(self.islat, 'active_molecule') and 
@@ -988,6 +1020,48 @@ class iSLATPlot:
             
             xmin, xmax = self.current_selection
             self.plot_spectrum_around_line(xmin, xmax, highlight_strongest=True)
+        
+        self.canvas.draw_idle()
+
+    def _add_molecule_to_plot(self, molecule):
+        """Add a single molecule's spectrum to the plot without affecting others"""
+        if not self._convert_visibility_to_bool(molecule.is_visible):
+            return
+        
+        # Use PlotRenderer to add just this molecule
+        success = self.plot_renderer.render_individual_molecule_spectrum(
+            molecule, self.islat.wave_data
+        )
+        if success:
+            # Keep legacy model_lines in sync
+            self.sync_model_lines()
+
+    def _remove_molecule_from_plot(self, molecule_name):
+        """Remove a single molecule's spectrum from the plot without affecting others"""
+        # Remove lines associated with this molecule from the plot
+        self.plot_renderer.remove_molecule_lines(molecule_name)
+        # Keep legacy model_lines in sync
+        self.sync_model_lines()
+
+    def _update_summed_spectrum(self):
+        """Update only the summed spectrum without re-rendering individual molecules"""
+        visible_molecules = [mol for mol in self.islat.molecules_dict.values() 
+                            if self._convert_visibility_to_bool(mol.is_visible)]
+        
+        # Calculate new summed flux using cached data
+        summed_flux = np.zeros_like(self.islat.wave_data)
+        for molecule in visible_molecules:
+            try:
+                result = molecule.prepare_plot_data(self.islat.wave_data)
+                if result is not None and len(result) == 2:
+                    plot_lam, plot_flux = result
+                    if plot_flux is not None and len(plot_flux) == len(summed_flux):
+                        summed_flux += plot_flux
+            except Exception as e:
+                continue
+        
+        # Update only the summed spectrum plot
+        self.plot_renderer.update_summed_spectrum_only(self.islat.wave_data, summed_flux)
     
     def batch_update_molecule_colors(self, molecule_color_map):
         """

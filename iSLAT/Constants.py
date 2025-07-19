@@ -1,5 +1,5 @@
 """
-Constants module for iSLAT (infrared Spectroscopic Line Analysis Tool).
+Constants module for iSLAT (interactive Spectral Line Analysis Tool).
 
 This module contains all physical constants, default parameters, and molecular data
 used throughout the iSLAT application. Constants are merged from the original
