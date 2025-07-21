@@ -101,7 +101,7 @@ class MoleculeDict(dict):
             print(f"Triggering bulk intensity calculation for {len(added_molecules)} molecules...")
             self._bulk_calculate_intensities([mol.name for mol in added_molecules])
 
-    def load_molecules_data(self, molecules_data: List[Dict[str, Any]], 
+    '''def load_molecules_data(self, molecules_data: List[Dict[str, Any]], 
                            initial_molecule_parameters: Dict[str, Dict[str, Any]], 
                            save_file_data: Dict[str, Dict[str, Any]], 
                            wavelength_range: Tuple[float, float], 
@@ -130,7 +130,7 @@ class MoleculeDict(dict):
         # Trigger bulk intensity calculation for all loaded molecules
         if len(added_molecules) > 1:
             print(f"Triggering bulk intensity calculation for {len(added_molecules)} loaded molecules...")
-            self._bulk_calculate_intensities(added_molecules)
+            self._bulk_calculate_intensities(added_molecules)'''
     
     def clear(self):
         """Clear the dictionary of all molecules."""
@@ -792,71 +792,6 @@ class MoleculeDict(dict):
     # ================================
     # Startup Optimization Methods
     # ================================
-    
-    def optimize_startup_loading(self) -> None:
-        """
-        Apply startup optimizations to improve initial loading performance.
-        Pre-warms file cache, optimizes data loading settings, and pre-allocates structures.
-        """
-        print("Applying startup optimizations...")
-        
-        # Pre-warm the file system cache by checking file existence
-        self._prewarm_file_cache()
-        
-        # Set optimal pandas and numpy settings for loading
-        self._optimize_data_loading_settings()
-        
-        # Pre-allocate common data structures
-        self._preallocate_common_structures()
-        
-        print("Startup optimizations applied.")
-    
-    def _prewarm_file_cache(self):
-        """Pre-warm file system cache by checking common file paths."""
-        common_paths = [
-            "DATAFILES/HITRANdata",
-            "DATAFILES/SAVES", 
-            "DATAFILES/LINELISTS",
-            "DATAFILES/CONFIG"
-        ]
-        
-        for path in common_paths:
-            try:
-                if os.path.exists(path):
-                    # Just listing the directory helps warm the cache
-                    os.listdir(path)
-            except Exception:
-                pass  # Silently ignore cache warming failures
-    
-    def _optimize_data_loading_settings(self):
-        """Set optimal settings for data loading libraries."""
-        try:
-            import pandas as pd
-            # Set pandas options for faster reading
-            pd.set_option('io.common.default_buffer_size', 8192 * 4)  # Larger buffer
-        except Exception:
-            pass
-        
-        try:
-            import numpy as np
-            # Set numpy threading for better performance
-            if hasattr(np, 'seterr'):
-                np.seterr(all='ignore')  # Ignore overflow warnings during calculations
-        except Exception:
-            pass
-    
-    def _preallocate_common_structures(self):
-        """Pre-allocate commonly used data structures."""
-        # Pre-allocate common numpy arrays sizes to warm up numpy
-        try:
-            import numpy as np
-            # Pre-allocate some common array sizes to warm up numpy
-            for size in [1000, 5000, 10000]:
-                temp = np.zeros(size, dtype=np.float32)
-                del temp
-        except Exception:
-            pass
-    
     def load_molecules_optimized(self, molecules_data: List[Dict[str, Any]], 
                                 initial_molecule_parameters: Dict[str, Any],
                                 use_parallel: bool = None, 
