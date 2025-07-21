@@ -107,7 +107,11 @@ class Spectrum:
         # Get wavelengths from the new MoleculeLineList structure
         lam_all = intensity.molecule.get_wavelengths()
         
-        # Check if we have any lines to process
+        # Check if we have valid data to process
+        if I_all is None or lam_all is None:
+            print(f"Warning: No intensity or wavelength data available for molecule {intensity.molecule.name}")
+            return
+            
         if len(lam_all) == 0 or len(I_all) == 0:
             # No lines to add, just return without error
             return

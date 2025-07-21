@@ -1295,7 +1295,9 @@ class PlotRenderer:
             self.model_lines.append(line)
             self._plot_stats['molecules_rendered'] += 1
             
-            print(f"Successfully rendered spectrum for {molecule_name} with {len(plot_flux)} data points")
+            # Only print success message if not in batch update mode (to reduce console spam)
+            if not getattr(self.islat, '_batch_update_in_progress', False):
+                print(f"Successfully rendered spectrum for {molecule_name} with {len(plot_flux)} data points")
             return True
             
         except Exception as e:

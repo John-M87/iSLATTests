@@ -257,8 +257,16 @@ class iSLATPlot:
     def update_all_plots(self):
         """
         Updates all plots in the GUI.
-        This method leverages the molecular data model for updates.
+        This method leverages the molecular data model for updates and avoids redundant rendering.
         """
+        # Check if we should defer rendering
+        if getattr(self.islat, '_defer_spectrum_rendering', False):
+            return
+            
+        # Check if a batch update is in progress to avoid redundant calls
+        if getattr(self.islat, '_batch_update_in_progress', False):
+            return
+            
         self.update_model_plot()
         self.plot_renderer.render_population_diagram(self.islat.active_molecule)
         self.plot_spectrum_around_line()
@@ -547,9 +555,17 @@ class iSLATPlot:
             f"Flux in sel. range (erg/s/cm2) = {flux_str}\n"
         )
         
-        # Add the information without clearing the data field
-        if hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'data_field'):
-            self.islat.GUI.data_field.insert_text(info_str, clear_first=clear_data_field)
+        # Add the information without clearing the data field, with error protection
+        if (hasattr(self.islat, 'GUI') and hasattr(self.islat.GUI, 'data_field') and
+            self.islat.GUI.data_field is not None):
+            try:
+                # Check if the widget still exists before accessing it
+                if hasattr(self.islat.GUI.data_field, 'text') and self.islat.GUI.data_field.text.winfo_exists():
+                    self.islat.GUI.data_field.insert_text(info_str, clear_first=clear_data_field)
+            except Exception as e:
+                # Silently ignore GUI access errors during initialization
+                print(f"Warning: Could not update data field: {e}")
+                pass
 
     def plot_line_inspection(self, xmin=None, xmax=None, line_data=None, highlight_strongest=True):
         if xmin is None:

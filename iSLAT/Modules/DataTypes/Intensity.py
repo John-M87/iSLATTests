@@ -132,6 +132,55 @@ class Intensity:
         i, _ = fixed_quad(lambda x: 1.0 - np.exp(-tau_param * np.exp(-x ** 2)), -6, 6, n=20)
         return i
 
+    @staticmethod
+    def _fint_vectorized(tau: np.ndarray) -> np.ndarray:
+        """Vectorized version of _fint for multi-dimensional tau arrays.
+        
+        Efficiently calculates the integral for arbitrarily shaped tau arrays using
+        optimized Gaussian quadrature with broadcasting.
+        
+        Parameters
+        ----------
+        tau: np.ndarray
+            N-dimensional array with tau values
+            
+        Returns
+        -------
+        np.ndarray
+            Array with same shape as tau containing integral values
+        """
+        fixed_quad = _get_scipy()
+        
+        # Store original shape and flatten tau for processing
+        original_shape = tau.shape
+        tau_flat = tau.ravel()
+        
+        # Pre-compute Gaussian quadrature points and weights (20-point)
+        try:
+            from numpy.polynomial.legendre import leggauss
+            x_quad, w_quad = leggauss(20)
+            # Transform from [-1,1] to [-6,6]
+            x_quad = 6.0 * x_quad
+            w_quad = 6.0 * w_quad
+        except ImportError:
+            # Fallback to fixed quadrature points if numpy.polynomial not available
+            print("Warning: numpy.polynomial not available, using fallback method")
+            return np.array([Intensity._fint(tau_val) for tau_val in tau_flat]).reshape(original_shape)
+        
+        # Vectorized integral calculation using broadcasting
+        # Shape: (n_tau_values, n_quad_points)
+        x_mesh = np.exp(-x_quad[np.newaxis, :] ** 2)  # exp(-x^2) for all quad points
+        tau_mesh = tau_flat[:, np.newaxis]  # tau values
+        
+        # Compute integrand: 1 - exp(-tau * exp(-x^2))
+        integrand = 1.0 - np.exp(-tau_mesh * x_mesh)
+        
+        # Apply quadrature weights and sum
+        integral_values = np.sum(integrand * w_quad[np.newaxis, :], axis=1)
+        
+        # Reshape back to original shape
+        return integral_values.reshape(original_shape)
+
     def calc_intensity(self, t_kin: Optional[float] = None, n_mol: Optional[float] = None, 
                       dv: Optional[float] = None, method: Literal["curve_growth", "radex"] = "curve_growth") -> None:
         """Calculate the intensity for a given set of physical parameters. This implements Eq. A1 and A2 in
@@ -218,9 +267,197 @@ class Intensity:
         self._intensity = intensity
         self._cache_valid = True
 
+    def calc_intensity_batch(self, t_kin_array: np.ndarray, n_mol_array: np.ndarray, 
+                           dv_array: np.ndarray, method: Literal["curve_growth", "radex"] = "curve_growth") -> np.ndarray:
+        """Calculate intensities for multiple parameter combinations using vectorized operations.
+        
+        This method is optimized for processing many parameter sets simultaneously using broadcasting
+        and vectorized numpy operations for significant performance improvements.
+
+        Parameters
+        ----------
+        t_kin_array: np.ndarray
+            Array of kinetic temperatures in K
+        n_mol_array: np.ndarray  
+            Array of column densities in cm**-2
+        dv_array: np.ndarray
+            Array of intrinsic line widths in km/s
+        method: Literal["curve_growth", "radex"], default "curve_growth"
+            Calculation method
+
+        Returns
+        -------
+        np.ndarray
+            4D array with shape (n_t_kin, n_n_mol, n_dv, n_lines) containing intensities
+        """
+        m = self._molecule
+        lines = m.lines_as_namedtuple
+        
+        # Validate input arrays
+        t_kin_array = np.asarray(t_kin_array)
+        n_mol_array = np.asarray(n_mol_array) 
+        dv_array = np.asarray(dv_array)
+        
+        # Check temperature bounds for all values at once
+        partition = m.partition
+        t_min, t_max = np.min(partition.t), np.max(partition.t)
+        if np.any(t_kin_array < t_min) or np.any(t_kin_array > t_max):
+            raise ValueError(f'Some t_kin values outside partition function range [{t_min}, {t_max}]')
+
+        # Create parameter grids using broadcasting
+        t_kin_grid, n_mol_grid, dv_grid = np.meshgrid(
+            t_kin_array, n_mol_array, dv_array, indexing='ij'
+        )
+        
+        # Vectorized partition function interpolation
+        q_sum_grid = np.interp(t_kin_grid.ravel(), partition.t, partition.q).reshape(t_kin_grid.shape)
+        
+        # Vectorized line calculations using einsum for efficient broadcasting
+        # Shape: (n_lines,) -> (n_lines, n_t_kin, n_n_mol, n_dv)
+        exp_e_low = np.exp(-np.einsum('i,jkl->ijkl', lines.e_low, 1/t_kin_grid))
+        exp_e_up = np.exp(-np.einsum('i,jkl->ijkl', lines.e_up, 1/t_kin_grid))
+        
+        # Population calculations with broadcasting
+        x_low = np.einsum('i,ijkl,jkl->ijkl', lines.g_low, exp_e_low, 1/q_sum_grid)
+        x_up = np.einsum('i,ijkl,jkl->ijkl', lines.g_up, exp_e_up, 1/q_sum_grid)
+        
+        # Vectorized tau calculation
+        freq_factor = c.SPEED_OF_LIGHT_CGS ** 3 / (8.0 * np.pi * np.einsum('i,jkl->ijkl', lines.freq ** 3, 1e5 * dv_grid * c.FGAUSS_PREFACTOR))
+        population_factor = (x_low * np.expand_dims(lines.g_up / lines.g_low, axis=(1,2,3)) - x_up)
+        tau = np.einsum('i,ijkl,ijkl,jkl->ijkl', lines.a_stein, freq_factor, population_factor, n_mol_grid)
+        
+        # Vectorized intensity calculation
+        bb_vals = self._bb(np.expand_dims(lines.freq, axis=(1,2,3)), 
+                          np.expand_dims(t_kin_grid, axis=0))
+        freq_ratio = np.expand_dims(lines.freq / c.SPEED_OF_LIGHT_CGS, axis=(1,2,3))
+        
+        if method == "radex":
+            intensity = (c.FGAUSS_PREFACTOR * np.einsum('jkl,ijkl,ijkl->ijkl', 1e5 * dv_grid, freq_ratio, bb_vals) * 
+                        (1.0 - np.exp(-tau)))
+        elif method == "curve_growth":
+            # Vectorized fint calculation for all tau values
+            fint_vals = self._fint_vectorized(tau)
+            intensity = (1.0 / (2.0 * np.sqrt(np.log(2.0))) * 
+                        np.einsum('jkl,ijkl,ijkl,ijkl->ijkl', 1e5 * dv_grid, freq_ratio, bb_vals, fint_vals))
+        else:
+            raise ValueError("Intensity calculation method not known")
+            
+        return intensity
+
+        # 3. line intensity - optimized calculation
+        bb_vals = self._bb(lines.freq, t_kin)
+        freq_ratio = lines.freq / c.SPEED_OF_LIGHT_CGS
+        
+        if method == "radex":
+            intensity = (c.FGAUSS_PREFACTOR * 1e5 * dv * freq_ratio * bb_vals * 
+                        (1.0 - np.exp(-tau)))
+        elif method == "curve_growth":
+            # Eq. A1 of Banzatti et al. 2012
+            fint_vals = self._fint(tau)
+            intensity = (1.0 / (2.0 * np.sqrt(np.log(2.0))) * 1e5 * dv * freq_ratio * 
+                        bb_vals * fint_vals)
+        else:
+            raise ValueError("Intensity calculation method not known")
+
+        self._tau = tau
+        self._intensity = intensity
+        self._cache_valid = True
+
     def invalidate_cache(self) -> None:
         """Invalidate the calculation cache, forcing recalculation on next call."""
         self._cache_valid = False
+
+    def bulk_parameter_update_vectorized(self, parameter_combinations: list, method: Literal["curve_growth", "radex"] = "curve_growth") -> np.ndarray:
+        """Update multiple parameter combinations and calculate intensities in a vectorized manner.
+        
+        Parameters
+        ----------
+        parameter_combinations: list
+            List of dictionaries, each containing 't_kin', 'n_mol', and 'dv' keys
+        method: Literal["curve_growth", "radex"], default "curve_growth"
+            Calculation method
+            
+        Returns
+        -------
+        np.ndarray
+            2D array with shape (n_combinations, n_lines) containing intensities
+        """
+        if not parameter_combinations:
+            return np.array([])
+        
+        # Extract parameter arrays
+        t_kin_vals = np.array([combo['t_kin'] for combo in parameter_combinations])
+        n_mol_vals = np.array([combo['n_mol'] for combo in parameter_combinations]) 
+        dv_vals = np.array([combo['dv'] for combo in parameter_combinations])
+        
+        m = self._molecule
+        lines = m.lines_as_namedtuple
+        partition = m.partition
+        
+        # Validate temperature bounds
+        t_min, t_max = np.min(partition.t), np.max(partition.t)
+        if np.any(t_kin_vals < t_min) or np.any(t_kin_vals > t_max):
+            raise ValueError(f'Some t_kin values outside partition function range [{t_min}, {t_max}]')
+        
+        # Vectorized partition function calculation
+        q_sum_vals = np.interp(t_kin_vals, partition.t, partition.q)
+        
+        # Broadcasting for line calculations
+        n_combos = len(parameter_combinations)
+        n_lines = len(lines.e_low)
+        
+        if n_lines == 0:
+            print("Warning: No lines available for intensity calculation")
+            return np.zeros((n_combos, 0))
+        
+        # Shape: (n_combos, n_lines)
+        try:
+            exp_e_low = np.exp(-np.outer(1/t_kin_vals, lines.e_low))
+            exp_e_up = np.exp(-np.outer(1/t_kin_vals, lines.e_up))
+            
+            x_low = (exp_e_low * lines.g_low[np.newaxis, :]) / q_sum_vals[:, np.newaxis]
+            x_up = (exp_e_up * lines.g_up[np.newaxis, :]) / q_sum_vals[:, np.newaxis]
+            
+            # Vectorized tau calculation
+            freq_factor = (c.SPEED_OF_LIGHT_CGS ** 3 / 
+                          (8.0 * np.pi * lines.freq[np.newaxis, :] ** 3 * 
+                           (1e5 * dv_vals[:, np.newaxis] * c.FGAUSS_PREFACTOR)))
+            
+            population_factor = (x_low * lines.g_up[np.newaxis, :] / lines.g_low[np.newaxis, :] - x_up)
+            tau = (lines.a_stein[np.newaxis, :] * freq_factor * 
+                   n_mol_vals[:, np.newaxis] * population_factor)
+            
+            # Vectorized intensity calculation
+            bb_vals = self._bb(lines.freq[np.newaxis, :], t_kin_vals[:, np.newaxis])
+            freq_ratio = lines.freq[np.newaxis, :] / c.SPEED_OF_LIGHT_CGS
+            
+            if method == "radex":
+                intensity = (c.FGAUSS_PREFACTOR * 1e5 * dv_vals[:, np.newaxis] * 
+                            freq_ratio * bb_vals * (1.0 - np.exp(-tau)))
+            elif method == "curve_growth":
+                fint_vals = self._fint_vectorized(tau)
+                intensity = (1.0 / (2.0 * np.sqrt(np.log(2.0))) * 
+                            1e5 * dv_vals[:, np.newaxis] * freq_ratio * bb_vals * fint_vals)
+            else:
+                raise ValueError("Intensity calculation method not known")
+                
+            return intensity
+            
+        except Exception as e:
+            print(f"Error in vectorized intensity calculation: {e}")
+            print("Falling back to individual calculations...")
+            
+            # Fallback to individual calculations
+            intensity_matrix = np.zeros((n_combos, n_lines))
+            for i, combo in enumerate(parameter_combinations):
+                try:
+                    self.calc_intensity(combo['t_kin'], combo['n_mol'], combo['dv'], method)
+                    if self._intensity is not None:
+                        intensity_matrix[i] = self._intensity
+                except Exception as individual_e:
+                    print(f"Failed individual calculation for combo {i}: {individual_e}")
+            
+            return intensity_matrix
 
     def get_table_in_range(self, lam_min: float, lam_max: float) -> Any:
         """Get a table with the lines in the specified wavelength range.

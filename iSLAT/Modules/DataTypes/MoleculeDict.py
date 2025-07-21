@@ -85,13 +85,21 @@ class MoleculeDict(dict):
         return molecule
 
     def add_molecules(self, *molecules) -> None:
-        """Add multiple molecules to the dictionary."""
+        """Add multiple molecules to the dictionary with optional bulk intensity calculation."""
         molecules = molecules[0]
+        added_molecules = []
+        
         for mol in molecules:
             if isinstance(mol, Molecule):
                 self[mol.name] = mol
+                added_molecules.append(mol)
             else:
                 raise TypeError("Expected a Molecule instance.")
+        
+        # If multiple molecules were added, trigger bulk intensity calculation
+        if len(added_molecules) > 1:
+            print(f"Triggering bulk intensity calculation for {len(added_molecules)} molecules...")
+            self._bulk_calculate_intensities([mol.name for mol in added_molecules])
 
     def load_molecules_data(self, molecules_data: List[Dict[str, Any]], 
                            initial_molecule_parameters: Dict[str, Dict[str, Any]], 
@@ -102,11 +110,13 @@ class MoleculeDict(dict):
                            model_line_width: float, 
                            distance: float, 
                            hitran_data: Dict[str, Any]) -> None:
-        """Load multiple molecules data into the dictionary."""
+        """Load multiple molecules data into the dictionary with bulk intensity calculation."""
         self.initial_molecule_parameters = initial_molecule_parameters
         self.save_file_data = save_file_data
+        added_molecules = []
+        
         for mol_entry in molecules_data:
-            self.add_molecule(
+            molecule = self.add_molecule(
                 mol_entry,
                 intrinsic_line_width=intrinsic_line_width,
                 wavelength_range=wavelength_range,
@@ -115,6 +125,12 @@ class MoleculeDict(dict):
                 distance=distance,
                 hitran_data=hitran_data[mol_entry["name"]] if mol_entry["name"] in hitran_data else None
             )
+            added_molecules.append(molecule.name)
+        
+        # Trigger bulk intensity calculation for all loaded molecules
+        if len(added_molecules) > 1:
+            print(f"Triggering bulk intensity calculation for {len(added_molecules)} loaded molecules...")
+            self._bulk_calculate_intensities(added_molecules)
     
     def clear(self):
         """Clear the dictionary of all molecules."""
@@ -145,84 +161,605 @@ class MoleculeDict(dict):
         self._cache_wave_data_hash = wave_data_hash
     
     def get_summed_flux(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
+        """Optimized summed flux calculation using vectorized operations and advanced caching.
+        
+        This consolidated method uses the best available optimization techniques including:
+        - Vectorized numpy operations and broadcasting
+        - Advanced caching with intelligent cache management
+        - Memory-efficient float32 operations
+        - Robust error handling with fallbacks
+        
+        Parameters
+        ----------
+        wave_data: np.ndarray
+            Wavelength data for flux calculation
+        visible_only: bool, default True
+            If True, only sum flux from visible molecules
+            
+        Returns
+        -------
+        np.ndarray
+            Summed flux array
+        """
+        if wave_data is None:
+            return np.array([])
+            
+        visible_molecules = list(self.get_visible_molecules_fast() if visible_only else self.keys())
+        
+        if not visible_molecules:
+            return np.zeros_like(wave_data, dtype=np.float32)
+        
+        # Try cache lookup first
         try:
-            wave_data_hash = hash(wave_data.tobytes()) if hasattr(wave_data, 'tobytes') else hash(str(wave_data))
-            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
-            visible_molecules = {str(name) for name in visible_molecules}
-            cache_key = hash((wave_data_hash, frozenset(visible_molecules)))
+            wave_hash = hash(wave_data.tobytes())
+            cache_key = hash((wave_hash, frozenset(visible_molecules)))
+            if cache_key in self._summed_flux_cache:
+                return self._summed_flux_cache[cache_key]
         except (TypeError, ValueError):
-            return self._calculate_summed_flux_uncached(wave_data, visible_only)
+            cache_key = None
         
-        if cache_key in self._summed_flux_cache:
-            return self._summed_flux_cache[cache_key]
+        # For large datasets, use parallel processing
+        if len(visible_molecules) >= 8 and len(wave_data) > 1000:
+            try:
+                return self._parallel_flux_calculation_internal(wave_data, visible_molecules, cache_key)
+            except Exception as e:
+                print(f"Parallel processing failed, using vectorized fallback: {e}")
         
-        summed_flux = self._calculate_summed_flux_uncached(wave_data, visible_only)
+        # Pre-allocate flux array matrix for vectorized operations
+        n_molecules = len(visible_molecules)
+        if len(wave_data) == 0:
+            return np.array([])
+            
+        flux_matrix = np.zeros((n_molecules, len(wave_data)), dtype=np.float32)
         
-        self._summed_flux_cache[cache_key] = summed_flux
-        if len(self._summed_flux_cache) > 50:
-            oldest_keys = list(self._summed_flux_cache.keys())[:10]
-            for key in oldest_keys:
-                del self._summed_flux_cache[key]
+        # Prepare plot data for all molecules with error handling
+        valid_molecules = []
+        for i, mol_name in enumerate(visible_molecules):
+            if mol_name in self:
+                molecule = self[mol_name]
+                try:
+                    molecule.prepare_plot_data(wave_data)
+                    if hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None:
+                        # Ensure plot_flux has the right shape
+                        flux = molecule.plot_flux
+                        if len(flux) == len(wave_data):
+                            flux_matrix[i] = flux.astype(np.float32)
+                            valid_molecules.append(i)
+                        else:
+                            print(f"Warning: flux shape mismatch for {mol_name}: {len(flux)} vs {len(wave_data)}")
+                except Exception as e:
+                    print(f"Warning: Failed to prepare plot data for molecule {mol_name}: {e}")
+                    continue
+        
+        # Vectorized summation along molecule axis
+        if valid_molecules:
+            summed_flux = np.sum(flux_matrix[valid_molecules], axis=0)
+        else:
+            summed_flux = np.zeros_like(wave_data, dtype=np.float32)
+        
+        # Cache result with intelligent cache management
+        if cache_key is not None:
+            if len(self._summed_flux_cache) > 50:
+                oldest_key = next(iter(self._summed_flux_cache))
+                del self._summed_flux_cache[oldest_key]
+            self._summed_flux_cache[cache_key] = summed_flux
+            
+        return summed_flux
+
+    def _parallel_flux_calculation_internal(self, wave_data: np.ndarray, visible_molecules: list, cache_key) -> np.ndarray:
+        """Internal parallel flux calculation method."""
+        max_workers = min(len(visible_molecules), mp.cpu_count())
+        
+        def calculate_molecule_flux(mol_name):
+            """Worker function to calculate flux for a single molecule"""
+            if mol_name in self:
+                molecule = self[mol_name]
+                try:
+                    molecule.prepare_plot_data(wave_data)
+                    if hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None:
+                        return molecule.plot_flux.astype(np.float32)
+                except Exception as e:
+                    print(f"Warning: Failed to calculate flux for {mol_name}: {e}")
+            return np.zeros_like(wave_data, dtype=np.float32)
+        
+        # Use ThreadPoolExecutor for I/O bound tasks
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(calculate_molecule_flux, mol_name): mol_name 
+                      for mol_name in visible_molecules}
+            
+            # Collect results as they complete
+            summed_flux = np.zeros_like(wave_data, dtype=np.float32)
+            
+            for future in as_completed(futures):
+                mol_name = futures[future]
+                try:
+                    flux = future.result()
+                    if flux is not None and len(flux) == len(wave_data):
+                        summed_flux += flux
+                except Exception as e:
+                    print(f"Failed to calculate flux for {mol_name}: {e}")
         
         return summed_flux
-    
+
     def _calculate_summed_flux_uncached(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
+        if wave_data is None:
+            return np.array([])
+            
         summed_flux = np.zeros_like(wave_data)
         visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
         
         for mol_name in visible_molecules:
             if mol_name in self:
                 molecule = self[mol_name]
-                molecule.prepare_plot_data(wave_data)
-                if hasattr(molecule, 'plot_flux'):
-                    summed_flux += molecule.plot_flux
+                try:
+                    molecule.prepare_plot_data(wave_data)
+                    if hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None:
+                        summed_flux += molecule.plot_flux
+                except Exception as e:
+                    print(f"Warning: Failed to add flux from molecule {mol_name}: {e}")
+                    continue
         
         return summed_flux
-    
-    def get_summed_flux_optimized(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
-        """Memory-optimized summed flux calculation using hash keys."""
+
+    def batch_flux_calculation(self, wave_data_list: List[np.ndarray], visible_only: bool = True) -> List[np.ndarray]:
+        """Calculate fluxes for multiple wavelength arrays using vectorized operations.
         
-        # Use hash of wave_data bytes for cache key (more memory efficient)
-        try:
-            wave_hash = hash(wave_data.data.tobytes()) if hasattr(wave_data, 'data') else hash(wave_data.tobytes())
-            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+        Parameters
+        ----------
+        wave_data_list: List[np.ndarray]
+            List of wavelength arrays to calculate fluxes for
+        visible_only: bool, default True
+            If True, only calculate flux from visible molecules
             
-            # Ensure all molecules are strings (hashable)
-            visible_molecules = {str(name) for name in visible_molecules}
+        Returns
+        -------
+        List[np.ndarray]
+            List of summed flux arrays corresponding to input wavelength arrays
+        """
+        if not wave_data_list:
+            return []
             
-            # Create a more compact cache key
-            cache_key = hash((wave_hash, frozenset(visible_molecules)))
-        except (TypeError, ValueError) as e:
-            # If hashing fails, calculate without caching
-            print(f"Warning: Cache key creation failed in optimized version: {e}")
-            visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
-            cache_key = None
+        visible_molecules = list(self.get_visible_molecules_fast() if visible_only else self.keys())
         
-        # Check cache
-        if cache_key is not None and cache_key in self._summed_flux_cache:
-            return self._summed_flux_cache[cache_key]
+        if not visible_molecules:
+            return [np.zeros_like(wd, dtype=np.float32) if wd is not None else np.array([]) 
+                   for wd in wave_data_list]
         
-        # Pre-allocate result array with float32 to save memory
-        summed_flux = np.zeros_like(wave_data, dtype=np.float32)
+        results = []
         
-        # Vectorized summation where possible
-        for mol_name in visible_molecules:
-            if mol_name in self:
+        # Process each wavelength array
+        for wave_data in wave_data_list:
+            if wave_data is None:
+                results.append(np.array([]))
+            else:
+                # Use existing optimized method
+                flux = self.get_summed_flux(wave_data, visible_only)
+                results.append(flux)
+        
+        return results
+
+    def bulk_parameter_update_vectorized(self, parameter_dict: Dict[str, np.ndarray], 
+                                       molecule_names: Optional[List[str]] = None) -> Dict[str, int]:
+        """Vectorized bulk parameter updates for multiple molecules.
+        
+        This method efficiently updates parameters across multiple molecules using
+        vectorized numpy operations where possible.
+        
+        Parameters
+        ----------
+        parameter_dict: Dict[str, np.ndarray]
+            Dictionary mapping parameter names to arrays of values. Each array should
+            have the same length as the number of molecules being updated.
+        molecule_names: Optional[List[str]], default None
+            List of molecule names to update. If None, updates all molecules.
+            
+        Returns
+        -------
+        Dict[str, int]
+            Dictionary with statistics: {'updated': count, 'failed': count}
+        """
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        # Filter to existing molecules
+        valid_molecules = [name for name in molecule_names if name in self]
+        n_molecules = len(valid_molecules)
+        
+        if n_molecules == 0:
+            return {'updated': 0, 'failed': 0}
+        
+        # Validate parameter arrays
+        param_lengths = set()
+        for param_name, values in parameter_dict.items():
+            values = np.asarray(values)
+            param_lengths.add(len(values))
+            
+        if len(param_lengths) > 1:
+            raise ValueError("All parameter arrays must have the same length")
+        
+        array_length = param_lengths.pop()
+        if array_length != n_molecules and array_length != 1:
+            raise ValueError(f"Parameter arrays must have length {n_molecules} or 1, got {array_length}")
+        
+        updated_count = 0
+        failed_count = 0
+        affected_molecules = []
+        
+        # Vectorized parameter updates
+        for i, mol_name in enumerate(valid_molecules):
+            try:
                 molecule = self[mol_name]
-                molecule.prepare_plot_data(wave_data)
-                if hasattr(molecule, 'plot_flux'):
-                    summed_flux += molecule.plot_flux.astype(np.float32)
+                old_params = {}
+                changed = False
+                
+                for param_name, values in parameter_dict.items():
+                    values = np.asarray(values)
+                    new_value = values[i] if len(values) == n_molecules else values[0]
+                    old_value = getattr(molecule, param_name, None)
+                    old_params[param_name] = old_value
+                    
+                    if old_value != new_value:
+                        # Update parameter using appropriate method
+                        if hasattr(molecule, f'_{param_name}'):
+                            setattr(molecule, f'_{param_name}', float(new_value))
+                        elif param_name == 'intrinsic_line_width':
+                            molecule._broad = float(new_value)
+                        elif param_name == 'stellar_rv':
+                            molecule.stellar_rv = float(new_value)
+                        elif hasattr(molecule, param_name):
+                            setattr(molecule, param_name, new_value)
+                        
+                        changed = True
+                
+                if changed:
+                    # Invalidate caches for this molecule
+                    molecule._invalidate_caches_for_parameters(list(parameter_dict.keys()))
+                    affected_molecules.append(mol_name)
+                    updated_count += 1
+                    
+            except Exception as e:
+                print(f"Failed to update parameters for molecule {mol_name}: {e}")
+                failed_count += 1
         
-        # Cache with size limit (only if cache_key is valid)
-        if cache_key is not None:
-            if len(self._summed_flux_cache) > 100:  # Limit cache size
-                # Remove oldest entries (simple FIFO)
-                oldest_key = next(iter(self._summed_flux_cache))
-                del self._summed_flux_cache[oldest_key]
+        # Clear global caches for affected molecules
+        if affected_molecules:
+            self._summed_flux_cache.clear()
+            for mol_name in affected_molecules:
+                self.fluxes.pop(mol_name, None)
+        
+        print(f"Vectorized bulk update: {updated_count} molecules updated, {failed_count} failed")
+        
+        return {'updated': updated_count, 'failed': failed_count}
+
+    def get_parameter_arrays_vectorized(self, parameter_names: List[str], 
+                                      molecule_names: Optional[List[str]] = None) -> Dict[str, np.ndarray]:
+        """Get parameter arrays for multiple molecules using vectorized operations.
+        
+        Parameters
+        ----------
+        parameter_names: List[str]
+            List of parameter names to extract
+        molecule_names: Optional[List[str]], default None
+            List of molecule names to extract from (None for all)
             
-            self._summed_flux_cache[cache_key] = summed_flux
+        Returns
+        -------
+        Dict[str, np.ndarray]
+            Dictionary mapping parameter names to numpy arrays of values
+        """
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        valid_molecules = [name for name in molecule_names if name in self]
+        n_molecules = len(valid_molecules)
+        
+        if n_molecules == 0:
+            return {param: np.array([]) for param in parameter_names}
+        
+        # Pre-allocate result arrays
+        result = {}
+        for param_name in parameter_names:
+            result[param_name] = np.empty(n_molecules, dtype=np.float64)
+        
+        # Vectorized extraction
+        for i, mol_name in enumerate(valid_molecules):
+            molecule = self[mol_name]
+            for param_name in parameter_names:
+                value = getattr(molecule, param_name, np.nan)
+                result[param_name][i] = value if value is not None else np.nan
+        
+        return result
+
+    def optimize_memory_usage(self):
+        """Optimize memory usage by clearing unnecessary caches and data structures."""
+        # Clear flux caches
+        self._clear_flux_caches()
+        
+        # Clear dirty molecules set
+        self._dirty_molecules.clear()
+        
+        # Limit summed flux cache size
+        if len(self._summed_flux_cache) > 20:
+            # Keep only the 20 most recent entries
+            cache_items = list(self._summed_flux_cache.items())
+            self._summed_flux_cache = dict(cache_items[-20:])
+        
+        # Ask each molecule to optimize its memory
+        for molecule in self.values():
+            if hasattr(molecule, 'optimize_memory_usage'):
+                molecule.optimize_memory_usage()
+        
+        print(f"Memory optimization completed for {len(self)} molecules")
+
+    def batch_intensity_calculation(self, parameter_combinations: List[Dict[str, float]], 
+                                   molecule_names: Optional[List[str]] = None,
+                                   method: str = "curve_growth") -> Dict[str, np.ndarray]:
+        """Calculate intensities for multiple parameter combinations across multiple molecules.
+        
+        This method leverages the vectorized intensity calculations for efficient
+        batch processing of intensity calculations.
+        
+        Parameters
+        ----------
+        parameter_combinations: List[Dict[str, float]]
+            List of parameter dictionaries, each containing 't_kin', 'n_mol', 'dv'
+        molecule_names: Optional[List[str]], default None
+            List of molecule names to calculate intensities for (None for all)
+        method: str, default "curve_growth"
+            Intensity calculation method
             
-        return summed_flux
+        Returns
+        -------
+        Dict[str, np.ndarray]
+            Dictionary mapping molecule names to 2D intensity arrays 
+            with shape (n_combinations, n_lines)
+        """
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        valid_molecules = [name for name in molecule_names if name in self]
+        
+        if not parameter_combinations or not valid_molecules:
+            return {}
+        
+        results = {}
+        
+        for mol_name in valid_molecules:
+            molecule = self[mol_name]
+            if hasattr(molecule, 'intensity') and hasattr(molecule.intensity, 'bulk_parameter_update_vectorized'):
+                try:
+                    # Use vectorized intensity calculation
+                    intensity_array = molecule.intensity.bulk_parameter_update_vectorized(
+                        parameter_combinations, method=method
+                    )
+                    results[mol_name] = intensity_array
+                    
+                except Exception as e:
+                    print(f"Failed vectorized intensity calculation for {mol_name}: {e}")
+                    # Fallback to individual calculations
+                    try:
+                        n_combos = len(parameter_combinations)
+                        n_lines = len(molecule.lines.lines) if hasattr(molecule, 'lines') else 0
+                        
+                        if n_lines > 0:
+                            intensity_matrix = np.zeros((n_combos, n_lines))
+                            
+                            for i, params in enumerate(parameter_combinations):
+                                molecule.intensity.calc_intensity(
+                                    t_kin=params['t_kin'],
+                                    n_mol=params['n_mol'], 
+                                    dv=params['dv'],
+                                    method=method
+                                )
+                                if molecule.intensity.intensity is not None:
+                                    intensity_matrix[i] = molecule.intensity.intensity
+                            
+                            results[mol_name] = intensity_matrix
+                        
+                    except Exception as fallback_e:
+                        print(f"Fallback intensity calculation failed for {mol_name}: {fallback_e}")
+        
+        print(f"Batch intensity calculation completed for {len(results)} molecules")
+        return results
+
+    def _bulk_calculate_intensities(self, molecule_names: List[str], max_workers: Optional[int] = None) -> dict:
+        """Bulk calculate intensities for multiple molecules using parallel processing.
+        
+        This method efficiently calculates intensities for multiple molecules simultaneously,
+        providing significant performance improvements when loading many molecules.
+        
+        Parameters
+        ----------
+        molecule_names: List[str]
+            List of molecule names to calculate intensities for
+        max_workers: Optional[int], default None
+            Maximum number of worker threads (None for auto-detect)
+            
+        Returns
+        -------
+        dict
+            Dictionary with calculation statistics and results
+        """
+        if not molecule_names:
+            return {'success': 0, 'failed': 0, 'molecules': []}
+        
+        valid_molecules = [name for name in molecule_names if name in self]
+        if not valid_molecules:
+            return {'success': 0, 'failed': 0, 'molecules': []}
+        
+        print(f"Starting bulk intensity calculation for {len(valid_molecules)} molecules...")
+        
+        # Determine optimal number of workers
+        if max_workers is None:
+            max_workers = min(len(valid_molecules), mp.cpu_count())
+        
+        def calculate_molecule_intensity(mol_name):
+            """Worker function to calculate intensity for a single molecule"""
+            try:
+                molecule = self[mol_name]
+                
+                # Check if intensity is already cached and valid
+                if (hasattr(molecule, '_intensity_cache') and 
+                    molecule._intensity_cache.get('data') is not None and
+                    hasattr(molecule, '_dirty_flags') and 
+                    not molecule._dirty_flags.get('intensity', True)):
+                    
+                    # Intensity is already cached and valid - no need to recalculate
+                    return {
+                        'success': True, 
+                        'molecule': mol_name, 
+                        'error': None,
+                        'intensity_calculated': False,  # Already cached
+                        'has_data': True
+                    }
+                
+                # Need to calculate intensity
+                if hasattr(molecule, '_ensure_intensity_calculated'):
+                    molecule._ensure_intensity_calculated()
+                else:
+                    # Fallback: direct intensity calculation
+                    t_kin = getattr(molecule, 'temp', 300.0)
+                    n_mol = getattr(molecule, 'n_mol', 1e17)
+                    dv = getattr(molecule, 'intrinsic_line_width', 1.0)
+                    
+                    if hasattr(molecule, 'intensity') and molecule.intensity is not None:
+                        molecule.intensity.calc_intensity(t_kin=t_kin, n_mol=n_mol, dv=dv)
+                
+                # Mark caches as valid after calculation
+                if hasattr(molecule, '_dirty_flags'):
+                    molecule._dirty_flags['intensity'] = False
+                    molecule._dirty_flags['spectrum'] = False
+                
+                # Ensure spectrum is also calculated and properly cached
+                if hasattr(molecule, '_ensure_spectrum_calculated'):
+                    molecule._ensure_spectrum_calculated()
+                
+                # Verify that the intensity was properly calculated and cached
+                intensity_data = None
+                if hasattr(molecule, '_intensity_cache') and molecule._intensity_cache.get('data'):
+                    intensity_data = molecule._intensity_cache['data']
+                elif hasattr(molecule, 'intensity') and molecule.intensity:
+                    if hasattr(molecule.intensity, '_intensity') and molecule.intensity._intensity is not None:
+                        intensity_data = {
+                            'intensity_array': molecule.intensity._intensity,
+                            'tau_array': getattr(molecule.intensity, '_tau', None)
+                        }
+                
+                if intensity_data is not None:
+                    return {
+                        'success': True, 
+                        'molecule': mol_name, 
+                        'error': None,
+                        'intensity_calculated': True,
+                        'has_data': True
+                    }
+                else:
+                    return {
+                        'success': False, 
+                        'molecule': mol_name, 
+                        'error': 'Intensity calculation completed but no data available',
+                        'intensity_calculated': True,
+                        'has_data': False
+                    }
+                    
+            except Exception as e:
+                return {
+                    'success': False, 
+                    'molecule': mol_name, 
+                    'error': str(e),
+                    'intensity_calculated': False,
+                    'has_data': False
+                }
+        
+        # Use parallel processing for bulk calculations
+        success_count = 0
+        failed_count = 0
+        failed_molecules = []
+        
+        if len(valid_molecules) >= 2:
+            # Use ThreadPoolExecutor for parallel processing
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = {executor.submit(calculate_molecule_intensity, mol_name): mol_name 
+                          for mol_name in valid_molecules}
+                
+                for future in as_completed(futures):
+                    mol_name = futures[future]
+                    try:
+                        result = future.result()
+                        if result['success']:
+                            success_count += 1
+                            print(f"✓ {mol_name}: Intensity calculated and cached")
+                        else:
+                            failed_count += 1
+                            failed_molecules.append({'molecule': mol_name, 'error': result['error']})
+                            print(f"✗ {mol_name}: {result['error']}")
+                    except Exception as e:
+                        failed_count += 1
+                        failed_molecules.append({'molecule': mol_name, 'error': str(e)})
+                        print(f"✗ {mol_name}: Execution error - {str(e)}")
+        else:
+            # Single molecule - no need for parallel processing
+            result = calculate_molecule_intensity(valid_molecules[0])
+            if result['success']:
+                success_count = 1
+            else:
+                failed_count = 1
+                failed_molecules.append({'molecule': valid_molecules[0], 'error': result['error']})
+        
+        # Clear caches after bulk calculation
+        self._clear_flux_caches()
+        
+        print(f"Bulk intensity calculation completed: {success_count} successful, {failed_count} failed")
+        if failed_molecules:
+            print("Failed molecules:")
+            for failure in failed_molecules:
+                print(f"  - {failure['molecule']}: {failure['error']}")
+        
+        return {
+            'success': success_count,
+            'failed': failed_count,
+            'molecules': valid_molecules,
+            'failures': failed_molecules
+        }
+
+    def bulk_recalculate_intensities(self, molecule_names: Optional[List[str]] = None,
+                                   parameter_overrides: Optional[dict] = None) -> dict:
+        """Public method to trigger bulk intensity recalculation for existing molecules.
+        
+        Parameters
+        ----------
+        molecule_names: Optional[List[str]], default None
+            List of molecule names to recalculate (None for all molecules)
+        parameter_overrides: Optional[dict], default None
+            Optional parameter overrides for all molecules
+            
+        Returns
+        -------
+        dict
+            Dictionary with calculation statistics
+        """
+        if molecule_names is None:
+            molecule_names = list(self.keys())
+        
+        # Apply parameter overrides if provided
+        if parameter_overrides:
+            print(f"Applying parameter overrides: {parameter_overrides}")
+            for mol_name in molecule_names:
+                if mol_name in self:
+                    molecule = self[mol_name]
+                    for param_name, value in parameter_overrides.items():
+                        if hasattr(molecule, param_name):
+                            setattr(molecule, param_name, value)
+                        elif hasattr(molecule, f'_{param_name}'):
+                            setattr(molecule, f'_{param_name}', value)
+                        
+                    # Invalidate caches to force recalculation
+                    if hasattr(molecule, '_intensity_valid'):
+                        molecule._intensity_valid = False
+                    if hasattr(molecule, '_spectrum_valid'):
+                        molecule._spectrum_valid = False
+        
+        return self._bulk_calculate_intensities(molecule_names)
     
     def get_visible_molecules_fast(self) -> set:
         """Get set of visible molecule names for fast operations."""
@@ -252,13 +789,260 @@ class MoleculeDict(dict):
         self._clear_flux_caches()
         print(f"Updated visibility for {len(molecule_set)} molecules")
     
+    # ================================
+    # Startup Optimization Methods
+    # ================================
+    
+    def optimize_startup_loading(self) -> None:
+        """
+        Apply startup optimizations to improve initial loading performance.
+        Pre-warms file cache, optimizes data loading settings, and pre-allocates structures.
+        """
+        print("Applying startup optimizations...")
+        
+        # Pre-warm the file system cache by checking file existence
+        self._prewarm_file_cache()
+        
+        # Set optimal pandas and numpy settings for loading
+        self._optimize_data_loading_settings()
+        
+        # Pre-allocate common data structures
+        self._preallocate_common_structures()
+        
+        print("Startup optimizations applied.")
+    
+    def _prewarm_file_cache(self):
+        """Pre-warm file system cache by checking common file paths."""
+        common_paths = [
+            "DATAFILES/HITRANdata",
+            "DATAFILES/SAVES", 
+            "DATAFILES/LINELISTS",
+            "DATAFILES/CONFIG"
+        ]
+        
+        for path in common_paths:
+            try:
+                if os.path.exists(path):
+                    # Just listing the directory helps warm the cache
+                    os.listdir(path)
+            except Exception:
+                pass  # Silently ignore cache warming failures
+    
+    def _optimize_data_loading_settings(self):
+        """Set optimal settings for data loading libraries."""
+        try:
+            import pandas as pd
+            # Set pandas options for faster reading
+            pd.set_option('io.common.default_buffer_size', 8192 * 4)  # Larger buffer
+        except Exception:
+            pass
+        
+        try:
+            import numpy as np
+            # Set numpy threading for better performance
+            if hasattr(np, 'seterr'):
+                np.seterr(all='ignore')  # Ignore overflow warnings during calculations
+        except Exception:
+            pass
+    
+    def _preallocate_common_structures(self):
+        """Pre-allocate commonly used data structures."""
+        # Pre-allocate common numpy arrays sizes to warm up numpy
+        try:
+            import numpy as np
+            # Pre-allocate some common array sizes to warm up numpy
+            for size in [1000, 5000, 10000]:
+                temp = np.zeros(size, dtype=np.float32)
+                del temp
+        except Exception:
+            pass
+    
+    def load_molecules_optimized(self, molecules_data: List[Dict[str, Any]], 
+                                initial_molecule_parameters: Dict[str, Any],
+                                use_parallel: bool = None, 
+                                batch_size: int = None) -> Dict[str, Any]:
+        """
+        Optimized molecule loading with bulk operations and intelligent batching.
+        
+        Parameters
+        ----------
+        molecules_data: List[Dict[str, Any]]
+            List of molecule data dictionaries
+        initial_molecule_parameters: Dict[str, Any]  
+            Initial parameters for molecules
+        use_parallel: bool, optional
+            Whether to use parallel loading (auto-detect if None)
+        batch_size: int, optional
+            Number of molecules to process per batch (auto-detect if None)
+            
+        Returns
+        -------
+        dict
+            Dictionary with loading statistics and results
+        """
+        if not molecules_data:
+            return {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+            
+        start_time = time.time()
+        n_molecules = len(molecules_data)
+        
+        # Auto-detect optimal processing strategy (conservative - prefer sequential)
+        if use_parallel is None:
+            use_parallel = n_molecules >= 10  # Parallel only beneficial for 10+ molecules
+            
+        if batch_size is None:
+            batch_size = max(3, min(6, n_molecules // 3))  # Smaller batches for stability
+            
+        print(f"Loading {n_molecules} molecules with {'parallel' if use_parallel else 'sequential'} processing...")
+        
+        # Extract molecule names and validate
+        molecule_names = []
+        valid_molecules_data = []
+        
+        for mol_data in molecules_data:
+            mol_name = mol_data.get("Molecule Name")
+            if mol_name and mol_name not in self:
+                molecule_names.append(mol_name)
+                valid_molecules_data.append(mol_data)
+                
+        if not valid_molecules_data:
+            print("No valid molecule configurations found!")
+            return {'success': 0, 'failed': 0, 'molecules': [], 'errors': ['No valid molecules to load']}
+        
+        # Load molecules using appropriate strategy
+        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+        
+        if use_parallel and len(valid_molecules_data) > 1:
+            # Parallel loading with bulk intensity calculation
+            results = self._load_molecules_parallel_optimized(
+                valid_molecules_data, initial_molecule_parameters, batch_size
+            )
+        else:
+            # Sequential but still optimized
+            results = self._load_molecules_sequential_optimized(
+                valid_molecules_data, initial_molecule_parameters
+            )
+            
+        # Bulk intensity calculation for all loaded molecules
+        if results['success'] > 0:
+            loaded_molecules = results['molecules']
+            if loaded_molecules:
+                print(f"Performing bulk intensity calculations for {len(loaded_molecules)} molecules...")
+                intensity_results = self._bulk_calculate_intensities(loaded_molecules)
+                
+                # Update results based on intensity calculation success
+                if intensity_results['failed'] > 0:
+                    print(f"Warning: Intensity calculation failed for {intensity_results['failed']} molecules")
+        
+        elapsed = time.time() - start_time
+        print(f"Loaded {results['success']}/{n_molecules} molecules in {elapsed:.3f}s")
+        
+        return results
+    
+    def _load_molecules_parallel_optimized(self, molecules_data: List[Dict[str, Any]], 
+                                         initial_molecule_parameters: Dict[str, Any],
+                                         batch_size: int) -> Dict[str, Any]:
+        """Optimized parallel molecule loading with batching."""
+        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+        results_lock = threading.Lock()
+        
+        # Process in batches to manage memory and I/O
+        for i in range(0, len(molecules_data), batch_size):
+            batch = molecules_data[i:i + batch_size]
+            batch_names = [mol['Molecule Name'] for mol in batch]
+            print(f"Loading batch {i//batch_size + 1}: {batch_names}")
+            
+            # Use fewer workers than molecules to prevent I/O contention
+            max_workers = min(len(batch), max(1, mp.cpu_count() // 2))
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all molecules in this batch
+                future_to_data = {
+                    executor.submit(self._load_single_molecule_safe, mol_data, initial_molecule_parameters): mol_data
+                    for mol_data in batch
+                }
+                
+                # Collect results as they complete
+                for future in as_completed(future_to_data):
+                    mol_data = future_to_data[future]
+                    mol_name = mol_data.get("Molecule Name")
+                    try:
+                        success = future.result(timeout=30)  # 30s timeout per molecule
+                        with results_lock:
+                            if success:
+                                results['success'] += 1
+                                results['molecules'].append(mol_name)
+                                print(f"✓ Loaded {mol_name}")
+                            else:
+                                results['failed'] += 1
+                                results['errors'].append(f"Failed to load {mol_name}")
+                                print(f"✗ Failed to load {mol_name}")
+                    except Exception as e:
+                        print(f"✗ Error loading {mol_name}: {e}")
+                        with results_lock:
+                            results['failed'] += 1
+                            results['errors'].append(f"Error loading {mol_name}: {str(e)}")
+        
+        return results
+    
+    def _load_molecules_sequential_optimized(self, molecules_data: List[Dict[str, Any]], 
+                                           initial_molecule_parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Optimized sequential molecule loading."""
+        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+        
+        for i, mol_data in enumerate(molecules_data):
+            mol_name = mol_data.get("Molecule Name")
+            print(f"Loading molecule {i+1}/{len(molecules_data)}: {mol_name}")
+            try:
+                success = self._load_single_molecule_safe(mol_data, initial_molecule_parameters)
+                if success:
+                    results['success'] += 1
+                    results['molecules'].append(mol_name)
+                    print(f"✓ Loaded {mol_name}")
+                else:
+                    results['failed'] += 1
+                    results['errors'].append(f"Failed to load {mol_name}")
+                    print(f"✗ Failed to load {mol_name}")
+            except Exception as e:
+                print(f"✗ Error loading {mol_name}: {e}")
+                results['failed'] += 1
+                results['errors'].append(f"Error loading {mol_name}: {str(e)}")
+                
+        return results
+    
+    def _load_single_molecule_safe(self, mol_data: Dict[str, Any], 
+                                  initial_molecule_parameters: Dict[str, Any]) -> bool:
+        """Safely load a single molecule with error handling."""
+        try:
+            mol_name = mol_data.get("Molecule Name")
+            if not mol_name:
+                return False
+                
+            # Get initial parameters for this molecule
+            mol_initial_params = initial_molecule_parameters.get(
+                mol_name, initial_molecule_parameters.get('default', {})
+            )
+            
+            # Create molecule instance
+            molecule = Molecule(
+                user_save_data=mol_data,
+                wavelength_range=getattr(self, 'global_wavelength_range', (5.0, 30.0)),
+                initial_molecule_parameters=mol_initial_params
+            )
+            
+            # Add to dictionary
+            self[mol_name] = molecule
+            
+            # Molecule creation successful
+            return True
+            
+        except Exception as e:
+            print(f"Error in _load_single_molecule_safe for {mol_name}: {e}")
+            return False
+
     def get_ndarray_of_attributes(self, attribute_name: str) -> np.ndarray:
         """Get a numpy array of a specific attribute for all molecules."""
-        return np.array([getattr(mol, attribute_name, None) for mol in self.values()])
-    
-    def get_ndarray_of_attributes_optimized(self, attribute_name: str) -> np.ndarray:
-        """Get a numpy array of a specific attribute for all molecules - optimized version."""
-        # Pre-allocate array if we know the size
+        # Use optimized pre-allocated array approach
         values = np.empty(len(self), dtype=np.float64)
         for i, mol in enumerate(self.values()):
             values[i] = getattr(mol, attribute_name, np.nan)
@@ -349,32 +1133,6 @@ class MoleculeDict(dict):
     def bulk_set_intrinsic_line_width(self, width: float, molecule_names: Optional[List[str]] = None) -> None:
         """Bulk update intrinsic line width for multiple molecules."""
         self.bulk_update_parameter('intrinsic_line_width', width, molecule_names)
-    
-    def bulk_set_visibility(self, is_visible: bool, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update visibility for multiple molecules using optimized set operations."""
-        if molecule_names is None:
-            molecule_names = list(self.keys())
-        
-        # Use set operations for efficiency
-        molecule_set = set(molecule_names) & set(self.keys())
-        
-        updated_count = 0
-        for mol_name in molecule_set:
-            molecule = self[mol_name]
-            if molecule.is_visible != is_visible:  # Only update if different
-                molecule.is_visible = is_visible
-                updated_count += 1
-                
-                # Update visibility tracking set
-                if is_visible:
-                    self._visible_molecules.add(mol_name)
-                else:
-                    self._visible_molecules.discard(mol_name)
-        
-        if updated_count > 0:
-            self._clear_flux_caches()
-        
-        print(f"Updated visibility for {updated_count} molecules")
     
     def force_recalculate_all(self, molecule_names: Optional[List[str]] = None) -> None:
         """
@@ -647,6 +1405,12 @@ class MoleculeDict(dict):
         elapsed_time = time.time() - start_time
         print(f"Parallel loading completed in {elapsed_time:.2f}s")
         print(f"Successfully loaded: {results['success']}, Failed: {results['failed']}")
+        
+        # Trigger bulk intensity calculation for successfully loaded molecules
+        if results['success'] > 1:
+            print("Triggering bulk intensity calculation for loaded molecules...")
+            intensity_results = self._bulk_calculate_intensities(results['molecules'])
+            results['intensity_calculation'] = intensity_results
         
         # Clear and rebuild caches after loading
         self._clear_flux_caches()

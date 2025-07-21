@@ -512,7 +512,7 @@ class ControlPanel(ResizableFrame):
         molecule_name = active_mol.name
         
         # Simply toggle this molecule's visibility - don't affect other molecules
-        self.islat.molecules_dict.bulk_set_visibility(new_visibility, [molecule_name])
+        self.islat.molecules_dict.bulk_set_visibility_fast(new_visibility, [molecule_name])
         
         # Debug: Verify the visibility was actually set
         print(f"ControlPanel: Set {molecule_name} visibility to {new_visibility}, actual value: {getattr(active_mol, 'is_visible', 'UNDEFINED')}")
