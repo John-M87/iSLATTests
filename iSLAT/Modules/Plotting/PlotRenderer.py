@@ -405,6 +405,30 @@ class PlotRenderer:
         if handles:
             self.ax2.legend()
     
+    '''def _render_fit_results_in_line_inspection(self, fit_result: Any, xmin: float, xmax: float, max_y: float) -> None:
+        """Helper method to render fit results in the line inspection plot."""
+        try:
+            gauss_fit, fitted_wave, fitted_flux = fit_result
+            if gauss_fit is not None and fitted_wave is not None and fitted_flux is not None:
+                # Filter fit data to range
+                fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
+                if np.any(fit_mask):
+                    self.ax2.plot(fitted_wave[fit_mask], fitted_flux[fit_mask], 
+                                 color='red', linewidth=2, label='Total Fit')
+                    if self.fitting_engine.is_multi_component_fit():
+                        components = self.fitting_engine.evaluate_fit_components(x_fit)
+                        component_prefixes = self.fitting_engine.get_component_prefixes()
+                        
+                        for i, prefix in enumerate(component_prefixes):
+                            if prefix in components:
+                                component_flux = components[prefix]
+                                self.ax2.plot(x_fit, component_flux, 
+                                            linestyle='--', linewidth=1, 
+                                            label=f"Component {i+1}")
+
+        except Exception as e:
+            debug_config.warning("plot_renderer", f"Could not render fit results: {e}")'''
+    
     def _render_fit_results_in_line_inspection(self, fit_result: Any, xmin: float, xmax: float, max_y: float) -> None:
         """Helper method to render fit results in the line inspection plot."""
         try:
@@ -414,7 +438,31 @@ class PlotRenderer:
                 fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
                 if np.any(fit_mask):
                     self.ax2.plot(fitted_wave[fit_mask], fitted_flux[fit_mask], 
-                                 color='red', linewidth=2, label='Fit')
+                                color='red', linewidth=2, label='Total Fit')
+                    
+                    # Check if this is a multi-component fit by looking at the fit result structure
+                    if hasattr(gauss_fit, 'params') and gauss_fit.params:
+                        # Count components by looking for numbered prefixes (g1_, g2_, etc.)
+                        component_prefixes = set()
+                        for param_name in gauss_fit.params:
+                            if '_' in param_name:
+                                prefix = param_name.split('_')[0] + '_'
+                                if prefix.startswith('g') and prefix[1:-1].isdigit():
+                                    component_prefixes.add(prefix)
+                        
+                        # If multi-component, plot individual components
+                        if len(component_prefixes) > 1:
+                            try:
+                                components = gauss_fit.eval_components(x=fitted_wave[fit_mask])
+                                for i, prefix in enumerate(sorted(component_prefixes)):
+                                    if prefix in components:
+                                        component_flux = components[prefix]
+                                        self.ax2.plot(fitted_wave[fit_mask], component_flux, 
+                                                    linestyle='--', linewidth=1, 
+                                                    label=f"Component {i+1}")
+                            except Exception as e:
+                                debug_config.warning("plot_renderer", f"Could not plot fit components: {e}")
+
         except Exception as e:
             debug_config.warning("plot_renderer", f"Could not render fit results: {e}")
     
