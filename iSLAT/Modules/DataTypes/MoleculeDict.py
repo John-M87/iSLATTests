@@ -701,24 +701,31 @@ class MoleculeDict(dict):
             'failures': failed_molecules
         }
 
-    def bulk_recalculate_intensities(self, molecule_names: Optional[List[str]] = None,
-                                   parameter_overrides: Optional[dict] = None) -> dict:
-        """Public method to trigger bulk intensity recalculation for existing molecules.
+    def bulk_recalculate(self, molecule_names: Optional[List[str]] = None,
+                        parameter_overrides: Optional[dict] = None,
+                        use_parallel: bool = None,
+                        max_workers: Optional[int] = None) -> dict:
+        """
+        Unified bulk recalculation method that consolidates sequential and parallel approaches.
         
-        Parameters
-        ----------
-        molecule_names: Optional[List[str]], default None
-            List of molecule names to recalculate (None for all molecules)
-        parameter_overrides: Optional[dict], default None
-            Optional parameter overrides for all molecules
-            
-        Returns
-        -------
-        dict
+        Args:
+            molecule_names: List of molecule names to recalculate (None for all)
+            parameter_overrides: Optional parameter overrides for all molecules
+            use_parallel: Whether to use parallel processing (auto-detect if None)
+            max_workers: Maximum number of worker threads for parallel processing
+        
+        Returns:
             Dictionary with calculation statistics
         """
         if molecule_names is None:
             molecule_names = list(self.keys())
+        
+        if not molecule_names:
+            return {'success': 0, 'failed': 0, 'molecules': []}
+        
+        # Auto-detect parallel processing preference
+        if use_parallel is None:
+            use_parallel = len(molecule_names) >= 3  # Parallel beneficial for 3+ molecules
         
         # Apply parameter overrides if provided
         if parameter_overrides:
@@ -731,14 +738,123 @@ class MoleculeDict(dict):
                             setattr(molecule, param_name, value)
                         elif hasattr(molecule, f'_{param_name}'):
                             setattr(molecule, f'_{param_name}', value)
-                        
+                    
                     # Invalidate caches to force recalculation
                     if hasattr(molecule, '_intensity_valid'):
                         molecule._intensity_valid = False
                     if hasattr(molecule, '_spectrum_valid'):
                         molecule._spectrum_valid = False
         
-        return self._bulk_calculate_intensities(molecule_names)
+        # Choose recalculation strategy
+        if use_parallel and len(molecule_names) >= 2:
+            return self._bulk_recalculate_parallel_worker(molecule_names, max_workers)
+        else:
+            return self._bulk_recalculate_sequential_worker(molecule_names)
+
+    def _bulk_recalculate_sequential_worker(self, molecule_names: List[str]) -> dict:
+        """Sequential bulk recalculation worker."""
+        print(f"Recalculating {len(molecule_names)} molecules sequentially...")
+        start_time = time.time()
+        success_count = 0
+        failed_molecules = []
+        
+        for mol_name in molecule_names:
+            try:
+                if mol_name in self:
+                    molecule = self[mol_name]
+                    # Force invalidation and recalculation
+                    molecule._intensity_valid = False
+                    molecule._spectrum_valid = False
+                    molecule._clear_flux_caches()
+                    molecule._invalidate_parameter_hash()
+                    
+                    # Trigger recalculation
+                    if hasattr(molecule, 'calculate_intensity'):
+                        molecule.calculate_intensity()
+                    
+                    success_count += 1
+                else:
+                    failed_molecules.append({'molecule': mol_name, 'error': 'Molecule not found'})
+            except Exception as e:
+                failed_molecules.append({'molecule': mol_name, 'error': str(e)})
+        
+        # Clear global caches
+        self._clear_flux_caches()
+        
+        elapsed_time = time.time() - start_time
+        print(f"Sequential recalculation completed in {elapsed_time:.2f}s")
+        print(f"Successfully recalculated {success_count}/{len(molecule_names)} molecules")
+        
+        return {
+            'success': success_count,
+            'failed': len(failed_molecules),
+            'molecules': molecule_names,
+            'failures': failed_molecules
+        }
+
+    def _bulk_recalculate_parallel_worker(self, molecule_names: List[str], 
+                                         max_workers: Optional[int] = None) -> dict:
+        """Parallel bulk recalculation worker."""
+        if max_workers is None:
+            max_workers = min(len(molecule_names), mp.cpu_count())
+        
+        print(f"Recalculating {len(molecule_names)} molecules using {max_workers} worker threads...")
+        
+        def recalculate_molecule(mol_name):
+            """Worker function for recalculating a single molecule"""
+            try:
+                if mol_name in self:
+                    molecule = self[mol_name]
+                    # Force invalidation and recalculation
+                    molecule._intensity_valid = False
+                    molecule._spectrum_valid = False
+                    molecule._clear_flux_caches()
+                    molecule._invalidate_parameter_hash()
+                    
+                    # Trigger recalculation
+                    if hasattr(molecule, 'calculate_intensity'):
+                        molecule.calculate_intensity()
+                    
+                    return True, mol_name, None
+                else:
+                    return False, mol_name, "Molecule not found"
+            except Exception as e:
+                return False, mol_name, str(e)
+        
+        start_time = time.time()
+        success_count = 0
+        failed_molecules = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_name = {
+                executor.submit(recalculate_molecule, mol_name): mol_name
+                for mol_name in molecule_names
+            }
+            
+            for future in as_completed(future_to_name):
+                mol_name = future_to_name[future]
+                try:
+                    success, result_name, error = future.result()
+                    if success:
+                        success_count += 1
+                    else:
+                        failed_molecules.append({'molecule': result_name, 'error': error})
+                except Exception as e:
+                    failed_molecules.append({'molecule': mol_name, 'error': str(e)})
+        
+        # Clear global caches
+        self._clear_flux_caches()
+        
+        elapsed_time = time.time() - start_time
+        print(f"Parallel recalculation completed in {elapsed_time:.2f}s")
+        print(f"Successfully recalculated {success_count}/{len(molecule_names)} molecules")
+        
+        return {
+            'success': success_count,
+            'failed': len(failed_molecules),
+            'molecules': molecule_names,
+            'failures': failed_molecules
+        }
     
     def get_visible_molecules(self) -> set:
         """Get set of visible molecule names for fast operations."""
@@ -771,285 +887,134 @@ class MoleculeDict(dict):
     # ================================
     # Molecule Loading
     # ================================
-    def load_molecules_ultra_fast(self, molecules_data: List[Dict[str, Any]], 
-                                 initial_molecule_parameters: Dict[str, Dict[str, Any]], 
-                                 max_workers: Optional[int] = None, 
-                                 force_multiprocessing: bool = False) -> Dict[str, Any]:
+    def load_molecules(self, molecules_data: List[Dict[str, Any]], 
+                       initial_molecule_parameters: Dict[str, Dict[str, Any]], 
+                       strategy: str = "auto",
+                       max_workers: Optional[int] = None, 
+                       batch_size: Optional[int] = None,
+                       force_multiprocessing: bool = False) -> Dict[str, Any]:
         """
-        Load multiple molecules with sequential loading by default, multiprocessing only when forced.
-        
-        This method uses sequential loading by default for better compatibility and stability.
-        Multiprocessing is only used when explicitly requested via force_multiprocessing=True.
+        Unified molecule loading method that consolidates all loading strategies.
         
         Args:
             molecules_data: List of molecule data dictionaries
             initial_molecule_parameters: Dictionary of initial parameters by molecule name
-            max_workers: Maximum number of worker processes (None for auto-detect)
+            strategy: Loading strategy ("auto", "sequential", "parallel", "batched")
+            max_workers: Maximum number of worker processes/threads (None for auto-detect)
+            batch_size: Number of molecules to process per batch (None for auto-detect)
             force_multiprocessing: If True, forces multiprocessing even for small datasets
         
         Returns:
             Dictionary with loading statistics and results
         """
         if not molecules_data:
-            return {"success": 0, "failed": 0, "errors": []}
+            return {"success": 0, "failed": 0, "errors": [], "molecules": []}
         
         print(f"Starting molecule loading for {len(molecules_data)} molecules...")
         start_time = time.time()
         
-        # Use multiprocessing only if explicitly forced AND conditions are met
-        use_multiprocessing = force_multiprocessing and self._should_use_multiprocessing(molecules_data, max_workers)
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "errors": []
-        }
-        
-        if use_multiprocessing:
-            print(f"Using multiprocessing for {len(molecules_data)} molecules (forced)...")
-            # Use the existing parallel loading method
-            parallel_results = self.load_molecules_parallel(
-                molecules_data, 
-                initial_molecule_parameters, 
-                max_workers
-            )
-            results.update(parallel_results)
-        else:
-            print(f"Using sequential loading for {len(molecules_data)} molecules...")
-            # Use sequential loading (default and safer)
-            for mol_data in molecules_data:
-                success = self._load_single_molecule(mol_data, initial_molecule_parameters)
-                if success:
-                    results["success"] += 1
-                else:
-                    results["failed"] += 1
-                    results["errors"].append(f"Failed to load {mol_data.get('Molecule Name', 'unknown')}")
-        
-        elapsed_time = time.time() - start_time
-        print(f"Ultra-fast loading completed in {elapsed_time:.3f}s")
-        print(f"Success: {results['success']}, Failed: {results['failed']}")
-        
-        return results
-    
-    def load_molecules_optimized(self, molecules_data: List[Dict[str, Any]], 
-                                initial_molecule_parameters: Dict[str, Any],
-                                use_parallel: bool = None, 
-                                batch_size: int = None) -> Dict[str, Any]:
-        """
-        Optimized molecule loading with bulk operations and intelligent batching.
-        
-        Parameters
-        ----------
-        molecules_data: List[Dict[str, Any]]
-            List of molecule data dictionaries
-        initial_molecule_parameters: Dict[str, Any]  
-            Initial parameters for molecules
-        use_parallel: bool, optional
-            Whether to use parallel loading (auto-detect if None)
-        batch_size: int, optional
-            Number of molecules to process per batch (auto-detect if None)
-            
-        Returns
-        -------
-        dict
-            Dictionary with loading statistics and results
-        """
-        if not molecules_data:
-            return {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
-            
-        start_time = time.time()
+        # Determine optimal loading strategy
         n_molecules = len(molecules_data)
+        if strategy == "auto":
+            if force_multiprocessing and self._should_use_multiprocessing(molecules_data, max_workers):
+                strategy = "parallel"
+            elif n_molecules >= 10:
+                strategy = "batched"
+            else:
+                strategy = "sequential"
         
-        # Auto-detect optimal processing strategy (conservative - prefer sequential)
-        if use_parallel is None:
-            use_parallel = n_molecules >= 10  # Parallel only beneficial for 10+ molecules
-            
+        print(f"Using loading strategy: {strategy}")
+        
+        # Set default batch size based on strategy
         if batch_size is None:
-            batch_size = max(3, min(6, n_molecules // 3))  # Smaller batches for stability
-            
-        print(f"Loading {n_molecules} molecules with {'parallel' if use_parallel else 'sequential'} processing...")
+            if strategy == "batched":
+                batch_size = max(3, min(6, n_molecules // 3))
+            else:
+                batch_size = n_molecules  # Process all at once
         
-        # Extract molecule names and validate
-        molecule_names = []
+        # Filter valid molecules
         valid_molecules_data = []
-        
         for mol_data in molecules_data:
-            mol_name = mol_data.get("Molecule Name")
+            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
             if mol_name and mol_name not in self:
-                molecule_names.append(mol_name)
                 valid_molecules_data.append(mol_data)
-                
+        
         if not valid_molecules_data:
             print("No valid molecule configurations found!")
             return {'success': 0, 'failed': 0, 'molecules': [], 'errors': ['No valid molecules to load']}
         
-        # Load molecules using appropriate strategy
+        # Execute loading strategy
         results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
         
-        if use_parallel and len(valid_molecules_data) > 1:
-            # Parallel loading with bulk intensity calculation
-            results = self._load_molecules_parallel_optimized(
-                valid_molecules_data, initial_molecule_parameters, batch_size
-            )
-        else:
-            # Sequential but still optimized
-            results = self._load_molecules_sequential_optimized(
-                valid_molecules_data, initial_molecule_parameters
-            )
-            
-        # Bulk intensity calculation for all loaded molecules
+        if strategy == "parallel":
+            print(f"Using parallel processing for {len(valid_molecules_data)} molecules...")
+            results = self._load_molecules_parallel_worker(valid_molecules_data, initial_molecule_parameters, max_workers)
+        elif strategy == "batched":
+            print(f"Using batched processing for {len(valid_molecules_data)} molecules...")
+            results = self._load_molecules_batched_worker(valid_molecules_data, initial_molecule_parameters, batch_size, max_workers)
+        else:  # sequential
+            print(f"Using sequential processing for {len(valid_molecules_data)} molecules...")
+            results = self._load_molecules_sequential_worker(valid_molecules_data, initial_molecule_parameters)
+        
+        # Bulk intensity calculation for loaded molecules
         if results['success'] > 0:
             loaded_molecules = results['molecules']
             if loaded_molecules:
                 print(f"Performing bulk intensity calculations for {len(loaded_molecules)} molecules...")
                 intensity_results = self._bulk_calculate_intensities(loaded_molecules)
+                results['intensity_calculation'] = intensity_results
                 
-                # Update results based on intensity calculation success
                 if intensity_results['failed'] > 0:
                     print(f"Warning: Intensity calculation failed for {intensity_results['failed']} molecules")
         
-        elapsed = time.time() - start_time
-        print(f"Loaded {results['success']}/{n_molecules} molecules in {elapsed:.3f}s")
+        # Clear caches after loading
+        self._clear_flux_caches()
+        
+        elapsed_time = time.time() - start_time
+        print(f"Molecule loading completed in {elapsed_time:.3f}s")
+        print(f"Success: {results['success']}, Failed: {results['failed']}")
         
         return results
-    
-    def _load_molecules_parallel_optimized(self, molecules_data: List[Dict[str, Any]], 
-                                         initial_molecule_parameters: Dict[str, Any],
-                                         batch_size: int) -> Dict[str, Any]:
-        """Optimized parallel molecule loading with batching."""
-        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
-        results_lock = threading.Lock()
-        
-        # Process in batches to manage memory and I/O
-        for i in range(0, len(molecules_data), batch_size):
-            batch = molecules_data[i:i + batch_size]
-            batch_names = [mol['Molecule Name'] for mol in batch]
-            print(f"Loading batch {i//batch_size + 1}: {batch_names}")
-            
-            # Use fewer workers than molecules to prevent I/O contention
-            max_workers = min(len(batch), max(1, mp.cpu_count() // 2))
-            
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all molecules in this batch
-                future_to_data = {
-                    executor.submit(self._load_single_molecule, mol_data, initial_molecule_parameters): mol_data
-                    for mol_data in batch
-                }
-                
-                # Collect results as they complete
-                for future in as_completed(future_to_data):
-                    mol_data = future_to_data[future]
-                    mol_name = mol_data.get("Molecule Name")
-                    try:
-                        success = future.result(timeout=30)  # 30s timeout per molecule
-                        with results_lock:
-                            if success:
-                                results['success'] += 1
-                                results['molecules'].append(mol_name)
-                                print(f"✓ Loaded {mol_name}")
-                            else:
-                                results['failed'] += 1
-                                results['errors'].append(f"Failed to load {mol_name}")
-                                print(f"✗ Failed to load {mol_name}")
-                    except Exception as e:
-                        print(f"✗ Error loading {mol_name}: {e}")
-                        with results_lock:
-                            results['failed'] += 1
-                            results['errors'].append(f"Error loading {mol_name}: {str(e)}")
-        
-        return results
-    
-    def _load_molecules_sequential_optimized(self, molecules_data: List[Dict[str, Any]], 
-                                           initial_molecule_parameters: Dict[str, Any]) -> Dict[str, Any]:
-        """Optimized sequential molecule loading."""
-        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
-        
-        for i, mol_data in enumerate(molecules_data):
-            mol_name = mol_data.get("Molecule Name")
-            print(f"Loading molecule {i+1}/{len(molecules_data)}: {mol_name}")
-            try:
-                success = self._load_single_molecule(mol_data, initial_molecule_parameters)
-                if success:
-                    results['success'] += 1
-                    results['molecules'].append(mol_name)
-                    print(f"✓ Loaded {mol_name}")
-                else:
-                    results['failed'] += 1
-                    results['errors'].append(f"Failed to load {mol_name}")
-                    print(f"✗ Failed to load {mol_name}")
-            except Exception as e:
-                print(f"✗ Error loading {mol_name}: {e}")
-                results['failed'] += 1
-                results['errors'].append(f"Error loading {mol_name}: {str(e)}")
-                
-        return results
-    
-    def load_molecules_parallel(self, molecules_data: List[Dict[str, Any]], 
-                               initial_molecule_parameters: Dict[str, Dict[str, Any]], 
-                               max_workers: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Load multiple molecules in parallel using multiprocessing.
-        
-        Args:
-            molecules_data: List of molecule data dictionaries
-            initial_molecule_parameters: Dictionary of initial parameters by molecule name
-            max_workers: Maximum number of worker processes (None for auto-detect)
-        
-        Returns:
-            Dictionary with loading statistics and results
-        """
-        if not molecules_data:
-            return {"success": 0, "failed": 0, "molecules": []}
+
+    def _load_molecules_parallel_worker(self, molecules_data: List[Dict[str, Any]], 
+                                       initial_molecule_parameters: Dict[str, Dict[str, Any]],
+                                       max_workers: Optional[int] = None) -> Dict[str, Any]:
+        """Consolidated parallel loading worker using multiprocessing."""
+        if max_workers is None:
+            max_workers = min(len(molecules_data), mp.cpu_count())
         
         # Prepare global parameters
         global_params = {
             "wavelength_range": self._global_wavelength_range,
             "distance": self._global_dist,
-            "fwhm": self._global_fwhm,
-            "stellar_rv": self._global_star_rv,
+            "fwhm": getattr(self, '_global_fwhm', None),
+            "stellar_rv": getattr(self, '_global_star_rv', None),
             "intrinsic_line_width": self._global_intrinsic_line_width,
             "model_pixel_res": self._global_model_pixel_res,
             "model_line_width": self._global_model_line_width
         }
         
-        # Prepare arguments for workers
+        # Prepare worker arguments
         worker_args = [
             (mol_data, global_params, initial_molecule_parameters)
             for mol_data in molecules_data
         ]
         
-        # Determine optimal number of workers
-        if max_workers is None:
-            max_workers = min(len(molecules_data), mp.cpu_count())
-        
-        print(f"Loading {len(molecules_data)} molecules using {max_workers} worker processes...")
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "molecules": [],
-            "errors": []
-        }
-        
-        start_time = time.time()
+        results = {"success": 0, "failed": 0, "molecules": [], "errors": []}
         
         try:
-            # Use ProcessPoolExecutor for CPU-bound molecule creation
             with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks
                 future_to_args = {
                     executor.submit(self._create_molecule_worker, args): args[0]
                     for args in worker_args
                 }
                 
-                # Collect results as they complete
                 for future in as_completed(future_to_args):
                     mol_data = future_to_args[future]
                     try:
                         success, result, mol_name = future.result()
                         
                         if success:
-                            # Add molecule to dictionary
                             self[mol_name] = result
                             results["molecules"].append(mol_name)
                             results["success"] += 1
@@ -1068,77 +1033,78 @@ class MoleculeDict(dict):
         except Exception as e:
             print(f"Error in parallel molecule loading: {e}")
             # Fall back to sequential loading
-            return self._load_molecules_sequential(molecules_data, initial_molecule_parameters)
-        
-        elapsed_time = time.time() - start_time
-        print(f"Parallel loading completed in {elapsed_time:.2f}s")
-        print(f"Successfully loaded: {results['success']}, Failed: {results['failed']}")
-        
-        # Trigger bulk intensity calculation for successfully loaded molecules
-        if results['success'] > 1:
-            print("Triggering bulk intensity calculation for loaded molecules...")
-            intensity_results = self._bulk_calculate_intensities(results['molecules'])
-            results['intensity_calculation'] = intensity_results
-        
-        # Clear and rebuild caches after loading
-        self._clear_flux_caches()
+            return self._load_molecules_sequential_worker(molecules_data, initial_molecule_parameters)
         
         return results
-    
-    def _load_molecules_sequential(self, molecules_data: List[Dict[str, Any]], 
-                                  initial_molecule_parameters: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Fallback sequential molecule loading method.
+
+    def _load_molecules_batched_worker(self, molecules_data: List[Dict[str, Any]], 
+                                      initial_molecule_parameters: Dict[str, Any],
+                                      batch_size: int,
+                                      max_workers: Optional[int] = None) -> Dict[str, Any]:
+        """Consolidated batched loading worker using threading."""
+        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+        results_lock = threading.Lock()
         
-        Args:
-            molecules_data: List of molecule data dictionaries
-            initial_molecule_parameters: Dictionary of initial parameters by molecule name
-        
-        Returns:
-            Dictionary with loading statistics and results
-        """
-        print("Falling back to sequential molecule loading...")
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "molecules": [],
-            "errors": []
-        }
-        
-        for mol_data in molecules_data:
-            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
-            if not mol_name:
-                results["failed"] += 1
-                results["errors"].append("Unknown: Missing molecule name")
-                continue
+        # Process in batches to manage memory and I/O
+        for i in range(0, len(molecules_data), batch_size):
+            batch = molecules_data[i:i + batch_size]
+            batch_names = [mol.get('Molecule Name', mol.get('name', 'Unknown')) for mol in batch]
+            print(f"Loading batch {i//batch_size + 1}: {batch_names}")
             
-            try:
-                success, result, name = self._create_molecule_worker((
-                    mol_data, 
-                    {
-                        "wavelength_range": self._global_wavelength_range,
-                        "distance": self._global_dist,
-                        "fwhm": self._global_fwhm,
-                        "stellar_rv": self._global_star_rv,
-                        "intrinsic_line_width": self._global_intrinsic_line_width,
-                        "model_pixel_res": self._global_model_pixel_res,
-                        "model_line_width": self._global_model_line_width
-                    },
-                    initial_molecule_parameters
-                ))
+            # Use fewer workers than molecules to prevent I/O contention
+            if max_workers is None:
+                max_workers = min(len(batch), max(1, mp.cpu_count() // 2))
+            
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_data = {
+                    executor.submit(self._load_single_molecule, mol_data, initial_molecule_parameters): mol_data
+                    for mol_data in batch
+                }
                 
+                for future in as_completed(future_to_data):
+                    mol_data = future_to_data[future]
+                    mol_name = mol_data.get("Molecule Name") or mol_data.get("name", "Unknown")
+                    try:
+                        success = future.result(timeout=30)
+                        with results_lock:
+                            if success:
+                                results['success'] += 1
+                                results['molecules'].append(mol_name)
+                                print(f"✓ Loaded {mol_name}")
+                            else:
+                                results['failed'] += 1
+                                results['errors'].append(f"Failed to load {mol_name}")
+                                print(f"✗ Failed to load {mol_name}")
+                    except Exception as e:
+                        print(f"✗ Error loading {mol_name}: {e}")
+                        with results_lock:
+                            results['failed'] += 1
+                            results['errors'].append(f"Error loading {mol_name}: {str(e)}")
+        
+        return results
+
+    def _load_molecules_sequential_worker(self, molecules_data: List[Dict[str, Any]], 
+                                         initial_molecule_parameters: Dict[str, Any]) -> Dict[str, Any]:
+        """Consolidated sequential loading worker."""
+        results = {'success': 0, 'failed': 0, 'molecules': [], 'errors': []}
+        
+        for i, mol_data in enumerate(molecules_data):
+            mol_name = mol_data.get("Molecule Name") or mol_data.get("name", "Unknown")
+            print(f"Loading molecule {i+1}/{len(molecules_data)}: {mol_name}")
+            try:
+                success = self._load_single_molecule(mol_data, initial_molecule_parameters)
                 if success:
-                    self[mol_name] = result
-                    results["molecules"].append(mol_name)
-                    results["success"] += 1
+                    results['success'] += 1
+                    results['molecules'].append(mol_name)
+                    print(f"✓ Loaded {mol_name}")
                 else:
-                    results["failed"] += 1
-                    results["errors"].append(f"{mol_name}: {result}")
-                    
+                    results['failed'] += 1
+                    results['errors'].append(f"Failed to load {mol_name}")
+                    print(f"✗ Failed to load {mol_name}")
             except Exception as e:
-                results["failed"] += 1
-                results["errors"].append(f"{mol_name}: {str(e)}")
+                print(f"✗ Error loading {mol_name}: {e}")
+                results['failed'] += 1
+                results['errors'].append(f"Error loading {mol_name}: {str(e)}")
         
         return results
 
@@ -1518,120 +1484,6 @@ class MoleculeDict(dict):
         except Exception as e:
             mol_name = mol_data.get("Molecule Name") or mol_data.get("name", "Unknown")
             return False, str(e), mol_name
-    
-    def bulk_recalculate_sequential(self, molecule_names: Optional[List[str]] = None) -> None:
-        """
-        Recalculate intensity and spectrum for multiple molecules sequentially (default method).
-        
-        Args:
-            molecule_names: List of molecule names to recalculate (None for all)
-        """
-        if molecule_names is None:
-            molecule_names = list(self.keys())
-        
-        if not molecule_names:
-            return
-        
-        print(f"Recalculating {len(molecule_names)} molecules sequentially...")
-        start_time = time.time()
-        success_count = 0
-        
-        for mol_name in molecule_names:
-            try:
-                if mol_name in self:
-                    molecule = self[mol_name]
-                    # Force invalidation and recalculation
-                    molecule._intensity_valid = False
-                    molecule._spectrum_valid = False
-                    molecule._clear_flux_caches()
-                    molecule._invalidate_parameter_hash()
-                    
-                    # Trigger recalculation by accessing properties
-                    if hasattr(molecule, 'calculate_intensity'):
-                        molecule.calculate_intensity()
-                    
-                    success_count += 1
-                else:
-                    print(f"Molecule '{mol_name}' not found")
-            except Exception as e:
-                print(f"Error recalculating '{mol_name}': {str(e)}")
-        
-        # Clear global caches
-        self._clear_flux_caches()
-        
-        elapsed_time = time.time() - start_time
-        print(f"Sequential recalculation completed in {elapsed_time:.2f}s")
-        print(f"Successfully recalculated {success_count}/{len(molecule_names)} molecules")
-    
-    def bulk_recalculate_parallel(self, molecule_names: Optional[List[str]] = None, 
-                                 max_workers: Optional[int] = None) -> None:
-        """
-        Recalculate intensity and spectrum for multiple molecules in parallel.
-        This method is available but not used by default for better stability.
-        
-        Args:
-            molecule_names: List of molecule names to recalculate (None for all)
-            max_workers: Maximum number of worker threads (None for auto-detect)
-        """
-        if molecule_names is None:
-            molecule_names = list(self.keys())
-        
-        if not molecule_names:
-            return
-        
-        if max_workers is None:
-            max_workers = min(len(molecule_names), mp.cpu_count())
-        
-        print(f"Recalculating {len(molecule_names)} molecules using {max_workers} worker threads...")
-        
-        def recalculate_molecule(mol_name):
-            """Worker function for recalculating a single molecule"""
-            try:
-                if mol_name in self:
-                    molecule = self[mol_name]
-                    # Force invalidation and recalculation
-                    molecule._intensity_valid = False
-                    molecule._spectrum_valid = False
-                    molecule._clear_flux_caches()
-                    molecule._invalidate_parameter_hash()
-                    
-                    # Trigger recalculation by accessing properties
-                    if hasattr(molecule, 'calculate_intensity'):
-                        molecule.calculate_intensity()
-                    
-                    return True, mol_name
-                else:
-                    return False, f"Molecule '{mol_name}' not found"
-            except Exception as e:
-                return False, f"Error recalculating '{mol_name}': {str(e)}"
-        
-        start_time = time.time()
-        success_count = 0
-        
-        # Use ThreadPoolExecutor for I/O-bound recalculation tasks
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_to_name = {
-                executor.submit(recalculate_molecule, mol_name): mol_name
-                for mol_name in molecule_names
-            }
-            
-            for future in as_completed(future_to_name):
-                mol_name = future_to_name[future]
-                try:
-                    success, result = future.result()
-                    if success:
-                        success_count += 1
-                    else:
-                        print(f"Failed to recalculate {mol_name}: {result}")
-                except Exception as e:
-                    print(f"Error recalculating {mol_name}: {e}")
-        
-        # Clear global caches
-        self._clear_flux_caches()
-        
-        elapsed_time = time.time() - start_time
-        print(f"Parallel recalculation completed in {elapsed_time:.2f}s")
-        print(f"Successfully recalculated {success_count}/{len(molecule_names)} molecules")
     
     def _should_use_multiprocessing(self, molecules_data: List[Dict[str, Any]], 
                                    max_workers: Optional[int] = None) -> bool:

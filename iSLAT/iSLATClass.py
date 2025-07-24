@@ -494,11 +494,19 @@ class iSLAT:
         try:
             start_time = time.time()
             
+
+            '''self, molecules_data: List[Dict[str, Any]], 
+                       initial_molecule_parameters: Dict[str, Dict[str, Any]], 
+                       strategy: str = "auto",
+                       max_workers: Optional[int] = None, 
+                       batch_size: Optional[int] = None,
+                       force_multiprocessing: bool = False) -> Dict[str, Any]:'''
+
             # Use the optimized loading method with optional parallel processing
-            results = self.molecules_dict.load_molecules_optimized(
+            results = self.molecules_dict.load_molecules(
                 molecules_list, 
                 self.initial_molecule_parameters,
-                use_parallel=use_parallel
+                #use_parallel=use_parallel
             )
             
             elapsed_time = time.time() - start_time
@@ -676,7 +684,7 @@ class iSLAT:
         
         if use_parallel_loading and len(molecules_data) > 1:
             print(f"Loading {len(molecules_data)} HITRAN molecules using parallel method...")
-            results = self.molecules_dict.load_molecules_ultra_fast(
+            results = self.molecules_dict.load_molecules(
                 molecules_data, 
                 self.initial_molecule_parameters,
                 force_multiprocessing=True
