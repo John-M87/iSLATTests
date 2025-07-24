@@ -98,9 +98,10 @@ class PlotRenderer:
     # Helper methods for common operations
     def _convert_visibility_to_bool(self, is_visible_raw: Any) -> bool:
         """Convert various visibility representations to boolean"""
-        if isinstance(is_visible_raw, str):
+        '''if isinstance(is_visible_raw, str):
             return is_visible_raw.lower() in ('true', '1', 'yes', 'on')
-        return bool(is_visible_raw)
+        return bool(is_visible_raw)'''
+        return bool(is_visible_raw) if is_visible_raw is not None else False
     
     def _get_molecule_display_name(self, molecule: 'Molecule') -> str:
         """Get display name for a molecule"""
@@ -671,15 +672,15 @@ class PlotRenderer:
         """Get visible molecules using the most efficient method available"""
         
         debug_config.trace("plot_renderer", f"molecules type = {type(molecules)}")
-        debug_config.trace("plot_renderer", f"hasattr(molecules, 'get_visible_molecules_fast') = {hasattr(molecules, 'get_visible_molecules_fast')}")
+        debug_config.trace("plot_renderer", f"hasattr(molecules, 'get_visible_molecules') = {hasattr(molecules, 'get_visible_molecules')}")
         debug_config.trace("plot_renderer", f"hasattr(molecules, 'values') = {hasattr(molecules, 'values')}")
         debug_config.trace("plot_renderer", f"hasattr(molecules, '__iter__') = {hasattr(molecules, '__iter__')}")
         
-        if hasattr(molecules, 'get_visible_molecules_fast'):
+        if hasattr(molecules, 'get_visible_molecules'):
             # MoleculeDict with fast access
-            visible_names = molecules.get_visible_molecules_fast()
+            visible_names = molecules.get_visible_molecules()
             visible_molecules = [molecules[name] for name in visible_names if name in molecules]
-            debug_config.trace("plot_renderer", f"get_visible_molecules_fast(): {len(visible_molecules)}/{len(molecules)} molecules visible: {visible_names}")
+            debug_config.trace("plot_renderer", f"get_visible_molecules(): {len(visible_molecules)}/{len(molecules)} molecules visible: {visible_names}")
             return visible_molecules
         elif hasattr(molecules, 'values'):
             # Regular dict-like object - check each molecule's is_visible attribute

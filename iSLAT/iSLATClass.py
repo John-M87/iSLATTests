@@ -1065,8 +1065,7 @@ class iSLAT:
                     hasattr(self, 'loaded_spectrum_name')):
                     self.GUI.file_interaction_pane.update_file_label(self.loaded_spectrum_name)
             # If model spectrum or other calculations depend on spectrum, update them
-            if hasattr(self, "update_model_spectrum"):
-                self.update_model_spectrum()
+            self.update_model_spectrum()
             
             return True
         else:

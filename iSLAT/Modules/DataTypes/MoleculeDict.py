@@ -26,8 +26,8 @@ class MoleculeDict(dict):
         self._dirty_molecules: set = set()
         
         self._global_dist: float = default_parms.DEFAULT_DISTANCE
-        self._global_star_rv: float = default_parms.DEFAULT_STELLAR_RV
-        self._global_fwhm: float = default_parms.DEFAULT_FWHM
+        #self._global_star_rv: float = default_parms.DEFAULT_STELLAR_RV
+        #self._global_fwhm: float = default_parms.DEFAULT_FWHM
         self._global_intrinsic_line_width: float = default_parms.INTRINSIC_LINE_WIDTH
         self._global_wavelength_range: Tuple[float, float] = default_parms.WAVELENGTH_RANGE
         self._global_model_line_width: float = default_parms.MODEL_LINE_WIDTH
@@ -184,7 +184,7 @@ class MoleculeDict(dict):
         if wave_data is None:
             return np.array([])
             
-        visible_molecules = list(self.get_visible_molecules_fast() if visible_only else self.keys())
+        visible_molecules = list(self.get_visible_molecules() if visible_only else self.keys())
         
         if not visible_molecules:
             return np.zeros_like(wave_data, dtype=np.float32)
@@ -286,7 +286,7 @@ class MoleculeDict(dict):
             return np.array([])
             
         summed_flux = np.zeros_like(wave_data)
-        visible_molecules = self.get_visible_molecules_fast() if visible_only else set(self.keys())
+        visible_molecules = self.get_visible_molecules() if visible_only else set(self.keys())
         
         for mol_name in visible_molecules:
             if mol_name in self:
@@ -319,7 +319,7 @@ class MoleculeDict(dict):
         if not wave_data_list:
             return []
             
-        visible_molecules = list(self.get_visible_molecules_fast() if visible_only else self.keys())
+        visible_molecules = list(self.get_visible_molecules() if visible_only else self.keys())
         
         if not visible_molecules:
             return [np.zeros_like(wd, dtype=np.float32) if wd is not None else np.array([]) 
@@ -469,27 +469,6 @@ class MoleculeDict(dict):
                 result[param_name][i] = value if value is not None else np.nan
         
         return result
-
-    def optimize_memory_usage(self):
-        """Optimize memory usage by clearing unnecessary caches and data structures."""
-        # Clear flux caches
-        self._clear_flux_caches()
-        
-        # Clear dirty molecules set
-        self._dirty_molecules.clear()
-        
-        # Limit summed flux cache size
-        if len(self._summed_flux_cache) > 20:
-            # Keep only the 20 most recent entries
-            cache_items = list(self._summed_flux_cache.items())
-            self._summed_flux_cache = dict(cache_items[-20:])
-        
-        # Ask each molecule to optimize its memory
-        for molecule in self.values():
-            if hasattr(molecule, 'optimize_memory_usage'):
-                molecule.optimize_memory_usage()
-        
-        print(f"Memory optimization completed for {len(self)} molecules")
 
     def batch_intensity_calculation(self, parameter_combinations: List[Dict[str, float]], 
                                    molecule_names: Optional[List[str]] = None,
@@ -761,7 +740,7 @@ class MoleculeDict(dict):
         
         return self._bulk_calculate_intensities(molecule_names)
     
-    def get_visible_molecules_fast(self) -> set:
+    def get_visible_molecules(self) -> set:
         """Get set of visible molecule names for fast operations."""
         # Lazy update of visible molecules set
         current_visible = {name for name, mol in self.items() if mol.is_visible}
@@ -790,8 +769,68 @@ class MoleculeDict(dict):
         print(f"Updated visibility for {len(molecule_set)} molecules")
     
     # ================================
-    # Startup Optimization Methods
+    # Molecule Loading
     # ================================
+    def load_molecules_ultra_fast(self, molecules_data: List[Dict[str, Any]], 
+                                 initial_molecule_parameters: Dict[str, Dict[str, Any]], 
+                                 max_workers: Optional[int] = None, 
+                                 force_multiprocessing: bool = False) -> Dict[str, Any]:
+        """
+        Load multiple molecules with sequential loading by default, multiprocessing only when forced.
+        
+        This method uses sequential loading by default for better compatibility and stability.
+        Multiprocessing is only used when explicitly requested via force_multiprocessing=True.
+        
+        Args:
+            molecules_data: List of molecule data dictionaries
+            initial_molecule_parameters: Dictionary of initial parameters by molecule name
+            max_workers: Maximum number of worker processes (None for auto-detect)
+            force_multiprocessing: If True, forces multiprocessing even for small datasets
+        
+        Returns:
+            Dictionary with loading statistics and results
+        """
+        if not molecules_data:
+            return {"success": 0, "failed": 0, "errors": []}
+        
+        print(f"Starting molecule loading for {len(molecules_data)} molecules...")
+        start_time = time.time()
+        
+        # Use multiprocessing only if explicitly forced AND conditions are met
+        use_multiprocessing = force_multiprocessing and self._should_use_multiprocessing(molecules_data, max_workers)
+        
+        results = {
+            "success": 0,
+            "failed": 0,
+            "errors": []
+        }
+        
+        if use_multiprocessing:
+            print(f"Using multiprocessing for {len(molecules_data)} molecules (forced)...")
+            # Use the existing parallel loading method
+            parallel_results = self.load_molecules_parallel(
+                molecules_data, 
+                initial_molecule_parameters, 
+                max_workers
+            )
+            results.update(parallel_results)
+        else:
+            print(f"Using sequential loading for {len(molecules_data)} molecules...")
+            # Use sequential loading (default and safer)
+            for mol_data in molecules_data:
+                success = self._load_single_molecule(mol_data, initial_molecule_parameters)
+                if success:
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    results["errors"].append(f"Failed to load {mol_data.get('Molecule Name', 'unknown')}")
+        
+        elapsed_time = time.time() - start_time
+        print(f"Ultra-fast loading completed in {elapsed_time:.3f}s")
+        print(f"Success: {results['success']}, Failed: {results['failed']}")
+        
+        return results
+    
     def load_molecules_optimized(self, molecules_data: List[Dict[str, Any]], 
                                 initial_molecule_parameters: Dict[str, Any],
                                 use_parallel: bool = None, 
@@ -893,7 +932,7 @@ class MoleculeDict(dict):
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 # Submit all molecules in this batch
                 future_to_data = {
-                    executor.submit(self._load_single_molecule_safe, mol_data, initial_molecule_parameters): mol_data
+                    executor.submit(self._load_single_molecule, mol_data, initial_molecule_parameters): mol_data
                     for mol_data in batch
                 }
                 
@@ -929,7 +968,7 @@ class MoleculeDict(dict):
             mol_name = mol_data.get("Molecule Name")
             print(f"Loading molecule {i+1}/{len(molecules_data)}: {mol_name}")
             try:
-                success = self._load_single_molecule_safe(mol_data, initial_molecule_parameters)
+                success = self._load_single_molecule(mol_data, initial_molecule_parameters)
                 if success:
                     results['success'] += 1
                     results['molecules'].append(mol_name)
@@ -945,34 +984,263 @@ class MoleculeDict(dict):
                 
         return results
     
-    def _load_single_molecule_safe(self, mol_data: Dict[str, Any], 
-                                  initial_molecule_parameters: Dict[str, Any]) -> bool:
-        """Safely load a single molecule with error handling."""
+    def load_molecules_parallel(self, molecules_data: List[Dict[str, Any]], 
+                               initial_molecule_parameters: Dict[str, Dict[str, Any]], 
+                               max_workers: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Load multiple molecules in parallel using multiprocessing.
+        
+        Args:
+            molecules_data: List of molecule data dictionaries
+            initial_molecule_parameters: Dictionary of initial parameters by molecule name
+            max_workers: Maximum number of worker processes (None for auto-detect)
+        
+        Returns:
+            Dictionary with loading statistics and results
+        """
+        if not molecules_data:
+            return {"success": 0, "failed": 0, "molecules": []}
+        
+        # Prepare global parameters
+        global_params = {
+            "wavelength_range": self._global_wavelength_range,
+            "distance": self._global_dist,
+            "fwhm": self._global_fwhm,
+            "stellar_rv": self._global_star_rv,
+            "intrinsic_line_width": self._global_intrinsic_line_width,
+            "model_pixel_res": self._global_model_pixel_res,
+            "model_line_width": self._global_model_line_width
+        }
+        
+        # Prepare arguments for workers
+        worker_args = [
+            (mol_data, global_params, initial_molecule_parameters)
+            for mol_data in molecules_data
+        ]
+        
+        # Determine optimal number of workers
+        if max_workers is None:
+            max_workers = min(len(molecules_data), mp.cpu_count())
+        
+        print(f"Loading {len(molecules_data)} molecules using {max_workers} worker processes...")
+        
+        results = {
+            "success": 0,
+            "failed": 0,
+            "molecules": [],
+            "errors": []
+        }
+        
+        start_time = time.time()
+        
         try:
-            mol_name = mol_data.get("Molecule Name")
-            if not mol_name:
-                return False
+            # Use ProcessPoolExecutor for CPU-bound molecule creation
+            with ProcessPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_args = {
+                    executor.submit(self._create_molecule_worker, args): args[0]
+                    for args in worker_args
+                }
                 
-            # Get initial parameters for this molecule
+                # Collect results as they complete
+                for future in as_completed(future_to_args):
+                    mol_data = future_to_args[future]
+                    try:
+                        success, result, mol_name = future.result()
+                        
+                        if success:
+                            # Add molecule to dictionary
+                            self[mol_name] = result
+                            results["molecules"].append(mol_name)
+                            results["success"] += 1
+                            print(f"✓ Successfully loaded molecule: {mol_name}")
+                        else:
+                            results["failed"] += 1
+                            results["errors"].append(f"{mol_name}: {result}")
+                            print(f"✗ Failed to load molecule '{mol_name}': {result}")
+                            
+                    except Exception as e:
+                        mol_name = mol_data.get("Molecule Name", "Unknown")
+                        results["failed"] += 1
+                        results["errors"].append(f"{mol_name}: {str(e)}")
+                        print(f"✗ Error processing molecule '{mol_name}': {e}")
+        
+        except Exception as e:
+            print(f"Error in parallel molecule loading: {e}")
+            # Fall back to sequential loading
+            return self._load_molecules_sequential(molecules_data, initial_molecule_parameters)
+        
+        elapsed_time = time.time() - start_time
+        print(f"Parallel loading completed in {elapsed_time:.2f}s")
+        print(f"Successfully loaded: {results['success']}, Failed: {results['failed']}")
+        
+        # Trigger bulk intensity calculation for successfully loaded molecules
+        if results['success'] > 1:
+            print("Triggering bulk intensity calculation for loaded molecules...")
+            intensity_results = self._bulk_calculate_intensities(results['molecules'])
+            results['intensity_calculation'] = intensity_results
+        
+        # Clear and rebuild caches after loading
+        self._clear_flux_caches()
+        
+        return results
+    
+    def _load_molecules_sequential(self, molecules_data: List[Dict[str, Any]], 
+                                  initial_molecule_parameters: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Fallback sequential molecule loading method.
+        
+        Args:
+            molecules_data: List of molecule data dictionaries
+            initial_molecule_parameters: Dictionary of initial parameters by molecule name
+        
+        Returns:
+            Dictionary with loading statistics and results
+        """
+        print("Falling back to sequential molecule loading...")
+        
+        results = {
+            "success": 0,
+            "failed": 0,
+            "molecules": [],
+            "errors": []
+        }
+        
+        for mol_data in molecules_data:
+            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
+            if not mol_name:
+                results["failed"] += 1
+                results["errors"].append("Unknown: Missing molecule name")
+                continue
+            
+            try:
+                success, result, name = self._create_molecule_worker((
+                    mol_data, 
+                    {
+                        "wavelength_range": self._global_wavelength_range,
+                        "distance": self._global_dist,
+                        "fwhm": self._global_fwhm,
+                        "stellar_rv": self._global_star_rv,
+                        "intrinsic_line_width": self._global_intrinsic_line_width,
+                        "model_pixel_res": self._global_model_pixel_res,
+                        "model_line_width": self._global_model_line_width
+                    },
+                    initial_molecule_parameters
+                ))
+                
+                if success:
+                    self[mol_name] = result
+                    results["molecules"].append(mol_name)
+                    results["success"] += 1
+                else:
+                    results["failed"] += 1
+                    results["errors"].append(f"{mol_name}: {result}")
+                    
+            except Exception as e:
+                results["failed"] += 1
+                results["errors"].append(f"{mol_name}: {str(e)}")
+        
+        return results
+
+    def _load_single_molecule(self, mol_data: Dict[str, Any], 
+                                       initial_molecule_parameters: Dict[str, Any]) -> bool:
+        """
+        """
+        try:
+            # Extract molecule name with multiple fallback options
+            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
+            if not mol_name:
+                print("Error: Missing molecule name in molecule data")
+                return False
+            
+            # Skip if molecule already exists
+            if mol_name in self:
+                print(f"Warning: Molecule '{mol_name}' already exists, skipping")
+                return True
+            
+            # Get initial parameters for this molecule with fallback
             mol_initial_params = initial_molecule_parameters.get(
-                mol_name, initial_molecule_parameters.get('default', {})
+                mol_name, 
+                initial_molecule_parameters.get('default', {})
             )
             
-            # Create molecule instance
+            # Determine data source and extract parameters efficiently
+            use_user_save_data = "Molecule Name" in mol_data
+            hitran_data = mol_data.get("hitran_data") if "hitran_data" in mol_data else None
+            
+            # Extract file path with multiple options
+            filepath = mol_data.get("file") or mol_data.get("File Path")
+            if not filepath and not hitran_data:
+                print(f"Warning: No file path or HITRAN data for molecule '{mol_name}'")
+            
+            # Extract display label with fallback
+            displaylabel = (mol_data.get("label") or 
+                           mol_data.get("Molecule Label") or 
+                           mol_name)
+            
+            # Extract molecule-specific parameters with type conversion
+            def safe_extract_float(key, default=None):
+                """Safely extract and convert float values"""
+                value = mol_data.get(key, default)
+                if value is not None:
+                    try:
+                        return float(value)
+                    except (ValueError, TypeError):
+                        return default
+                return default
+            
+            temp = safe_extract_float("Temp")
+            radius = safe_extract_float("Rad") 
+            n_mol = safe_extract_float("N_Mol")
+            is_visible = mol_data.get("Vis", True)
+            color = mol_data.get("Color")
+            
+            # Create molecule with optimized parameter passing
             molecule = Molecule(
-                user_save_data=mol_data,
-                wavelength_range=getattr(self, 'global_wavelength_range', (5.0, 30.0)),
+                # Data sources
+                user_save_data=mol_data if use_user_save_data else None,
+                hitran_data=hitran_data,
+                
+                # Basic identification
+                name=mol_name,
+                filepath=filepath,
+                displaylabel=displaylabel,
+                
+                # Global parameters (from MoleculeDict)
+                wavelength_range=self._global_wavelength_range,
+                distance=self._global_dist,
+                fwhm=getattr(self, '_global_fwhm', None),
+                stellar_rv=getattr(self, '_global_star_rv', None),
+                broad=self._global_intrinsic_line_width,
+                model_pixel_res=self._global_model_pixel_res,
+                model_line_width=self._global_model_line_width,
+                
+                # Molecule-specific parameters
+                temp=temp,
+                radius=radius,
+                n_mol=n_mol,
+                color=color,
+                is_visible=is_visible,
+                
+                # Initial parameters
                 initial_molecule_parameters=mol_initial_params
             )
             
             # Add to dictionary
             self[mol_name] = molecule
             
-            # Molecule creation successful
+            # Update fluxes if available
+            if hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None:
+                self.fluxes[mol_name] = molecule.plot_flux
+            
+            print(f"Successfully loaded molecule: {mol_name}")
             return True
             
         except Exception as e:
-            print(f"Error in _load_single_molecule_safe for {mol_name}: {e}")
+            # Comprehensive error reporting
+            mol_name = mol_data.get("Molecule Name") or mol_data.get("name", "Unknown")
+            print(f"Error loading molecule '{mol_name}': {e}")
+            
             return False
 
     def get_ndarray_of_attributes(self, attribute_name: str) -> np.ndarray:
@@ -1251,164 +1519,6 @@ class MoleculeDict(dict):
             mol_name = mol_data.get("Molecule Name") or mol_data.get("name", "Unknown")
             return False, str(e), mol_name
     
-    def load_molecules_parallel(self, molecules_data: List[Dict[str, Any]], 
-                               initial_molecule_parameters: Dict[str, Dict[str, Any]], 
-                               max_workers: Optional[int] = None) -> Dict[str, Any]:
-        """
-        Load multiple molecules in parallel using multiprocessing.
-        
-        Args:
-            molecules_data: List of molecule data dictionaries
-            initial_molecule_parameters: Dictionary of initial parameters by molecule name
-            max_workers: Maximum number of worker processes (None for auto-detect)
-        
-        Returns:
-            Dictionary with loading statistics and results
-        """
-        if not molecules_data:
-            return {"success": 0, "failed": 0, "molecules": []}
-        
-        # Prepare global parameters
-        global_params = {
-            "wavelength_range": self._global_wavelength_range,
-            "distance": self._global_dist,
-            "fwhm": self._global_fwhm,
-            "stellar_rv": self._global_star_rv,
-            "intrinsic_line_width": self._global_intrinsic_line_width,
-            "model_pixel_res": self._global_model_pixel_res,
-            "model_line_width": self._global_model_line_width
-        }
-        
-        # Prepare arguments for workers
-        worker_args = [
-            (mol_data, global_params, initial_molecule_parameters)
-            for mol_data in molecules_data
-        ]
-        
-        # Determine optimal number of workers
-        if max_workers is None:
-            max_workers = min(len(molecules_data), mp.cpu_count())
-        
-        print(f"Loading {len(molecules_data)} molecules using {max_workers} worker processes...")
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "molecules": [],
-            "errors": []
-        }
-        
-        start_time = time.time()
-        
-        try:
-            # Use ProcessPoolExecutor for CPU-bound molecule creation
-            with ProcessPoolExecutor(max_workers=max_workers) as executor:
-                # Submit all tasks
-                future_to_args = {
-                    executor.submit(self._create_molecule_worker, args): args[0]
-                    for args in worker_args
-                }
-                
-                # Collect results as they complete
-                for future in as_completed(future_to_args):
-                    mol_data = future_to_args[future]
-                    try:
-                        success, result, mol_name = future.result()
-                        
-                        if success:
-                            # Add molecule to dictionary
-                            self[mol_name] = result
-                            results["molecules"].append(mol_name)
-                            results["success"] += 1
-                            print(f"✓ Successfully loaded molecule: {mol_name}")
-                        else:
-                            results["failed"] += 1
-                            results["errors"].append(f"{mol_name}: {result}")
-                            print(f"✗ Failed to load molecule '{mol_name}': {result}")
-                            
-                    except Exception as e:
-                        mol_name = mol_data.get("Molecule Name", "Unknown")
-                        results["failed"] += 1
-                        results["errors"].append(f"{mol_name}: {str(e)}")
-                        print(f"✗ Error processing molecule '{mol_name}': {e}")
-        
-        except Exception as e:
-            print(f"Error in parallel molecule loading: {e}")
-            # Fall back to sequential loading
-            return self._load_molecules_sequential(molecules_data, initial_molecule_parameters)
-        
-        elapsed_time = time.time() - start_time
-        print(f"Parallel loading completed in {elapsed_time:.2f}s")
-        print(f"Successfully loaded: {results['success']}, Failed: {results['failed']}")
-        
-        # Trigger bulk intensity calculation for successfully loaded molecules
-        if results['success'] > 1:
-            print("Triggering bulk intensity calculation for loaded molecules...")
-            intensity_results = self._bulk_calculate_intensities(results['molecules'])
-            results['intensity_calculation'] = intensity_results
-        
-        # Clear and rebuild caches after loading
-        self._clear_flux_caches()
-        
-        return results
-    
-    def _load_molecules_sequential(self, molecules_data: List[Dict[str, Any]], 
-                                  initial_molecule_parameters: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
-        """
-        Fallback sequential molecule loading method.
-        
-        Args:
-            molecules_data: List of molecule data dictionaries
-            initial_molecule_parameters: Dictionary of initial parameters by molecule name
-        
-        Returns:
-            Dictionary with loading statistics and results
-        """
-        print("Falling back to sequential molecule loading...")
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "molecules": [],
-            "errors": []
-        }
-        
-        for mol_data in molecules_data:
-            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
-            if not mol_name:
-                results["failed"] += 1
-                results["errors"].append("Unknown: Missing molecule name")
-                continue
-            
-            try:
-                success, result, name = self._create_molecule_worker((
-                    mol_data, 
-                    {
-                        "wavelength_range": self._global_wavelength_range,
-                        "distance": self._global_dist,
-                        "fwhm": self._global_fwhm,
-                        "stellar_rv": self._global_star_rv,
-                        "intrinsic_line_width": self._global_intrinsic_line_width,
-                        "model_pixel_res": self._global_model_pixel_res,
-                        "model_line_width": self._global_model_line_width
-                    },
-                    initial_molecule_parameters
-                ))
-                
-                if success:
-                    self[mol_name] = result
-                    results["molecules"].append(mol_name)
-                    results["success"] += 1
-                else:
-                    results["failed"] += 1
-                    results["errors"].append(f"{mol_name}: {result}")
-                    
-            except Exception as e:
-                results["failed"] += 1
-                results["errors"].append(f"{mol_name}: {str(e)}")
-        
-        return results
-    
     def bulk_recalculate_sequential(self, molecule_names: Optional[List[str]] = None) -> None:
         """
         Recalculate intensity and spectrum for multiple molecules sequentially (default method).
@@ -1523,66 +1633,6 @@ class MoleculeDict(dict):
         print(f"Parallel recalculation completed in {elapsed_time:.2f}s")
         print(f"Successfully recalculated {success_count}/{len(molecule_names)} molecules")
     
-    def load_molecules_ultra_fast(self, molecules_data: List[Dict[str, Any]], 
-                                 initial_molecule_parameters: Dict[str, Dict[str, Any]], 
-                                 max_workers: Optional[int] = None, 
-                                 force_multiprocessing: bool = False) -> Dict[str, Any]:
-        """
-        Load multiple molecules with sequential loading by default, multiprocessing only when forced.
-        
-        This method uses sequential loading by default for better compatibility and stability.
-        Multiprocessing is only used when explicitly requested via force_multiprocessing=True.
-        
-        Args:
-            molecules_data: List of molecule data dictionaries
-            initial_molecule_parameters: Dictionary of initial parameters by molecule name
-            max_workers: Maximum number of worker processes (None for auto-detect)
-            force_multiprocessing: If True, forces multiprocessing even for small datasets
-        
-        Returns:
-            Dictionary with loading statistics and results
-        """
-        if not molecules_data:
-            return {"success": 0, "failed": 0, "errors": []}
-        
-        print(f"Starting molecule loading for {len(molecules_data)} molecules...")
-        start_time = time.time()
-        
-        # Use multiprocessing only if explicitly forced AND conditions are met
-        use_multiprocessing = force_multiprocessing and self._should_use_multiprocessing(molecules_data, max_workers)
-        
-        results = {
-            "success": 0,
-            "failed": 0,
-            "errors": []
-        }
-        
-        if use_multiprocessing:
-            print(f"Using multiprocessing for {len(molecules_data)} molecules (forced)...")
-            # Use the existing parallel loading method
-            parallel_results = self.load_molecules_parallel(
-                molecules_data, 
-                initial_molecule_parameters, 
-                max_workers
-            )
-            results.update(parallel_results)
-        else:
-            print(f"Using sequential loading for {len(molecules_data)} molecules...")
-            # Use sequential loading (default and safer)
-            for mol_data in molecules_data:
-                success = self._load_single_molecule_ultra_fast(mol_data, initial_molecule_parameters)
-                if success:
-                    results["success"] += 1
-                else:
-                    results["failed"] += 1
-                    results["errors"].append(f"Failed to load {mol_data.get('Molecule Name', 'unknown')}")
-        
-        elapsed_time = time.time() - start_time
-        print(f"Ultra-fast loading completed in {elapsed_time:.3f}s")
-        print(f"Success: {results['success']}, Failed: {results['failed']}")
-        
-        return results
-    
     def _should_use_multiprocessing(self, molecules_data: List[Dict[str, Any]], 
                                    max_workers: Optional[int] = None) -> bool:
         """
@@ -1626,49 +1676,6 @@ class MoleculeDict(dict):
             return True
         else:
             return False
-    
-    def _load_single_molecule_ultra_fast(self, mol_data: Dict[str, Any], 
-                                        initial_molecule_parameters: Dict[str, Dict[str, Any]]) -> bool:
-        """
-        Load a single molecule using ultra-fast optimized methods.
-        """
-        try:
-            mol_name = mol_data.get("Molecule Name") or mol_data.get("name")
-            
-            if not mol_name:
-                print("Error: Missing molecule name")
-                return False
-            
-            # Create molecule with optimized loading
-            molecule = Molecule(
-                user_save_data=mol_data if "Molecule Name" in mol_data else None,
-                hitran_data=mol_data.get("hitran_data") if "hitran_data" in mol_data else None,
-                name=mol_name,
-                filepath=mol_data.get("file") or mol_data.get("File Path"),
-                displaylabel=mol_data.get("label") or mol_data.get("Molecule Label", mol_name),
-                wavelength_range=self._global_wavelength_range,
-                distance=self._global_dist,
-                fwhm=self._global_fwhm,
-                stellar_rv=self._global_star_rv,
-                broad=self._global_intrinsic_line_width,
-                model_pixel_res=self._global_model_pixel_res,
-                model_line_width=self._global_model_line_width,
-                temp=mol_data.get("Temp"),
-                radius=mol_data.get("Rad"),
-                n_mol=mol_data.get("N_Mol"),
-                color=mol_data.get("Color"),
-                is_visible=mol_data.get("Vis", True),
-                initial_molecule_parameters=initial_molecule_parameters.get(mol_name, {})
-            )
-            
-            # Add to dictionary
-            self[mol_name] = molecule
-            print(f"Successfully loaded molecule: {mol_name}")
-            return True
-            
-        except Exception as e:
-            print(f"Error loading molecule '{mol_name}': {e}")
-            return False
 
     def create_memory_mapped_flux_storage(self, max_molecules: int = 1000, max_wavelengths: int = 10000):
         """Create memory-mapped arrays for flux storage to handle large datasets."""
@@ -1688,33 +1695,6 @@ class MoleculeDict(dict):
         self._flux_molecule_index = {}  # Map molecule names to array indices
         self._flux_memmap_file = temp_file.name
         print(f"Created memory-mapped flux storage: {max_molecules}x{max_wavelengths}")
-    
-    def get_molecule_statistics(self) -> Dict[str, Any]:
-        """Get comprehensive statistics about molecules in the dictionary."""
-        if not self:
-            return {"count": 0}
-        
-        # Update parameter arrays for efficient computation
-        self.update_parameter_arrays()
-        
-        stats = {
-            "count": len(self),
-            "visible_count": len(self.get_visible_molecules_fast()),
-            "parameter_stats": {}
-        }
-        
-        # Compute statistics for each parameter using numpy
-        for param_name, param_array in self._parameter_arrays.items():
-            if len(param_array) > 0:
-                stats["parameter_stats"][param_name] = {
-                    "mean": float(np.mean(param_array)),
-                    "std": float(np.std(param_array)),
-                    "min": float(np.min(param_array)),
-                    "max": float(np.max(param_array)),
-                    "median": float(np.median(param_array))
-                }
-        
-        return stats
     
     def bulk_filter_molecules(self, condition_func: Callable[[Dict[str, float]], bool]) -> List[str]:
         """Filter molecules based on a condition function using vectorized operations."""
@@ -1741,63 +1721,7 @@ class MoleculeDict(dict):
             self.bulk_update_parameters(parameter_updates, matching_molecules)
             print(f"Conditionally updated {len(matching_molecules)} molecules")
     
-    def get_memory_usage_estimate(self) -> Dict[str, float]:
-        """Estimate memory usage of the molecule dictionary in MB."""
-        total_size = 0
-        flux_size = 0
-        cache_size = 0
-        
-        # Estimate molecule objects size
-        mol_count = len(self)
-        estimated_mol_size = mol_count * 1024  # Rough estimate per molecule in bytes
-        
-        # Flux arrays size
-        for flux_array in self.fluxes.values():
-            if hasattr(flux_array, 'nbytes'):
-                flux_size += flux_array.nbytes
-        
-        # Cache size
-        for cache_array in self._summed_flux_cache.values():
-            if hasattr(cache_array, 'nbytes'):
-                cache_size += cache_array.nbytes
-        
-        # Parameter arrays size
-        param_array_size = 0
-        for param_array in self._parameter_arrays.values():
-            if hasattr(param_array, 'nbytes'):
-                param_array_size += param_array.nbytes
-        
-        total_size = estimated_mol_size + flux_size + cache_size + param_array_size
-        
-        return {
-            "total_mb": total_size / (1024 * 1024),
-            "molecules_mb": estimated_mol_size / (1024 * 1024),
-            "fluxes_mb": flux_size / (1024 * 1024),
-            "cache_mb": cache_size / (1024 * 1024),
-            "parameter_arrays_mb": param_array_size / (1024 * 1024)
-        }
-    
-    def optimize_memory(self) -> None:
-        """Optimize memory usage by cleaning up caches and converting to more efficient dtypes."""
-        # Clear old caches
-        if len(self._summed_flux_cache) > 50:
-            # Keep only the 25 most recent entries
-            cache_items = list(self._summed_flux_cache.items())
-            self._summed_flux_cache = dict(cache_items[-25:])
-        
-        # Convert flux arrays to float32 if they're float64
-        for mol_name, flux_array in self.fluxes.items():
-            if flux_array.dtype == np.float64:
-                self.fluxes[mol_name] = flux_array.astype(np.float32)
-        
-        # Update parameter arrays to more efficient dtypes
-        for param_name, param_array in self._parameter_arrays.items():
-            if param_array.dtype == np.float64:
-                self._parameter_arrays[param_name] = param_array.astype(np.float32)
-        
-        print("Memory optimization completed")
-    
-    def cleanup_memory_mapped_storage(self) -> None:
+    '''def cleanup_memory_mapped_storage(self) -> None:
         """Clean up memory-mapped storage files."""
         if hasattr(self, '_flux_memmap_file'):
             try:
@@ -1808,7 +1732,7 @@ class MoleculeDict(dict):
                     os.unlink(self._flux_memmap_file)
                 print("Cleaned up memory-mapped storage")
             except Exception as e:
-                print(f"Error cleaning up memory-mapped storage: {e}")
+                print(f"Error cleaning up memory-mapped storage: {e}")'''
     
     def add_global_parameter_change_callback(self, callback: Callable) -> None:
         """Add a callback function to be called when global parameters change"""
@@ -1859,14 +1783,52 @@ class MoleculeDict(dict):
     def __del__(self):
         """Cleanup when object is destroyed."""
         try:
-            self.cleanup_memory_mapped_storage()
+            #self.cleanup_memory_mapped_storage()
+            if hasattr(self, '_flux_memmap_file'):
+                try:
+                    import os
+                    if hasattr(self, '_flux_memmap'):
+                        del self._flux_memmap
+                    if os.path.exists(self._flux_memmap_file):
+                        os.unlink(self._flux_memmap_file)
+                    print("Cleaned up memory-mapped storage")
+                except Exception as e:
+                    print(f"Error cleaning up memory-mapped storage: {e}")
         except:
             pass
+
+    def get_molecule_statistics(self) -> Dict[str, Any]:
+        """Get comprehensive statistics about molecules in the dictionary."""
+        if not self:
+            return {"count": 0}
+        
+        # Update parameter arrays for efficient computation
+        self.update_parameter_arrays()
+        
+        stats = {
+            "count": len(self),
+            "visible_count": len(self.get_visible_molecules()),
+            "parameter_stats": {}
+        }
+        
+        # Compute statistics for each parameter using numpy
+        for param_name, param_array in self._parameter_arrays.items():
+            if len(param_array) > 0:
+                stats["parameter_stats"][param_name] = {
+                    "mean": float(np.mean(param_array)),
+                    "std": float(np.std(param_array)),
+                    "min": float(np.min(param_array)),
+                    "max": float(np.max(param_array)),
+                    "median": float(np.median(param_array))
+                }
+        
+        return stats
 
     # Performance testing and demonstration methods
     def benchmark_bulk_operations(self, num_iterations: int = 100) -> Dict[str, float]:
         """Benchmark different bulk operation methods for performance comparison."""
         import time
+        import traceback
         
         if not self:
             print("No molecules to benchmark")
@@ -1965,24 +1927,24 @@ class MoleculeDict(dict):
         
         # 5. Fast visibility operations
         print("5. Fast Visibility Operations:")
-        visible_before = len(self.get_visible_molecules_fast())
+        visible_before = len(self.get_visible_molecules())
         print(f"   Visible molecules before: {visible_before}")
         
         # Hide half the molecules
         half_molecules = molecule_names[:len(molecule_names)//2]
         self.bulk_set_visibility_fast(False, half_molecules)
         
-        visible_after = len(self.get_visible_molecules_fast())
+        visible_after = len(self.get_visible_molecules())
         print(f"   Visible molecules after hiding {len(half_molecules)}: {visible_after}")
         
         # Restore visibility
         self.bulk_set_visibility_fast(True, half_molecules)
         print()
         
-        # 6. Memory optimization
+        '''# 6. Memory optimization
         print("6. Memory Optimization:")
         print("   Running memory optimization...")
-        self.optimize_memory()
+        self.optimize_memory()'''
         
         new_memory_stats = self.get_memory_usage_estimate()
         print(f"   New total memory usage: {new_memory_stats['total_mb']:.2f} MB")
@@ -2023,3 +1985,39 @@ class MoleculeDict(dict):
             report.append(f"    Mean ± Std: {param_stats['mean']:.2e} ± {param_stats['std']:.2e}")
         
         return "\n".join(report)
+    
+    def get_memory_usage_estimate(self) -> Dict[str, float]:
+        """Estimate memory usage of the molecule dictionary in MB."""
+        total_size = 0
+        flux_size = 0
+        cache_size = 0
+        
+        # Estimate molecule objects size
+        mol_count = len(self)
+        estimated_mol_size = mol_count * 1024  # Rough estimate per molecule in bytes
+        
+        # Flux arrays size
+        for flux_array in self.fluxes.values():
+            if hasattr(flux_array, 'nbytes'):
+                flux_size += flux_array.nbytes
+        
+        # Cache size
+        for cache_array in self._summed_flux_cache.values():
+            if hasattr(cache_array, 'nbytes'):
+                cache_size += cache_array.nbytes
+        
+        # Parameter arrays size
+        param_array_size = 0
+        for param_array in self._parameter_arrays.values():
+            if hasattr(param_array, 'nbytes'):
+                param_array_size += param_array.nbytes
+        
+        total_size = estimated_mol_size + flux_size + cache_size + param_array_size
+        
+        return {
+            "total_mb": total_size / (1024 * 1024),
+            "molecules_mb": estimated_mol_size / (1024 * 1024),
+            "fluxes_mb": flux_size / (1024 * 1024),
+            "cache_mb": cache_size / (1024 * 1024),
+            "parameter_arrays_mb": param_array_size / (1024 * 1024)
+        }
