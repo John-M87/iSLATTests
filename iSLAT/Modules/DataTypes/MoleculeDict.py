@@ -1793,11 +1793,6 @@ class MoleculeDict(dict):
         self.bulk_set_visibility_fast(True, half_molecules)
         print()
         
-        '''# 6. Memory optimization
-        print("6. Memory Optimization:")
-        print("   Running memory optimization...")
-        self.optimize_memory()'''
-        
         new_memory_stats = self.get_memory_usage_estimate()
         print(f"   New total memory usage: {new_memory_stats['total_mb']:.2f} MB")
         print()
