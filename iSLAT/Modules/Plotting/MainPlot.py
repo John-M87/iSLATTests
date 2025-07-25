@@ -165,12 +165,6 @@ class iSLATPlot:
                     
         except Exception as e:
             debug_config.error("main_plot", f"Could not apply plot theming: {e}")
-
-    def _convert_visibility_to_bool(self, is_visible_raw):
-        """Convert various visibility representations to boolean"""
-        if isinstance(is_visible_raw, str):
-            return is_visible_raw.lower() in ('true', 't', 'yes', 'y', '1')
-        return bool(is_visible_raw)
     
     def _get_molecule_display_name(self, molecule):
         """Get display name for a molecule"""
@@ -391,62 +385,6 @@ class iSLATPlot:
         if picked_value:
             self._display_line_info(picked_value)
         self.canvas.draw_idle()
-
-    '''def find_strongest_line_from_data(self):
-        """
-        Find strongest line directly from molecule's cached line data.
-        
-        Uses the molecule's built-in intensity caching to avoid redundant calculations.
-        Returns a dictionary with line information ready for display.
-        """
-        if not hasattr(self, 'current_selection') or self.current_selection is None:
-            return None
-            
-        xmin, xmax = self.current_selection
-        
-        # Use the molecule's cached intensity calculation
-        try:
-            active_molecule = self.islat.active_molecule
-            if not active_molecule or not hasattr(active_molecule, 'intensity'):
-                return None
-            
-            # Ensure intensity is calculated (uses molecule's internal caching)
-            if hasattr(active_molecule, '_ensure_intensity_calculated'):
-                active_molecule._ensure_intensity_calculated()
-            
-            # Get lines with intensity using molecule's cached data
-            if hasattr(active_molecule.intensity, 'get_lines_in_range_with_intensity'):
-                lines_with_intensity = active_molecule.intensity.get_lines_in_range_with_intensity(xmin, xmax)
-            else:
-                # Fallback: use PlotRenderer method which accesses molecule caching
-                line_data = self.plot_renderer.get_molecule_line_data(active_molecule, xmin, xmax)
-                lines_with_intensity = [(line[0], line[1], line[2]) for line in line_data if line[1] is not None]
-            
-            if not lines_with_intensity:
-                return None
-                
-            # Find the line with maximum intensity
-            strongest_line, strongest_intensity, strongest_tau = max(lines_with_intensity, key=lambda x: x[1])
-            
-            # Create a dictionary with the line information
-            line_info = {
-                'lam': strongest_line.lam,
-                'e': strongest_line.e_up, 
-                'a': strongest_line.a_stein,
-                'g': strongest_line.g_up,
-                'inten': strongest_intensity,
-                'up_lev': strongest_line.lev_up if hasattr(strongest_line, 'lev_up') and strongest_line.lev_up else 'N/A',
-                'low_lev': strongest_line.lev_low if hasattr(strongest_line, 'lev_low') and strongest_line.lev_low else 'N/A',
-                'tau': strongest_tau if strongest_tau is not None else 'N/A',
-                'wavelength': strongest_line.lam,
-                'intensity': strongest_intensity,
-                'flux': strongest_intensity
-            }
-            
-            return line_info
-        except Exception as e:
-            debug_config.warning("main_plot", f"Could not find strongest line: {e}")
-            return None'''
 
     def flux_integral_basic(self, wave_data, flux_data, err_data, xmin, xmax):
         """
@@ -848,7 +786,8 @@ class iSLATPlot:
             molecule = self.islat.molecules_dict[molecule_name]
             
             # Only update plots if the molecule is visible
-            if self._convert_visibility_to_bool(molecule.is_visible):
+            #if self._convert_visibility_to_bool(molecule.is_visible):
+            if molecule.is_visible:
                 # The molecule's cache has already been invalidated by its parameter setter
                 # We just need to trigger a plot update
                 self.update_model_plot()
@@ -924,7 +863,7 @@ class iSLATPlot:
 
     def _add_molecule_to_plot(self, molecule):
         """Add a single molecule's spectrum using PlotRenderer - minimal logic"""
-        if not self._convert_visibility_to_bool(molecule.is_visible):
+        if not molecule.is_visible:
             return
         
         # Delegate to PlotRenderer with minimal logic
@@ -1205,7 +1144,8 @@ class iSLATPlot:
                 molecule = self.islat.molecules_dict[molecule_name]
                 
                 # Check if molecule is visible (affects main plot)
-                if self._convert_visibility_to_bool(molecule.is_visible):
+                #if self._convert_visibility_to_bool(molecule.is_visible):
+                if molecule.is_visible:
                     affected_visible_molecules.append(molecule_name)
                 
                 # Check if this is the active molecule (affects line inspection and population diagram)
@@ -1247,7 +1187,7 @@ class iSLATPlot:
             try:
                 status = {
                     'name': molecule_name,
-                    'visible': self._convert_visibility_to_bool(molecule.is_visible),
+                    'visible': molecule.is_visible,
                     'cache_valid': None,
                     'cache_stats': None,
                     'parameter_hash': None
@@ -1294,7 +1234,7 @@ class iSLATPlot:
                     'has_cached_spectrum': False,
                     'has_plot_data': False,
                     'cache_stats': {},
-                    'visible': self._convert_visibility_to_bool(molecule.is_visible)
+                    'visible': molecule.is_visible
                 }
                 
                 # Check for cached intensity

@@ -528,8 +528,6 @@ class Molecule:
     
     @property
     def is_visible(self):
-        print("Is visible:", self._is_visible)
-        # Handle string representations properly
         if isinstance(self._is_visible, str):
             # Convert string representations to proper boolean
             return self._is_visible.lower() in ('true', '1', 'yes', 'on')
@@ -537,9 +535,7 @@ class Molecule:
     
     @is_visible.setter
     def is_visible(self, value):
-        print("Hey hey, we in the mol:", self.name, "is_visible:", value)
         old_value = self._is_visible
-        # Ensure we store as boolean, handling string inputs properly
         if isinstance(value, str):
             self._is_visible = value.lower() in ('true', '1', 'yes', 'on')
         else:

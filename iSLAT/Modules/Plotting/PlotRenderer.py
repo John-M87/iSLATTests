@@ -96,13 +96,6 @@ class PlotRenderer:
         # Remove molecule change callbacks since we don't cache data anymore
     
     # Helper methods for common operations
-    def _convert_visibility_to_bool(self, is_visible_raw: Any) -> bool:
-        """Convert various visibility representations to boolean"""
-        '''if isinstance(is_visible_raw, str):
-            return is_visible_raw.lower() in ('true', '1', 'yes', 'on')
-        return bool(is_visible_raw)'''
-        return bool(is_visible_raw) if is_visible_raw is not None else False
-    
     def _get_molecule_display_name(self, molecule: 'Molecule') -> str:
         """Get display name for a molecule"""
         return getattr(molecule, 'displaylabel', getattr(molecule, 'name', 'unknown'))
@@ -386,9 +379,6 @@ class PlotRenderer:
             except Exception as e:
                 mol_name = self._get_molecule_display_name(active_molecule)
                 debug_config.warning("plot_renderer", f"Could not get model data for molecule {mol_name}: {e}")
-        
-        '''if self._should_clear_old_fits():
-            self._clear_old_fit_results_in_range(xmin, xmax)'''
 
         # Plot fit results if available
         if fit_result is not None:
@@ -405,30 +395,6 @@ class PlotRenderer:
         handles, labels = self.ax2.get_legend_handles_labels()
         if handles:
             self.ax2.legend()
-    
-    '''def _render_fit_results_in_line_inspection(self, fit_result: Any, xmin: float, xmax: float, max_y: float) -> None:
-        """Helper method to render fit results in the line inspection plot."""
-        try:
-            gauss_fit, fitted_wave, fitted_flux = fit_result
-            if gauss_fit is not None and fitted_wave is not None and fitted_flux is not None:
-                # Filter fit data to range
-                fit_mask = (fitted_wave >= xmin) & (fitted_wave <= xmax)
-                if np.any(fit_mask):
-                    self.ax2.plot(fitted_wave[fit_mask], fitted_flux[fit_mask], 
-                                 color='red', linewidth=2, label='Total Fit')
-                    if self.fitting_engine.is_multi_component_fit():
-                        components = self.fitting_engine.evaluate_fit_components(x_fit)
-                        component_prefixes = self.fitting_engine.get_component_prefixes()
-                        
-                        for i, prefix in enumerate(component_prefixes):
-                            if prefix in components:
-                                component_flux = components[prefix]
-                                self.ax2.plot(x_fit, component_flux, 
-                                            linestyle='--', linewidth=1, 
-                                            label=f"Component {i+1}")
-
-        except Exception as e:
-            debug_config.warning("plot_renderer", f"Could not render fit results: {e}")'''
     
     def _render_fit_results_in_line_inspection(self, fit_result: Any, xmin: float, xmax: float, max_y: float) -> None:
         """Helper method to render fit results in the line inspection plot."""
@@ -1216,10 +1182,9 @@ class PlotRenderer:
     def render_individual_molecule_spectrum(self, molecule: 'Molecule', wave_data: np.ndarray, 
                                          plot_name: Optional[str] = None) -> bool:
         """
-        Render a single molecule spectrum using ONLY the molecule's cached data.
+        Render a single molecule spectrum using the molecule's cached data.
         
         No additional caching layers - complete reliance on molecule's caching system.
-        Enhanced with cache debugging to diagnose 850°→950°→850° issues.
         
         Parameters
         ----------
@@ -1358,8 +1323,6 @@ class PlotRenderer:
     def debug_molecule_cache_status(self, molecule: 'Molecule') -> Dict[str, Any]:
         """
         Debug the cache status of a molecule to understand why plots aren't updating.
-        
-        This helps diagnose issues like 850°→950°→850° not updating correctly.
         """
         if molecule is None:
             return {'error': 'No molecule provided'}
