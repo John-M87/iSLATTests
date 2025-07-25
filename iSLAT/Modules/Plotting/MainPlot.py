@@ -282,9 +282,9 @@ class iSLATPlot:
             self.canvas.draw_idle()
             return
             
-        # Get visible molecules - use their own visibility property
+        '''# Get visible molecules - use their own visibility property
         visible_molecules = [mol for mol in self.islat.molecules_dict.values() 
-                           if self._convert_visibility_to_bool(mol.is_visible)]
+                           if self._convert_visibility_to_bool(mol.is_visible)]'''
         
         # Calculate summed flux using MoleculeDict's advanced caching system
         try:
@@ -304,7 +304,7 @@ class iSLATPlot:
         self.plot_renderer.render_main_spectrum_plot(
             self.islat.wave_data,
             self.islat.flux_data,
-            molecules=visible_molecules,
+            molecules=self.islat.molecules_dict,
             summed_flux=summed_flux,
             error_data=getattr(self.islat, 'err_data', None)
         )
@@ -774,14 +774,6 @@ class iSLATPlot:
         Delegates to PlotRenderer for efficient line plotting.
         """
         self.plot_renderer.plot_vertical_lines(wavelengths, heights, colors, labels)
-        self.canvas.draw_idle()
-    
-    def render_molecules_efficiently(self, wave_data, molecules):
-        """
-        Render molecules using available methods.
-        Delegates to PlotRenderer for molecule rendering.
-        """
-        self.plot_renderer.render_visible_molecules(wave_data, molecules)
         self.canvas.draw_idle()
     
     def update_plot_display(self):

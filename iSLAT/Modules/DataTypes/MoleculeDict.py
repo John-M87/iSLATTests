@@ -856,12 +856,30 @@ class MoleculeDict(dict):
             'failures': failed_molecules
         }
     
-    def get_visible_molecules(self) -> set:
-        """Get set of visible molecule names for fast operations."""
+    def get_visible_molecules(self, return_objects: bool = False) -> Union[set, List['Molecule']]:
+        """Get set of visible molecule names or objects for fast operations.
+        
+        Parameters
+        ----------
+        return_objects : bool, default False
+            If True, returns a list of visible molecule objects.
+            If False, returns a set of visible molecule names.
+            
+        Returns
+        -------
+        Union[set, List['Molecule']]
+            Set of visible molecule names (if return_objects=False) or
+            List of visible molecule objects (if return_objects=True)
+        """
         # Lazy update of visible molecules set
-        current_visible = {name for name, mol in self.items() if mol.is_visible}
+        current_visible = {name for name, mol in self.items() if bool(mol.is_visible)}
+        print(f"Current visible molecules: {current_visible}")
         self._visible_molecules = current_visible
-        return current_visible
+        
+        if return_objects:
+            return [self[name] for name in current_visible]
+        else:
+            return current_visible
     
     def bulk_set_visibility_fast(self, is_visible: bool, molecule_names: Optional[List[str]] = None) -> None:
         """Fast visibility update using sets."""
