@@ -1,6 +1,4 @@
 iSLAT_version = 'v5.00.00'
-#print(' ')
-#print('Loading iSLAT ' + iSLAT_version + ': Please Wait ...')
 
 # Import necessary modules
 import numpy as np
@@ -139,7 +137,7 @@ class iSLAT:
             print(f"Error loading molecules: {e}")
 
     def add_molecule_from_hitran(self, refresh=True, hitran_files=None, molecule_names=None, 
-                                base_molecules=None, isotopes=None, use_parallel=False):
+                                base_molecules=None, isotopes=None, use_parallel=False): # needs updated
         """
         Adds one or more molecules to the iSLAT instance from HITRAN files with sequential loading by default.
         

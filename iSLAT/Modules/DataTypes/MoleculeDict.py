@@ -250,26 +250,6 @@ class MoleculeDict(dict):
         
         return summed_flux
 
-    def _calculate_summed_flux_uncached(self, wave_data: np.ndarray, visible_only: bool = True) -> np.ndarray:
-        if wave_data is None:
-            return np.array([])
-            
-        summed_flux = np.zeros_like(wave_data)
-        visible_molecules = self.get_visible_molecules() if visible_only else set(self.keys())
-        
-        for mol_name in visible_molecules:
-            if mol_name in self:
-                molecule = self[mol_name]
-                try:
-                    molecule.prepare_plot_data(wave_data)
-                    if hasattr(molecule, 'plot_flux') and molecule.plot_flux is not None:
-                        summed_flux += molecule.plot_flux
-                except Exception as e:
-                    print(f"Warning: Failed to add flux from molecule {mol_name}: {e}")
-                    continue
-        
-        return summed_flux
-
     def batch_flux_calculation(self, wave_data_list: List[np.ndarray], visible_only: bool = True) -> List[np.ndarray]:
         """Calculate fluxes for multiple wavelength arrays using vectorized operations.
         
@@ -1262,34 +1242,6 @@ class MoleculeDict(dict):
         
         print(f"Bulk updated parameters for {len(affected_molecules)} molecules")
     
-    def bulk_set_temperature(self, temperature: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update temperature for multiple molecules."""
-        self.bulk_update_parameter('temp', temperature, molecule_names)
-    
-    def bulk_set_radius(self, radius: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update radius for multiple molecules."""
-        self.bulk_update_parameter('radius', radius, molecule_names)
-    
-    def bulk_set_column_density(self, n_mol: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update column density for multiple molecules."""
-        self.bulk_update_parameter('n_mol', n_mol, molecule_names)
-    
-    def bulk_set_distance(self, distance: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update distance for multiple molecules."""
-        self.bulk_update_parameter('distance', distance, molecule_names)
-    
-    def bulk_set_fwhm(self, fwhm: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update FWHM for multiple molecules."""
-        self.bulk_update_parameter('fwhm', fwhm, molecule_names)
-    
-    def bulk_set_stellar_rv(self, stellar_rv: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update stellar RV for multiple molecules."""
-        self.bulk_update_parameter('stellar_rv', stellar_rv, molecule_names)
-    
-    def bulk_set_intrinsic_line_width(self, width: float, molecule_names: Optional[List[str]] = None) -> None:
-        """Bulk update intrinsic line width for multiple molecules."""
-        self.bulk_update_parameter('intrinsic_line_width', width, molecule_names)
-    
     def force_recalculate_all(self, molecule_names: Optional[List[str]] = None) -> None:
         """
         Force recalculation of intensity and spectrum for specified molecules.
@@ -1411,17 +1363,6 @@ class MoleculeDict(dict):
         
         return summary
     
-    def apply_parameter_template(self, template: Dict[str, Any], molecule_names: Optional[List[str]] = None) -> None:
-        """
-        Apply a parameter template to multiple molecules.
-        
-        Args:
-            template: Dictionary of parameter names and values to apply
-            molecule_names: List of molecule names to apply template to (None for all)
-        """
-        self.bulk_update_parameters(template, molecule_names)
-        print(f"Applied parameter template to {len(molecule_names or self.keys())} molecules")
-    
     # Multiprocessing support for molecule loading
     @staticmethod
     def _create_molecule_worker(args):
@@ -1516,25 +1457,6 @@ class MoleculeDict(dict):
         else:
             return False
 
-    def create_memory_mapped_flux_storage(self, max_molecules: int = 1000, max_wavelengths: int = 10000):
-        """Create memory-mapped arrays for flux storage to handle large datasets."""
-        import tempfile
-        
-        # Create temporary file for memory mapping
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
-        
-        # Memory-mapped array for flux storage
-        self._flux_memmap = np.memmap(
-            temp_file.name, 
-            dtype=np.float32, 
-            mode='w+', 
-            shape=(max_molecules, max_wavelengths)
-        )
-        
-        self._flux_molecule_index = {}  # Map molecule names to array indices
-        self._flux_memmap_file = temp_file.name
-        print(f"Created memory-mapped flux storage: {max_molecules}x{max_wavelengths}")
-    
     def bulk_filter_molecules(self, condition_func: Callable[[Dict[str, float]], bool]) -> List[str]:
         """Filter molecules based on a condition function using vectorized operations."""
         matching_molecules = []
@@ -1590,7 +1512,7 @@ class MoleculeDict(dict):
         old_value = self._global_dist
         if abs(old_value - value) > 1e-10:
             self._global_dist = value
-            self.bulk_set_distance(value)
+            self.bulk_update_parameters({'distance': value})
             self._notify_global_parameter_change('distance', old_value, value)
     
     @property
@@ -1629,7 +1551,7 @@ class MoleculeDict(dict):
             return {"count": 0}
         
         # Update parameter arrays for efficient computation
-        self.update_parameter_arrays()
+        #self.update_parameter_arrays()
         
         stats = {
             "count": len(self),
